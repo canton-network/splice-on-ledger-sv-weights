@@ -1898,6 +1898,8 @@ template DsoRules with
           -- ^ The latest open mining round. SV right owners that are not yet known on-ledger
           -- start collecting rewards in the round thereafter, as their rewards for this round
           -- may already have been minted by their SV node operator.
+        svOperatorRewardStateCids : TextMap (ContractId SvRewardState)
+          -- ^ The `SvRewardState` contracts of the SV node operators, keyed by the operator's name.
         svOperator : Party
       controller svOperator
       do
@@ -1905,7 +1907,12 @@ template DsoRules with
         instruction <- fetchAndArchive (ForDso with dso) instructionCid
         assertWithinDeadline "migrateToOnLedgerSvRightOwnersInstruction.expiresAt" instruction.expiresAt
         requireMigratableToOnLedgerSvRightOwners this instruction.svRightOwners
+        require "Reward states are provided for exactly the SV node operators" $
+          Set.fromList (map fst $ TextMap.toList svOperatorRewardStateCids) == getSvOperatorNames this
         openMiningRound <- fetchReferenceData (ForDso with dso) openMiningRoundCid
+        -- Archive the reward states of the SV node operators, as they do not earn rewards in their own right anymore.
+        forA_ (TextMap.toList svOperatorRewardStateCids) $ \(svName, rewardStateCid) ->
+          fetchAndArchive (ForSv with dso; svName) rewardStateCid
         svRightOwners <- forA (TextMap.toList instruction.svRightOwners) $ \(name, info) -> do
           svRightOwner <- create SvRightOwner with dso; name; info
           svRewardState <- createSvRewardState dso name (Round $ openMiningRound.round.number + 1)
@@ -2105,6 +2112,9 @@ template DsoRules with
         requireValidSvRightOwnerInfo info
         svRightOwner <- create currentSvRightOwner with info
         return DsoRules_UpdateSvRightOwnerBeneficiariesResult with svRightOwner
+
+getSvOperatorNames : DsoRules -> Set Text
+getSvOperatorNames DsoRules{..} = Set.fromList $ map (.name) $ Map.values svs
 
 getSvRightOwners : DsoRules -> Set Text
 getSvRightOwners DsoRules{..} = fromOptional Set.empty svRightOwners
