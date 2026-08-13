@@ -10,9 +10,10 @@ import DA.Assert
 import DA.Either (partitionEithers)
 import DA.Foldable (foldMap, forA_, all)
 import DA.List as List hiding (all)
-import DA.Optional (isNone, fromSome, fromOptional, isSome)
+import DA.Map (Map)
 import qualified DA.Map as Map
 import DA.Monoid (Sum(..))
+import DA.Optional (isNone, fromSome, fromOptional, isSome)
 import DA.Set (Set)
 import qualified DA.Set as Set
 import qualified DA.Text as T
@@ -294,6 +295,10 @@ data DsoRules_TerminateSubscriptionResult = DsoRules_TerminateSubscriptionResult
 data DsoRules_ReceiveSvRewardCouponResult = DsoRules_ReceiveSvRewardCouponResult with
     svRewardState : ContractId SvRewardState
     svRewardCoupons : [ContractId SvRewardCoupon]
+
+data DsoRules_ReceiveSvRewardCouponV2Result = DsoRules_ReceiveSvRewardCouponV2Result with
+    svRewardStates : TextMap (ContractId SvRewardState)
+    svRewardCoupons : TextMap (Map Party (ContractId SvRewardCoupon))
 
 data DsoRules_ClaimExpiredRewardsResult = DsoRules_ClaimExpiredRewardsResult with
     unclaimedReward: Optional (ContractId UnclaimedReward)
@@ -1429,6 +1434,56 @@ template DsoRules with
                 svRewardState = newRewardStateCid
                 svRewardCoupons = couponCids
 
+    nonconsuming choice DsoRules_ReceiveSvRewardCouponV2 : DsoRules_ReceiveSvRewardCouponV2Result
+      with
+        svOperator : Party
+        openRoundCid : ContractId OpenMiningRound
+        svRightOwnerRewardInputs : TextMap (ContractId SvRightOwner, ContractId SvRewardState)
+          -- ^ The SV right owners to mint rewards for, keyed by their name. They must all be
+          -- hosted by `svOperator`.
+      controller svOperator
+      do
+        requireOnLedgerSvRightOwners this
+        svOperatorInfo <- getSvInfo svOperator this
+        now <- getTime
+        openRound <- fetchReferenceData (ForDso with dso) openRoundCid
+        require "OpenRound is open" (openRound.opensAt <= now)
+
+        outputs <- forA (TextMap.toList svRightOwnerRewardInputs) $ \(name, (svRightOwnerCid, rewardStateCid)) -> do
+          let forSv = ForSv with dso; svName = name
+          svRightOwner <- fetchChecked forSv svRightOwnerCid
+          rewardState <- fetchAndArchive forSv rewardStateCid
+          let info = svRightOwner.info
+              state = rewardState.state
+          require "SV Right Owner mints through this SV Node Operator" $
+            info.rewardNodeOperatorName == svOperatorInfo.name
+          require
+            ("Round " <> show openRound.round <> " is greater than the last round a reward has been received for " <> show state.lastRoundCollected)
+            (state.lastRoundCollected < openRound.round)
+
+          let couponWeights = svRewardCouponWeights info
+          newRewardStateCid <- create rewardState with
+            state = RewardState with
+              lastRoundCollected = openRound.round
+              numRoundsCollected = state.numRoundsCollected + 1
+              numRoundsMissed =
+                state.numRoundsMissed + (openRound.round.number - state.lastRoundCollected.number - 1)
+              numCouponsIssued = state.numCouponsIssued + Map.size couponWeights
+
+          couponCids <- forA (Map.toList couponWeights) $ \(beneficiary, weight) -> do
+            couponCid <- create SvRewardCoupon with
+              dso
+              sv = info.party
+              beneficiary
+              weight
+              round = openRound.round
+            pure (beneficiary, couponCid)
+
+          pure (name, newRewardStateCid, Map.fromList couponCids)
+
+        return DsoRules_ReceiveSvRewardCouponV2Result with
+          svRewardStates = TextMap.fromList [(name, stateCid) | (name, stateCid, _) <- outputs]
+          svRewardCoupons = TextMap.fromList [(name, coupons) | (name, _, coupons) <- outputs]
 
     -- Batch expiry of unclaimed rewards for a specific claimed round
     -----------------------------------------------------------------

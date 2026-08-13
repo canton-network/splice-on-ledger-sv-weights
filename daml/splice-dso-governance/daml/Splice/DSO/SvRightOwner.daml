@@ -1,8 +1,8 @@
 module Splice.DSO.SvRightOwner where
 
-import Prelude hiding (all)
+import Prelude hiding (all, sum)
 
-import DA.Foldable (all, foldMap)
+import DA.Foldable (all, foldMap, sum)
 import DA.Map (Map)
 import qualified DA.Map as Map
 import DA.Monoid (Sum(..))
@@ -70,3 +70,13 @@ validSvRightOwnerInfo SvRightOwnerInfo{..} = and
   , not $ Map.member party beneficiaries
   , Map.size beneficiaries <= 20
   ]
+
+-- | The absolute reward weight for each party that receives rewards in the context of this SV Right Owner.
+svRewardCouponWeights : SvRightOwnerInfo -> Map Party Int
+svRewardCouponWeights SvRightOwnerInfo{..} =
+  if remainingWeight > 0
+  then Map.insert party remainingWeight beneficiaryWeights
+  else beneficiaryWeights
+  where
+    remainingWeight = rewardWeight - sum beneficiaryWeights
+    beneficiaryWeights = fmap (\BeneficiaryInfo{rewardRatio} -> floor (intToDecimal rewardWeight * rewardRatio)) beneficiaries
