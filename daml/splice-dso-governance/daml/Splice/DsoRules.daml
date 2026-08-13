@@ -131,6 +131,8 @@ data DsoRules_ActionRequiringConfirmation
   | SRARC_MigrateToOnLedgerSvRightOwners DsoRules_MigrateToOnLedgerSvRightOwners
     -- ^ One-time voted action to move the SV right owners from the off-ledger configuration
     -- of the SV node operators onto the ledger.
+  | SRARC_AddSvRightOwner DsoRules_AddSvRightOwner
+    -- ^ Voted action to add an SV right owner.
   deriving (Eq, Show)
 
 data AnsEntryContext_ActionRequiringConfirmation
@@ -236,6 +238,16 @@ data DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstructionResult = DsoRules_
     svRightOwners : TextMap (ContractId SvRightOwner, ContractId SvRewardState)
 
 data DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstructionResult = DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstructionResult with
+
+data DsoRules_AddSvRightOwnerResult = DsoRules_AddSvRightOwnerResult with
+    instruction : ContractId AddSvRightOwnerInstruction
+
+data DsoRules_ExecuteAddSvRightOwnerInstructionResult = DsoRules_ExecuteAddSvRightOwnerInstructionResult with
+    newDsoRules : ContractId DsoRules
+    svRightOwner : ContractId SvRightOwner
+    svRewardState : ContractId SvRewardState
+
+data DsoRules_ExpireAddSvRightOwnerInstructionResult = DsoRules_ExpireAddSvRightOwnerInstructionResult with
 
 data DsoRules_OnboardValidatorResult = DsoRules_OnboardValidatorResult with
     validatorLicense : ContractId ValidatorLicense
@@ -1893,6 +1905,58 @@ template DsoRules with
         assertDeadlineExceeded "migrateToOnLedgerSvRightOwnersInstruction.expiresAt" instruction.expiresAt
         pure DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstructionResult with
 
+    nonconsuming choice DsoRules_AddSvRightOwner : DsoRules_AddSvRightOwnerResult
+      with
+        name : Text -- ^ The name of the SV right owner to add; must not be in use.
+        info : SvRightOwnerInfo
+      controller dso
+      do
+        requireOnLedgerSvRightOwners this
+        requireSvRightOwnerDoesNotExist this name
+        requireRewardNodeOperatorExists this info
+        now <- getTime
+        -- TODO: make the expire time of the instruction configurable
+        instruction <- create AddSvRightOwnerInstruction with
+          dso
+          name
+          info
+          expiresAt = now `addRelTime` hours 1
+        return DsoRules_AddSvRightOwnerResult with instruction
+
+    choice DsoRules_ExecuteAddSvRightOwnerInstruction : DsoRules_ExecuteAddSvRightOwnerInstructionResult
+      with
+        instructionCid : ContractId AddSvRightOwnerInstruction
+        openMiningRoundCid : ContractId OpenMiningRound
+        svOperator : Party
+      controller svOperator
+      do
+        requireOnLedgerSvRightOwners this
+        _ <- getAndValidateSvParty this (Some svOperator)
+        instruction <- fetchAndArchive (ForDso with dso) instructionCid
+        requireSvRightOwnerDoesNotExist this instruction.name
+        requireRewardNodeOperatorExists this instruction.info
+        assertWithinDeadline "addSvRightOwnerInstruction.expiresAt" instruction.expiresAt
+        openMiningRound <- fetchReferenceData (ForDso with dso) openMiningRoundCid
+        svRightOwner <- create SvRightOwner with dso; name = instruction.name; info = instruction.info
+        svRewardState <- createSvRewardState dso instruction.name openMiningRound.round
+        newDsoRules <- create this with
+          svRightOwners = Set.insert instruction.name <$> svRightOwners
+        return DsoRules_ExecuteAddSvRightOwnerInstructionResult with ..
+
+    nonconsuming choice DsoRules_ExpireAddSvRightOwnerInstruction : DsoRules_ExpireAddSvRightOwnerInstructionResult
+      with
+        instructionCid : ContractId AddSvRightOwnerInstruction
+        sv : Optional Party
+      controller sv
+      do
+        _ <- getAndValidateSvParty this sv
+        instruction <- fetchAndArchive (ForDso with dso) instructionCid
+        assertDeadlineExceeded "addSvRightOwnerInstruction.expiresAt" instruction.expiresAt
+        return DsoRules_ExpireAddSvRightOwnerInstructionResult
+
+getSvRightOwners : DsoRules -> Set Text
+getSvRightOwners DsoRules{..} = fromOptional Set.empty svRightOwners
+
 onLedgerSvRightOwners : DsoRules -> Bool
 onLedgerSvRightOwners = isSome . (.svRightOwners)
 
@@ -1903,6 +1967,16 @@ requireOnLedgerSvRightOwners this =
 requireNoOnLedgerSvRightOwners : DsoRules -> Update ()
 requireNoOnLedgerSvRightOwners this =
   require "svRightOwners are not tracked on-ledger" (not $ onLedgerSvRightOwners this)
+
+requireSvRightOwnerExists : DsoRules -> Text -> Update ()
+requireSvRightOwnerExists this name =
+  require ("SV right owner " <> show name <> " exists") $
+    name `Set.member` getSvRightOwners this
+
+requireSvRightOwnerDoesNotExist : DsoRules -> Text -> Update ()
+requireSvRightOwnerDoesNotExist this name =
+  require ("SV right owner " <> show name <> " does not exist") $
+    name `Set.notMember` getSvRightOwners this
 
 requireRewardNodeOperatorExists : DsoRules -> SvRightOwnerInfo -> Update ()
 requireRewardNodeOperatorExists this info =
@@ -1928,6 +2002,17 @@ template MigrateToOnLedgerSvRightOwnersInstruction with
     signatory dso
 
 instance HasCheckedFetch MigrateToOnLedgerSvRightOwnersInstruction ForDso where
+  contractGroupId instr = ForDso instr.dso
+
+template AddSvRightOwnerInstruction with
+    dso : Party
+    name : Text -- ^ The name of the SV right owner to add.
+    info : SvRightOwnerInfo -- ^ The information of the SV right owner to add.
+    expiresAt : Time -- ^ When this contract can be archived.
+  where
+    signatory dso
+
+instance HasCheckedFetch AddSvRightOwnerInstruction ForDso where
   contractGroupId instr = ForDso instr.dso
 
 pruneAtLeastOne : Ord t => t -> Schedule t a -> Optional (Schedule t a)
@@ -1992,6 +2077,7 @@ executeActionRequiringConfirmation dso dsoRulesCid amuletRulesCid act = case act
       SRARC_CreateUnallocatedUnclaimedActivityRecord choiceArg -> void $ exercise dsoRulesCid choiceArg
       SRARC_CreateBootstrapExternalPartyConfigStateInstruction choiceArg -> void $ exercise dsoRulesCid choiceArg
       SRARC_MigrateToOnLedgerSvRightOwners choiceArg -> void $ exercise dsoRulesCid choiceArg
+      SRARC_AddSvRightOwner choiceArg -> void $ exercise dsoRulesCid choiceArg
   ARC_AnsEntryContext with .. -> do
     void $ fetchChecked (ForDso with dso) ansEntryContextCid
     case ansEntryContextAction of
