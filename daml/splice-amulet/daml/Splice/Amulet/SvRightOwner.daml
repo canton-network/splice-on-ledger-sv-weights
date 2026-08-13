@@ -1,4 +1,4 @@
-module Splice.DSO.SvRightOwner where
+module Splice.Amulet.SvRightOwner where
 
 import Prelude hiding (all, sum)
 
@@ -6,7 +6,6 @@ import DA.Foldable (all, foldMap, sum)
 import DA.Map (Map)
 import qualified DA.Map as Map
 import DA.Monoid (Sum(..))
-import Splice.DSO.SvState (ForSv(..))
 import Splice.Types (ForDso(..))
 import Splice.Util (HasCheckedFetch(..), Patchable(..), patchScalar)
 
@@ -23,9 +22,6 @@ template SvRightOwner
   where
     signatory dso
     ensure validSvRightOwnerInfo info
-
-instance HasCheckedFetch SvRightOwner ForSv where
-  contractGroupId SvRightOwner{dso, name} = ForSv with dso; svName = name
 
 instance HasCheckedFetch SvRightOwner ForDso where
   contractGroupId SvRightOwner{dso} = ForDso with dso

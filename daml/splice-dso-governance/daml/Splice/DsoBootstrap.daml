@@ -8,6 +8,7 @@ import DA.Optional (fromOptional, isSome)
 import qualified DA.Set as Set
 import DA.Time
 
+import Splice.Amulet.SvRightOwner
 import Splice.AmuletConfig
 import Splice.AmuletRules
 import Splice.ExternalPartyAmuletRules
@@ -16,7 +17,6 @@ import Splice.Types
 
 import Splice.Ans
 import Splice.DSO.DecentralizedSynchronizer
-import Splice.DSO.SvRightOwner
 import Splice.DsoRules
 
 data DsoBootstrap_BootstrapResult = DsoBootstrap_BootstrapResult
