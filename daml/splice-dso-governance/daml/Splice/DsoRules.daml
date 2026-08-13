@@ -133,6 +133,8 @@ data DsoRules_ActionRequiringConfirmation
     -- of the SV node operators onto the ledger.
   | SRARC_AddSvRightOwner DsoRules_AddSvRightOwner
     -- ^ Voted action to add an SV right owner.
+  | SRARC_RemoveSvRightOwner DsoRules_RemoveSvRightOwner
+    -- ^ Voted action to remove an SV right owner.
   deriving (Eq, Show)
 
 data AnsEntryContext_ActionRequiringConfirmation
@@ -248,6 +250,14 @@ data DsoRules_ExecuteAddSvRightOwnerInstructionResult = DsoRules_ExecuteAddSvRig
     svRewardState : ContractId SvRewardState
 
 data DsoRules_ExpireAddSvRightOwnerInstructionResult = DsoRules_ExpireAddSvRightOwnerInstructionResult with
+
+data DsoRules_RemoveSvRightOwnerResult = DsoRules_RemoveSvRightOwnerResult with
+    instruction : ContractId RemoveSvRightOwnerInstruction
+
+data DsoRules_ExecuteRemoveSvRightOwnerInstructionResult = DsoRules_ExecuteRemoveSvRightOwnerInstructionResult with
+    newDsoRules : ContractId DsoRules
+
+data DsoRules_ExpireRemoveSvRightOwnerInstructionResult = DsoRules_ExpireRemoveSvRightOwnerInstructionResult with
 
 data DsoRules_OnboardValidatorResult = DsoRules_OnboardValidatorResult with
     validatorLicense : ContractId ValidatorLicense
@@ -1954,6 +1964,57 @@ template DsoRules with
         assertDeadlineExceeded "addSvRightOwnerInstruction.expiresAt" instruction.expiresAt
         return DsoRules_ExpireAddSvRightOwnerInstructionResult
 
+    nonconsuming choice DsoRules_RemoveSvRightOwner : DsoRules_RemoveSvRightOwnerResult
+      with
+        name : Text -- ^ The name of the SV right owner to remove; must be in use.
+      controller dso
+      do
+        requireOnLedgerSvRightOwners this
+        requireRemovableSvRightOwner this name
+        now <- getTime
+        -- TODO: make the expire time of the instruction configurable
+        instruction <- create RemoveSvRightOwnerInstruction with
+          dso
+          name
+          expiresAt = now `addRelTime` hours 1
+        return DsoRules_RemoveSvRightOwnerResult with instruction
+
+    choice DsoRules_ExecuteRemoveSvRightOwnerInstruction : DsoRules_ExecuteRemoveSvRightOwnerInstructionResult
+      with
+        instructionCid : ContractId RemoveSvRightOwnerInstruction
+        svRightOwnerCid : ContractId SvRightOwner
+        svRewardStateCid : ContractId SvRewardState
+        svOperator : Party
+      controller svOperator
+      do
+        requireOnLedgerSvRightOwners this
+        _ <- getAndValidateSvParty this (Some svOperator)
+        instruction <- fetchAndArchive (ForDso with dso) instructionCid
+        requireRemovableSvRightOwner this instruction.name
+        assertWithinDeadline "removeSvRightOwnerInstruction.expiresAt" instruction.expiresAt
+        let forSv = ForSv with dso; svName = instruction.name
+        _ <- fetchAndArchive forSv svRightOwnerCid
+        -- We archive the reward state together with the SV right owner to avoid having to track
+        -- removed SV right owners just to prevent them from minting the same round twice.
+        -- Re-adding a right owner under the same name could thus mint its rewards twice for the
+        -- round in which it is re-added, which we accept as doing so that quickly is unrealistic.
+        _ <- fetchAndArchive forSv svRewardStateCid
+        newDsoRules <- create this with
+          svRightOwners = Set.delete instruction.name <$> svRightOwners
+        return DsoRules_ExecuteRemoveSvRightOwnerInstructionResult with ..
+
+    nonconsuming choice DsoRules_ExpireRemoveSvRightOwnerInstruction : DsoRules_ExpireRemoveSvRightOwnerInstructionResult
+      with
+        instructionCid : ContractId RemoveSvRightOwnerInstruction
+        svOperator : Party
+      controller svOperator
+      do
+        requireOnLedgerSvRightOwners this
+        _ <- getAndValidateSvParty this (Some svOperator)
+        instruction <- fetchAndArchive (ForDso with dso) instructionCid
+        assertDeadlineExceeded "removeSvRightOwnerInstruction.expiresAt" instruction.expiresAt
+        return DsoRules_ExpireRemoveSvRightOwnerInstructionResult
+
 getSvRightOwners : DsoRules -> Set Text
 getSvRightOwners DsoRules{..} = fromOptional Set.empty svRightOwners
 
@@ -1977,6 +2038,14 @@ requireSvRightOwnerDoesNotExist : DsoRules -> Text -> Update ()
 requireSvRightOwnerDoesNotExist this name =
   require ("SV right owner " <> show name <> " does not exist") $
     name `Set.notMember` getSvRightOwners this
+
+-- | Check that the SV right owner with the given name can be removed, i.e., it exists and
+-- it is not the last remaining SV right owner.
+requireRemovableSvRightOwner : DsoRules -> Text -> Update ()
+requireRemovableSvRightOwner this name = do
+  requireSvRightOwnerExists this name
+  require "There is more than one SV right owner" $
+    Set.size (getSvRightOwners this) > 1
 
 requireRewardNodeOperatorExists : DsoRules -> SvRightOwnerInfo -> Update ()
 requireRewardNodeOperatorExists this info =
@@ -2013,6 +2082,16 @@ template AddSvRightOwnerInstruction with
     signatory dso
 
 instance HasCheckedFetch AddSvRightOwnerInstruction ForDso where
+  contractGroupId instr = ForDso instr.dso
+
+template RemoveSvRightOwnerInstruction with
+    dso : Party
+    name : Text -- ^ The name of the SV right owner to remove.
+    expiresAt : Time -- ^ When this contract can be archived.
+  where
+    signatory dso
+
+instance HasCheckedFetch RemoveSvRightOwnerInstruction ForDso where
   contractGroupId instr = ForDso instr.dso
 
 pruneAtLeastOne : Ord t => t -> Schedule t a -> Optional (Schedule t a)
@@ -2078,6 +2157,7 @@ executeActionRequiringConfirmation dso dsoRulesCid amuletRulesCid act = case act
       SRARC_CreateBootstrapExternalPartyConfigStateInstruction choiceArg -> void $ exercise dsoRulesCid choiceArg
       SRARC_MigrateToOnLedgerSvRightOwners choiceArg -> void $ exercise dsoRulesCid choiceArg
       SRARC_AddSvRightOwner choiceArg -> void $ exercise dsoRulesCid choiceArg
+      SRARC_RemoveSvRightOwner choiceArg -> void $ exercise dsoRulesCid choiceArg
   ARC_AnsEntryContext with .. -> do
     void $ fetchChecked (ForDso with dso) ansEntryContextCid
     case ansEntryContextAction of
