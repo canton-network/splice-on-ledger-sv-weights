@@ -269,6 +269,9 @@ data DsoRules_ExecuteUpdateSvRightOwnerInfoInstructionResult = DsoRules_ExecuteU
 
 data DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult = DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult with
 
+data DsoRules_UpdateSvRightOwnerBeneficiariesResult = DsoRules_UpdateSvRightOwnerBeneficiariesResult with
+    svRightOwner : ContractId SvRightOwner
+
 data DsoRules_OnboardValidatorResult = DsoRules_OnboardValidatorResult with
     validatorLicense : ContractId ValidatorLicense
 
@@ -2079,6 +2082,29 @@ template DsoRules with
         instruction <- fetchAndArchive (ForDso with dso) instructionCid
         assertDeadlineExceeded "updateSvRightOwnerInfoInstruction.expiresAt" instruction.expiresAt
         return DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult
+
+    -- | Set the beneficiaries with which an SV right owner shares its rewards.
+    --
+    -- In contrast to `DsoRules_UpdateSvRightOwnerInfo`, this does not require a vote, as
+    -- right owners are free to share their own rewards as they see fit.
+    nonconsuming choice DsoRules_UpdateSvRightOwnerBeneficiaries : DsoRules_UpdateSvRightOwnerBeneficiariesResult
+      with
+        name : Text -- ^ The name of the SV right owner whose beneficiaries are set.
+        svRightOwnerCid : ContractId SvRightOwner
+        beneficiaries : Map.Map Party BeneficiaryInfo
+          -- ^ The complete new set of beneficiaries, replacing the existing ones.
+        rightOwner : Party -- ^ The party of the SV right owner; must own `svRightOwnerCid`.
+      controller rightOwner
+      do
+        requireOnLedgerSvRightOwners this
+        requireSvRightOwnerExists this name
+        currentSvRightOwner <- fetchAndArchive (ForSv with dso; svName = name) svRightOwnerCid
+        require "Beneficiaries are set by the SV right owner itself" $
+          currentSvRightOwner.info.party == rightOwner
+        let info = currentSvRightOwner.info with beneficiaries
+        requireValidSvRightOwnerInfo info
+        svRightOwner <- create currentSvRightOwner with info
+        return DsoRules_UpdateSvRightOwnerBeneficiariesResult with svRightOwner
 
 getSvRightOwners : DsoRules -> Set Text
 getSvRightOwners DsoRules{..} = fromOptional Set.empty svRightOwners
