@@ -8,12 +8,16 @@ import Prelude hiding (all)
 import DA.Action (void, unless)
 import DA.Assert
 import DA.Either (partitionEithers)
-import DA.Foldable (forA_, all)
+import DA.Foldable (foldMap, forA_, all)
 import DA.List as List hiding (all)
 import DA.Optional (isNone, fromSome, fromOptional, isSome)
 import qualified DA.Map as Map
+import DA.Monoid (Sum(..))
+import DA.Set (Set)
 import qualified DA.Set as Set
 import qualified DA.Text as T
+import DA.TextMap (TextMap)
+import qualified DA.TextMap as TextMap
 import DA.Time
 
 import Splice.Amulet
@@ -34,6 +38,7 @@ import Splice.Ans
 import Splice.SvOnboarding
 import Splice.DSO.AmuletPrice
 import Splice.DSO.DecentralizedSynchronizer
+import Splice.DSO.SvRightOwner
 import Splice.DSO.SvState
 import Splice.Schedule
 import Splice.Util
@@ -110,7 +115,8 @@ data DsoRules_ActionRequiringConfirmation
   | SRARC_SetConfig DsoRules_SetConfig
     -- ^ Voted action to change the `DsoRulesConfig`. Not idempotent.
   | SRARC_UpdateSvRewardWeight DsoRules_UpdateSvRewardWeight
-    -- ^ Voted action to update the reward weight of an SV.
+    -- ^ Voted action to update the reward weight of an SV node operator.
+    -- TODO: Deprecate in favor of `SRARC_UpdateSvRightOwnerInfo` once SV right owners are tracked on-ledger.
   | SRARC_CreateExternalPartyAmuletRules DsoRules_CreateExternalPartyAmuletRules
     -- ^ Create ExternalPartyAmuletRules contract if it has not been created as part of network bootstrapping.
   | SRARC_CreateTransferCommandCounter DsoRules_CreateTransferCommandCounter
@@ -121,6 +127,9 @@ data DsoRules_ActionRequiringConfirmation
     -- ^ Create BootstrapExternalPartyConfigStateInstruction
   | SRARC_UpdateFeaturedAppRight DsoRules_UpdateFeaturedAppRight
     -- ^ Update a specific featured app right.
+  | SRARC_MigrateToOnLedgerSvRightOwners DsoRules_MigrateToOnLedgerSvRightOwners
+    -- ^ One-time voted action to move the SV right owners from the off-ledger configuration
+    -- of the SV node operators onto the ledger.
   deriving (Eq, Show)
 
 data AnsEntryContext_ActionRequiringConfirmation
@@ -134,7 +143,11 @@ data AnsEntryContext_ActionRequiringConfirmation
 data SvInfo = SvInfo with
     name : Text -- ^ Human-readable name; must be unique.
     joinedAsOfRound : Round -- ^ Round in which the SV joined
-    svRewardWeight : Int -- ^ Weight of the SV in the SV reward distribution.
+    svRewardWeight : Int
+      -- ^ Weight of the SV in the SV reward distribution.
+      -- Deprecated in favor of `SvRightOwnerInfo.rewardWeight`: this is required to be zero
+      -- once SV right owners are tracked on-ledger, as SV node operators do not earn rewards
+      -- in their own right.
     participantId : Text -- ^ Participant ID of the SV, stored here as PartyToParticipant mappings are tracked via state on the DsoRules + SvOnboardingConfirmed contracts.
   deriving (Eq, Show)
 
@@ -213,6 +226,15 @@ data DsoRules_RevokeFeaturedAppRightResult = DsoRules_RevokeFeaturedAppRightResu
 
 data DsoRules_UpdateFeaturedAppRightResult = DsoRules_UpdateFeaturedAppRightResult with
     result : FeaturedAppRight_UpdateResult
+
+data DsoRules_MigrateToOnLedgerSvRightOwnersResult = DsoRules_MigrateToOnLedgerSvRightOwnersResult with
+    instruction : ContractId MigrateToOnLedgerSvRightOwnersInstruction
+
+data DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstructionResult = DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstructionResult with
+    newDsoRules : ContractId DsoRules
+    svRightOwners : TextMap (ContractId SvRightOwner, ContractId SvRewardState)
+
+data DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstructionResult = DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstructionResult with
 
 data DsoRules_OnboardValidatorResult = DsoRules_OnboardValidatorResult with
     validatorLicense : ContractId ValidatorLicense
@@ -521,16 +543,21 @@ data TrafficState = TrafficState with
 template DsoRules with
     dso : Party
     epoch : Int
-    svs : Map.Map Party SvInfo
+    svs : Map.Map Party SvInfo -- ^ The SV node operators
     offboardedSvs : Map.Map Party OffboardedSvInfo
     dsoDelegate : Party
       -- ^ __Deprecated__ in favor of delegateless automation.
     config : DsoRulesConfig
     initialTrafficState: Map.Map Text TrafficState -- ^ Map from participant/mediator ID to its traffic state at the time of synchronizer bootstrapping. Used for testing, empty in prod.
     isDevNet : Bool
+    svRightOwners : Optional (Set Text)
   where
-    ensure
-      config.numUnclaimedRewardsThreshold > 0
+    ensure and
+      [ config.numUnclaimedRewardsThreshold > 0
+      -- There must be at least one SV right owner if we are using on-ledger SV right owners.
+      , optional True ((>= 1) . Set.size) svRightOwners
+      , not (onLedgerSvRightOwners this) || all ((== -1) . (.svRewardWeight)) svs
+      ]
 
     -- NOTE: the svs are not direct signatories as that would not give us the right fault-tolerance wrt
     -- validating choices on this contract. Instead, the svs are indirect signatories by being
@@ -582,6 +609,7 @@ template DsoRules with
               config
               initialTrafficState
               isDevNet
+              svRightOwners
 
             return DsoRules_OffboardSvResult with ..
 
@@ -991,12 +1019,14 @@ template DsoRules with
              create this with config = patch newConfig baseConfig this.config
         return DsoRules_SetConfigResult with ..
 
+    -- TODO: Deprecate once SV right owners are tracked on-ledger
     choice DsoRules_UpdateSvRewardWeight : DsoRules_UpdateSvRewardWeightResult
       with
         svParty : Party
         newRewardWeight : Int
       controller dso
       do
+        requireNoOnLedgerSvRightOwners this
         require "New reward weight is positive" (newRewardWeight >= 0)
         case Map.lookup svParty svs of
           None -> fail "SV party is not registered"
@@ -1358,6 +1388,7 @@ template DsoRules with
         beneficiaries : [(Party, Int)]
       controller sv
       do
+        requireNoOnLedgerSvRightOwners this
         case Map.lookup sv svs of
           None -> fail "SV is not an SV"
           Some info -> do
@@ -1755,6 +1786,94 @@ template DsoRules with
           expectedDso = dso
         pure DsoRules_BootstrapExternalPartyConfigStateResult
 
+    nonconsuming choice DsoRules_MigrateToOnLedgerSvRightOwners : DsoRules_MigrateToOnLedgerSvRightOwnersResult
+      with
+        svRightOwners : TextMap SvRightOwnerInfo
+          -- ^ The complete set of SV right owners, keyed by their name.
+      controller dso
+      do
+        requireMigratableToOnLedgerSvRightOwners this svRightOwners
+        now <- getTime
+        -- TODO: make the expire time of the instruction configurable
+        instruction <- create MigrateToOnLedgerSvRightOwnersInstruction with
+          dso
+          svRightOwners
+          expiresAt = now `addRelTime` hours 1
+        pure DsoRules_MigrateToOnLedgerSvRightOwnersResult with instruction
+
+    choice DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstruction : DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstructionResult
+      with
+        instructionCid : ContractId MigrateToOnLedgerSvRightOwnersInstruction
+        openMiningRoundCid : ContractId OpenMiningRound
+          -- ^ The latest open mining round. SV right owners that are not yet known on-ledger
+          -- start collecting rewards in the round thereafter, as their rewards for this round
+          -- may already have been minted by their SV node operator.
+        svOperator : Party
+      controller svOperator
+      do
+        _ <- getAndValidateSvParty this (Some svOperator)
+        instruction <- fetchAndArchive (ForDso with dso) instructionCid
+        assertWithinDeadline "migrateToOnLedgerSvRightOwnersInstruction.expiresAt" instruction.expiresAt
+        requireMigratableToOnLedgerSvRightOwners this instruction.svRightOwners
+        openMiningRound <- fetchReferenceData (ForDso with dso) openMiningRoundCid
+        svRightOwners <- forA (TextMap.toList instruction.svRightOwners) $ \(name, info) -> do
+          svRightOwner <- create SvRightOwner with dso; name; info
+          svRewardState <- createSvRewardState dso name (Round $ openMiningRound.round.number + 1)
+          pure (name, (svRightOwner, svRewardState))
+        newDsoRules <- create this with
+          svs = fmap (\info -> info with svRewardWeight = 0) svs
+          svRightOwners = Some $ Set.fromList $ map fst svRightOwners
+        pure DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstructionResult with
+          newDsoRules
+          svRightOwners = TextMap.fromList svRightOwners
+
+    nonconsuming choice DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstruction : DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstructionResult
+      with
+        instructionCid : ContractId MigrateToOnLedgerSvRightOwnersInstruction
+        svOperator : Party
+      controller svOperator
+      do
+        _ <- getAndValidateSvParty this (Some svOperator)
+        instruction <- fetchAndArchive (ForDso with dso) instructionCid
+        assertDeadlineExceeded "migrateToOnLedgerSvRightOwnersInstruction.expiresAt" instruction.expiresAt
+        pure DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstructionResult with
+
+onLedgerSvRightOwners : DsoRules -> Bool
+onLedgerSvRightOwners = isSome . (.svRightOwners)
+
+requireOnLedgerSvRightOwners : DsoRules -> Update ()
+requireOnLedgerSvRightOwners this =
+  require "svRightOwners are tracked on-ledger" (onLedgerSvRightOwners this)
+
+requireNoOnLedgerSvRightOwners : DsoRules -> Update ()
+requireNoOnLedgerSvRightOwners this =
+  require "svRightOwners are not tracked on-ledger" (not $ onLedgerSvRightOwners this)
+
+requireRewardNodeOperatorExists : DsoRules -> SvRightOwnerInfo -> Update ()
+requireRewardNodeOperatorExists this info =
+  require "SV right owner's node operator must exist" $
+    isSome $ lookupSvInfoByName info.rewardNodeOperatorName this
+
+requireMigratableToOnLedgerSvRightOwners : DsoRules -> TextMap SvRightOwnerInfo -> Update ()
+requireMigratableToOnLedgerSvRightOwners this svRightOwners = do
+  requireNoOnLedgerSvRightOwners this
+  require "There is at least one SV right owner" (not $ TextMap.null svRightOwners)
+  require "Valid SvRightOwnerInfos" $ all validSvRightOwnerInfo svRightOwners
+  require "The total SV reward weight is preserved" $
+    foldMap (Sum . (.svRewardWeight)) this.svs == foldMap (Sum . (.rewardWeight)) svRightOwners
+  forA_ svRightOwners $ requireRewardNodeOperatorExists this
+
+template MigrateToOnLedgerSvRightOwnersInstruction with
+    dso : Party
+    svRightOwners : TextMap SvRightOwnerInfo
+      -- ^ The complete set of SV right owners, keyed by their name.
+    expiresAt : Time
+      -- ^ When this contract can be archived.
+  where
+    signatory dso
+
+instance HasCheckedFetch MigrateToOnLedgerSvRightOwnersInstruction ForDso where
+  contractGroupId instr = ForDso instr.dso
 
 pruneAtLeastOne : Ord t => t -> Schedule t a -> Optional (Schedule t a)
 pruneAtLeastOne now schedule =
@@ -1817,6 +1936,7 @@ executeActionRequiringConfirmation dso dsoRulesCid amuletRulesCid act = case act
       SRARC_CreateTransferCommandCounter choiceArg -> void $ exercise dsoRulesCid choiceArg
       SRARC_CreateUnallocatedUnclaimedActivityRecord choiceArg -> void $ exercise dsoRulesCid choiceArg
       SRARC_CreateBootstrapExternalPartyConfigStateInstruction choiceArg -> void $ exercise dsoRulesCid choiceArg
+      SRARC_MigrateToOnLedgerSvRightOwners choiceArg -> void $ exercise dsoRulesCid choiceArg
   ARC_AnsEntryContext with .. -> do
     void $ fetchChecked (ForDso with dso) ansEntryContextCid
     case ansEntryContextAction of
@@ -1901,7 +2021,7 @@ ensureNeverOperatedNode newSvParty this = do
 
 -- factored out from the choice to avoid mistakes from having the fields of DsoRules{..} in scope
 dsoRules_addSv : DsoRules -> DsoRules_AddSv -> Update (ContractId DsoRules)
-dsoRules_addSv this0 arg@DsoRules_AddSv{..} = do
+dsoRules_addSv this0 DsoRules_AddSv{..} = do
   ensureNeverOperatedNode newSvParty this0
   -- in DevNet we allow changing the operator of an existing sv, which we implement as a removal and re-addition
   this@DsoRules{..} <-
@@ -1921,9 +2041,14 @@ dsoRules_addSv this0 arg@DsoRules_AddSv{..} = do
         require "SV is not currently onboarded" (isNone $ lookupSvInfoByName newSvName this0)
         pure this0
 
-  -- create per-sv contracts if they have never been onboarded
-  unless (svHasBeenOnboardedBefore newSvName this) $
-    createPerSvContracts this arg
+  if onLedgerSvRightOwners this
+  then
+    require "SV reward weight is zero when SV right owners are on-ledger" $
+      newSvRewardWeight == 0
+  else -- create per-sv contracts if they have never been onboarded
+    unless (svHasBeenOnboardedBefore newSvName this) $
+      void $ createSvRewardState dso newSvName joinedAsOfRound
+
   -- create per SV party contracts
   let initialAmuletPriceVote = None
   createPerSvPartyContracts dso newSvParty newSvName noSynchronizerNodes initialAmuletPriceVote (getVoteCooldownTime config)
@@ -1936,11 +2061,11 @@ dsoRules_addSv this0 arg@DsoRules_AddSv{..} = do
   create this with
     svs = Map.insert newSvParty svInfo svs
 
-createPerSvContracts : DsoRules -> DsoRules_AddSv -> Update ()
-createPerSvContracts DsoRules{..} DsoRules_AddSv{..} = do
-  void $ create SvRewardState with
+createSvRewardState : Party -> Text -> Round -> Update (ContractId SvRewardState)
+createSvRewardState dso svName joinedAsOfRound =
+  create SvRewardState with
     dso
-    svName = newSvName
+    svName
     state = RewardState with
       lastRoundCollected = Round (joinedAsOfRound.number - 1)
       numRoundsMissed = 0
