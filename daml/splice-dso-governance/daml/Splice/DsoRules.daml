@@ -23,6 +23,7 @@ import DA.Time
 
 import Splice.Amulet
 import Splice.Amulet.RewardAccountingV2 qualified as RewardAccountingV2
+import Splice.Amulet.SvRightOwner
 import Splice.AmuletRules
 import Splice.ExternalPartyAmuletRules
 import Splice.TokenStandard.Utils qualified as TSU
@@ -39,7 +40,6 @@ import Splice.Ans
 import Splice.SvOnboarding
 import Splice.DSO.AmuletPrice
 import Splice.DSO.DecentralizedSynchronizer
-import Splice.DSO.SvRightOwner
 import Splice.DSO.SvState
 import Splice.Schedule
 import Splice.Util
