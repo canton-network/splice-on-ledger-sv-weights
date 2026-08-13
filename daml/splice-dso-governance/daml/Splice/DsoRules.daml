@@ -135,6 +135,8 @@ data DsoRules_ActionRequiringConfirmation
     -- ^ Voted action to add an SV right owner.
   | SRARC_RemoveSvRightOwner DsoRules_RemoveSvRightOwner
     -- ^ Voted action to remove an SV right owner.
+  | SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo
+    -- ^ Voted action to update the info of an SV right owner.
   deriving (Eq, Show)
 
 data AnsEntryContext_ActionRequiringConfirmation
@@ -258,6 +260,14 @@ data DsoRules_ExecuteRemoveSvRightOwnerInstructionResult = DsoRules_ExecuteRemov
     newDsoRules : ContractId DsoRules
 
 data DsoRules_ExpireRemoveSvRightOwnerInstructionResult = DsoRules_ExpireRemoveSvRightOwnerInstructionResult with
+
+data DsoRules_UpdateSvRightOwnerInfoResult = DsoRules_UpdateSvRightOwnerInfoResult with
+    instruction : ContractId UpdateSvRightOwnerInfoInstruction
+
+data DsoRules_ExecuteUpdateSvRightOwnerInfoInstructionResult = DsoRules_ExecuteUpdateSvRightOwnerInfoInstructionResult with
+    svRightOwner : ContractId SvRightOwner
+
+data DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult = DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult with
 
 data DsoRules_OnboardValidatorResult = DsoRules_OnboardValidatorResult with
     validatorLicense : ContractId ValidatorLicense
@@ -2015,6 +2025,61 @@ template DsoRules with
         assertDeadlineExceeded "removeSvRightOwnerInstruction.expiresAt" instruction.expiresAt
         return DsoRules_ExpireRemoveSvRightOwnerInstructionResult
 
+    nonconsuming choice DsoRules_UpdateSvRightOwnerInfo : DsoRules_UpdateSvRightOwnerInfoResult
+      with
+        name : Text -- ^ The name of the SV right owner to update; must be in use.
+        baseInfo : SvRightOwnerInfo
+          -- ^ The info that this vote was created against. Only the fields that differ between
+          -- `baseInfo` and `newInfo` are updated, so that concurrent changes to the other
+          -- fields are preserved.
+        newInfo : SvRightOwnerInfo -- ^ The target info.
+      controller dso
+      do
+        requireOnLedgerSvRightOwners this
+        requireSvRightOwnerExists this name
+        requireRewardNodeOperatorExists this newInfo
+        requireValidSvRightOwnerInfo newInfo
+        now <- getTime
+        -- TODO: make the expire time of the instruction configurable
+        instruction <- create UpdateSvRightOwnerInfoInstruction with
+          dso
+          name
+          baseInfo
+          newInfo
+          expiresAt = now `addRelTime` hours 1
+        return DsoRules_UpdateSvRightOwnerInfoResult with instruction
+
+    nonconsuming choice DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction : DsoRules_ExecuteUpdateSvRightOwnerInfoInstructionResult
+      with
+        instructionCid : ContractId UpdateSvRightOwnerInfoInstruction
+        svRightOwnerCid : ContractId SvRightOwner
+        svOperator : Party
+      controller svOperator
+      do
+        requireOnLedgerSvRightOwners this
+        _ <- getAndValidateSvParty this (Some svOperator)
+        instruction <- fetchAndArchive (ForDso with dso) instructionCid
+        requireSvRightOwnerExists this instruction.name
+        assertWithinDeadline "updateSvRightOwnerInfoInstruction.expiresAt" instruction.expiresAt
+        currentSvRightOwner <- fetchAndArchive (ForSv with dso; svName = instruction.name) svRightOwnerCid
+        let info = patch instruction.newInfo instruction.baseInfo currentSvRightOwner.info
+        requireRewardNodeOperatorExists this info
+        requireValidSvRightOwnerInfo info
+        svRightOwner <- create currentSvRightOwner with info
+        return DsoRules_ExecuteUpdateSvRightOwnerInfoInstructionResult with svRightOwner
+
+    nonconsuming choice DsoRules_ExpireUpdateSvRightOwnerInfoInstruction : DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult
+      with
+        instructionCid : ContractId UpdateSvRightOwnerInfoInstruction
+        svOperator : Party
+      controller svOperator
+      do
+        requireOnLedgerSvRightOwners this
+        _ <- getAndValidateSvParty this (Some svOperator)
+        instruction <- fetchAndArchive (ForDso with dso) instructionCid
+        assertDeadlineExceeded "updateSvRightOwnerInfoInstruction.expiresAt" instruction.expiresAt
+        return DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult
+
 getSvRightOwners : DsoRules -> Set Text
 getSvRightOwners DsoRules{..} = fromOptional Set.empty svRightOwners
 
@@ -2047,6 +2112,10 @@ requireRemovableSvRightOwner this name = do
   require "There is more than one SV right owner" $
     Set.size (getSvRightOwners this) > 1
 
+requireValidSvRightOwnerInfo : SvRightOwnerInfo -> Update ()
+requireValidSvRightOwnerInfo info =
+  require "Valid SvRightOwnerInfo" $ validSvRightOwnerInfo info
+
 requireRewardNodeOperatorExists : DsoRules -> SvRightOwnerInfo -> Update ()
 requireRewardNodeOperatorExists this info =
   require "SV right owner's node operator must exist" $
@@ -2056,7 +2125,7 @@ requireMigratableToOnLedgerSvRightOwners : DsoRules -> TextMap SvRightOwnerInfo 
 requireMigratableToOnLedgerSvRightOwners this svRightOwners = do
   requireNoOnLedgerSvRightOwners this
   require "There is at least one SV right owner" (not $ TextMap.null svRightOwners)
-  require "Valid SvRightOwnerInfos" $ all validSvRightOwnerInfo svRightOwners
+  forA_ svRightOwners requireValidSvRightOwnerInfo
   require "The total SV reward weight is preserved" $
     foldMap (Sum . (.svRewardWeight)) this.svs == foldMap (Sum . (.rewardWeight)) svRightOwners
   forA_ svRightOwners $ requireRewardNodeOperatorExists this
@@ -2092,6 +2161,18 @@ template RemoveSvRightOwnerInstruction with
     signatory dso
 
 instance HasCheckedFetch RemoveSvRightOwnerInstruction ForDso where
+  contractGroupId instr = ForDso instr.dso
+
+template UpdateSvRightOwnerInfoInstruction with
+    dso : Party
+    name : Text -- ^ The name of the SV right owner to update.
+    baseInfo : SvRightOwnerInfo -- ^ The info that the vote was created against.
+    newInfo : SvRightOwnerInfo -- ^ The target info; only fields that differ from `baseInfo` are updated.
+    expiresAt : Time -- ^ When this contract can be archived.
+  where
+    signatory dso
+
+instance HasCheckedFetch UpdateSvRightOwnerInfoInstruction ForDso where
   contractGroupId instr = ForDso instr.dso
 
 pruneAtLeastOne : Ord t => t -> Schedule t a -> Optional (Schedule t a)
@@ -2158,6 +2239,7 @@ executeActionRequiringConfirmation dso dsoRulesCid amuletRulesCid act = case act
       SRARC_MigrateToOnLedgerSvRightOwners choiceArg -> void $ exercise dsoRulesCid choiceArg
       SRARC_AddSvRightOwner choiceArg -> void $ exercise dsoRulesCid choiceArg
       SRARC_RemoveSvRightOwner choiceArg -> void $ exercise dsoRulesCid choiceArg
+      SRARC_UpdateSvRightOwnerInfo choiceArg -> void $ exercise dsoRulesCid choiceArg
   ARC_AnsEntryContext with .. -> do
     void $ fetchChecked (ForDso with dso) ansEntryContextCid
     case ansEntryContextAction of
