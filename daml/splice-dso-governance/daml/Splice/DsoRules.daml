@@ -596,7 +596,7 @@ template DsoRules with
       [ config.numUnclaimedRewardsThreshold > 0
       -- There must be at least one SV right owner if we are using on-ledger SV right owners.
       , optional True ((>= 1) . Set.size) svRightOwners
-      , not (onLedgerSvRightOwners this) || all ((== -1) . (.svRewardWeight)) svs
+      , not (onLedgerSvRightOwners this) || all ((== 0) . (.svRewardWeight)) svs
       ]
 
     -- NOTE: the svs are not direct signatories as that would not give us the right fault-tolerance wrt
@@ -2094,6 +2094,8 @@ template DsoRules with
     --
     -- In contrast to `DsoRules_UpdateSvRightOwnerInfo`, this does not require a vote, as
     -- right owners are free to share their own rewards as they see fit.
+    -- TODO: add a matching `DsoRules_UpdateSvRightOwnerParty` choice controlled by the
+    -- current right owner party, so that the party can be rotated without losing the right.
     nonconsuming choice DsoRules_UpdateSvRightOwnerBeneficiaries : DsoRules_UpdateSvRightOwnerBeneficiariesResult
       with
         name : Text -- ^ The name of the SV right owner whose beneficiaries are set.
