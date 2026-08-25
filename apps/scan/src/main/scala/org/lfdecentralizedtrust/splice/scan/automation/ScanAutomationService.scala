@@ -12,14 +12,14 @@ import org.lfdecentralizedtrust.splice.automation.{
   UpdateIngestionService,
 }
 import org.lfdecentralizedtrust.splice.config.UpgradesConfig
-import org.lfdecentralizedtrust.splice.environment.{RetryProvider, SpliceLedgerClient}
+import org.lfdecentralizedtrust.splice.environment.{
+  PackageVersionSupport,
+  RetryProvider,
+  SpliceLedgerClient,
+}
 import org.lfdecentralizedtrust.splice.http.HttpClient
 import org.lfdecentralizedtrust.splice.scan.config.ScanAppBackendConfig
-import org.lfdecentralizedtrust.splice.store.{
-  DomainTimeSynchronization,
-  DomainUnpausedSynchronization,
-  UpdateHistory,
-}
+import org.lfdecentralizedtrust.splice.store.{DomainTimeSynchronization, UpdateHistory}
 import org.lfdecentralizedtrust.splice.scan.store.{
   AcsSnapshotStore,
   AppActivityStore,
@@ -47,14 +47,14 @@ class ScanAutomationService(
     protected val loggerFactory: NamedLoggerFactory,
     store: ScanStore,
     val updateHistory: UpdateHistory,
-    appRewardsStoreO: Option[DbScanAppRewardsStore],
-    appActivityStoreO: Option[AppActivityStore],
+    appRewardsStore: DbScanAppRewardsStore,
+    appActivityStore: AppActivityStore,
     storage: DbStorage,
     snapshotStore: AcsSnapshotStore,
     svParty: PartyId,
     svName: String,
     upgradesConfig: UpgradesConfig,
-    initialRound: Long,
+    packageVersionSupport: PackageVersionSupport,
 )(implicit
     ec: ExecutionContextExecutor,
     mat: Materializer,
@@ -66,31 +66,28 @@ class ScanAutomationService(
       clock,
       // scan only does reads so no need to block anything.
       DomainTimeSynchronization.Noop,
-      DomainUnpausedSynchronization.Noop,
       store,
       ledgerClient,
       retryProvider,
       config.parameters,
+      packageVersionSupport,
     ) {
   override def companion
       : org.lfdecentralizedtrust.splice.scan.automation.ScanAutomationService.type =
     ScanAutomationService
 
-  registerTrigger(new ScanAggregationTrigger(store, triggerContext))
-  registerTrigger(
-    new ScanBackfillAggregatesTrigger(store, triggerContext, initialRound)
-  )
-  for {
-    appRewardsStore <- appRewardsStoreO
-    appActivityStore <- appActivityStoreO
-  } registerTrigger(
-    new RewardComputationTrigger(
-      appRewardsStore,
-      appActivityStore,
-      updateHistory,
-      triggerContext,
+  def registerRewardComputationTrigger(
+      rewardsReferenceStore: ScanRewardsReferenceStore
+  ): Unit =
+    registerTrigger(
+      new RewardComputationTrigger(
+        appRewardsStore,
+        appActivityStore,
+        rewardsReferenceStore,
+        updateHistory,
+        triggerContext,
+      )
     )
-  )
 
   registerUpdateHistoryIngestion(updateHistory)
 
@@ -103,8 +100,10 @@ class ScanAutomationService(
         rewardsReferenceStore.multiDomainAcsStore.ingestionSink,
         connection(SpliceLedgerConnectionPriority.High),
         config.automation,
+        triggerContext.clock,
         backoffClock = triggerContext.pollingClock,
         triggerContext.retryProvider,
+        packageVersionSupport,
         triggerContext.loggerFactory,
       )
     )

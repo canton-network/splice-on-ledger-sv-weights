@@ -1,7 +1,12 @@
 // Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 import { Optional } from '@daml/types';
-import { AmuletConfig, PackageConfig } from '@daml.js/splice-amulet/lib/Splice/AmuletConfig';
+import {
+  AmuletConfig,
+  PackageConfig,
+  RewardConfig,
+  RewardVersion,
+} from '@daml.js/splice-amulet/lib/Splice/AmuletConfig';
 import { Tuple2 } from '@daml.js/daml-prim-DA-Types-1.0.0/lib/DA/Types';
 import { Set as DamlSet } from '@daml.js/daml-stdlib-DA-Set-Types-1.0.0/lib/DA/Set/Types';
 import { RelTime } from '@daml.js/daml-stdlib-DA-Time-Types-1.0.0/lib/DA/Time/Types';
@@ -96,6 +101,12 @@ export function buildAmuletConfigChanges(
       currentValue: before?.transferConfig.maxNumLockHolders || '',
       newValue: after?.transferConfig.maxNumLockHolders || '',
     },
+    {
+      fieldName: 'transferConfigTokenStandardMaxTTL',
+      label: 'Token standard allocation and instruction max TTL (microseconds)',
+      currentValue: before?.transferConfig.tokenStandardMaxTTL?.microseconds || '',
+      newValue: after?.transferConfig.tokenStandardMaxTTL?.microseconds || '',
+    },
 
     ...buildIssuanceCurveChanges(before?.issuanceCurve, after?.issuanceCurve),
 
@@ -105,6 +116,8 @@ export function buildAmuletConfigChanges(
     ),
 
     ...buildPackageConfigChanges(before?.packageConfig, after?.packageConfig),
+
+    ...buildRewardConfigChanges(before?.rewardConfig, after?.rewardConfig),
   ] as ConfigChange[];
 
   return showAllFields ? changes : changes.filter(c => c.currentValue !== c.newValue);
@@ -306,6 +319,63 @@ function buildIssuanceCurveChanges(
       .flat() || [];
 
   return [...initialValues, ...futureValues];
+}
+
+const rewardVersionLabels = {
+  RewardVersion_FeaturedAppMarkers: 'Featured App Markers (pre CIP-104)',
+  RewardVersion_TrafficBasedAppRewards: 'Traffic-Based App Rewards (CIP-104)',
+} satisfies Record<RewardVersion, string>;
+
+const rewardVersionOptions = RewardVersion.keys.map(value => ({
+  value,
+  label: rewardVersionLabels[value],
+}));
+
+function buildRewardConfigChanges(
+  before: RewardConfig | null | undefined,
+  after: RewardConfig | null | undefined
+) {
+  return [
+    {
+      fieldName: 'rewardConfigMintingVersion',
+      label: 'Reward config: Reward scheme',
+      currentValue: before?.mintingVersion || '',
+      newValue: after?.mintingVersion || '',
+      options: rewardVersionOptions,
+      description: 'Which reward scheme to use in production.',
+    },
+    {
+      fieldName: 'rewardConfigDryRunVersion',
+      label: 'Reward config: Dry-run reward scheme',
+      currentValue: before?.dryRunVersion || '',
+      newValue: after?.dryRunVersion || '',
+      options: [{ value: '', label: 'None (disabled)' }, ...rewardVersionOptions],
+      description:
+        'Which reward scheme to run in dry-run mode. Select "None (disabled)" to turn it off.',
+    },
+    {
+      fieldName: 'rewardConfigBatchSize',
+      label: 'Reward config: Merkle tree batch size',
+      currentValue: before?.batchSize || '',
+      newValue: after?.batchSize || '',
+      description: 'Batch size for building the Merkle tree over minting allowances (default: 100)',
+    },
+    {
+      fieldName: 'rewardConfigRewardCouponTimeToLive',
+      label: 'Reward config: Reward coupon time to live (microseconds)',
+      currentValue: before?.rewardCouponTimeToLive.microseconds || '',
+      newValue: after?.rewardCouponTimeToLive.microseconds || '',
+      description: 'Time-to-live for RewardCouponV2 contracts (default: 36 hours)',
+    },
+    {
+      fieldName: 'rewardConfigAppRewardCouponThreshold',
+      label: 'Reward config: App reward coupon threshold ($)',
+      currentValue: before?.appRewardCouponThreshold || '',
+      newValue: after?.appRewardCouponThreshold || '',
+      description:
+        'Minimum reward amount in USD below which no RewardCouponV2 is created (default: $0.50)',
+    },
+  ] as ConfigChange[];
 }
 
 function buildDecentralizedSynchronizerChanges(

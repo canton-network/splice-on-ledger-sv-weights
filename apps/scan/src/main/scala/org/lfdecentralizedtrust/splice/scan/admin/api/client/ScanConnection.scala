@@ -24,9 +24,12 @@ import org.lfdecentralizedtrust.splice.config.UpgradesConfig
 import org.lfdecentralizedtrust.splice.environment.*
 import org.lfdecentralizedtrust.splice.http.HttpClient
 import org.lfdecentralizedtrust.splice.http.v0.definitions.{
+  GetBulkObjectChecksumsResponse,
   GetDsoInfoResponse,
+  GetRewardAccountingActivityTotalsResponse,
   GetRewardAccountingBatchResponse,
   GetRewardAccountingRootHashResponse,
+  HoldingsSummaryRequestV1,
   HoldingsSummaryResponse,
   HoldingsSummaryResponseV1,
   LookupTransferCommandStatusResponse,
@@ -36,6 +39,7 @@ import org.lfdecentralizedtrust.splice.scan.admin.api.client.ScanConnection.*
 import org.lfdecentralizedtrust.splice.scan.admin.api.client.commands.HttpScanAppClient
 import org.lfdecentralizedtrust.splice.scan.admin.api.client.commands.HttpScanAppClient.TransferContextWithInstances
 import org.lfdecentralizedtrust.splice.scan.config.ScanAppClientConfig
+import org.lfdecentralizedtrust.splice.store.VoteResultsFilters
 import org.lfdecentralizedtrust.splice.util.*
 import org.lfdecentralizedtrust.splice.util.PrettyInstances.*
 import com.digitalasset.canton.config.RequireTypes.NonNegativeInt
@@ -53,7 +57,6 @@ import org.lfdecentralizedtrust.splice.codegen.java.splice.dsorules.{
 }
 import org.lfdecentralizedtrust.splice.http.v0.definitions.HoldingsSummaryRequest.RecordTimeMatch
 import org.lfdecentralizedtrust.splice.metrics.ScanConnectionMetrics
-import org.lfdecentralizedtrust.splice.http.v0.definitions.HoldingsSummaryRequestV1
 
 import scala.concurrent.{ExecutionContext, ExecutionContextExecutor, Future}
 import scala.jdk.OptionConverters.*
@@ -163,6 +166,10 @@ trait ScanConnection
   def lookupRollForwardLsu()(implicit
       tc: TraceContext
   ): Future[Option[HttpScanAppClient.RollForwardLsu]]
+
+  def getLsu()(implicit
+      tc: TraceContext
+  ): Future[Option[HttpScanAppClient.Lsu]]
 
   def getPartyToParticipant(
       synchronizerId: SynchronizerId,
@@ -284,6 +291,11 @@ trait ScanConnection
       tc: TraceContext,
   ): OptionT[Future, MigrationSchedule]
 
+  def getMigrationId()(implicit
+      ec: ExecutionContext,
+      tc: TraceContext,
+  ): Future[Long]
+
   def lookupTransferCommandCounterByParty(receiver: PartyId)(implicit
       ec: ExecutionContext,
       tc: TraceContext,
@@ -300,17 +312,25 @@ trait ScanConnection
   ): Future[Option[ContractWithState[TransferPreapproval.ContractId, TransferPreapproval]]]
 
   def listVoteRequestResults(
-      actionName: Option[String],
-      accepted: Option[Boolean],
-      requester: Option[String],
-      effectiveFrom: Option[String],
-      effectiveTo: Option[String],
+      filters: VoteResultsFilters,
       limit: Int,
       pageToken: Option[BigInt] = None,
   )(implicit
       ec: ExecutionContext,
       tc: TraceContext,
   ): Future[(Seq[DsoRules_CloseVoteRequestResult], Option[BigInt])]
+
+  def countVoteRequestResults(
+      filters: VoteResultsFilters
+  )(implicit
+      ec: ExecutionContext,
+      tc: TraceContext,
+  ): Future[Long]
+
+  def getPreviousSvRewardWeight(svParty: String, effectiveBefore: Option[String])(implicit
+      ec: ExecutionContext,
+      tc: TraceContext,
+  ): Future[Option[Long]]
 
   def listUnclaimedDevelopmentFundCoupons()(implicit
       ec: ExecutionContext,
@@ -326,6 +346,11 @@ trait ScanConnection
       tc: TraceContext,
   ): Future[NonNegativeInt]
 
+  def getRewardAccountingActivityTotals(roundNumber: Long)(implicit
+      ec: ExecutionContext,
+      tc: TraceContext,
+  ): Future[GetRewardAccountingActivityTotalsResponse]
+
   def getRewardAccountingRootHash(roundNumber: Long)(implicit
       ec: ExecutionContext,
       tc: TraceContext,
@@ -336,6 +361,10 @@ trait ScanConnection
       tc: TraceContext,
   ): Future[Option[GetRewardAccountingBatchResponse]]
 
+  def getBulkObjectChecksums(objectKeys: Seq[String])(implicit
+      ec: ExecutionContext,
+      tc: TraceContext,
+  ): Future[GetBulkObjectChecksumsResponse]
 }
 
 object ScanConnection {

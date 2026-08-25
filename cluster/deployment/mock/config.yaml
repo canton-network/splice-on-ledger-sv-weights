@@ -9,6 +9,10 @@ validator1:
     cron: "0 /10 * * * ?" # Run every 10min
     maxDuration: "5m"
     retention: "30d"
+  validatorApp:
+    additionalEnvVars:
+      - name: ADDITIONAL_CONFIG_VALIDATOR1_DUMMY_NAME
+        value: ADDITIONAL_CONFIG_VALIDATOR1_DUMMY_NAME
 multiValidator:
   postgresPvcSize: '100Gi'
   # Dummy values for testing
@@ -28,8 +32,40 @@ multiValidator:
     - name: MULTI_PARTICIPANT_ADDITIONAL_CONFIG_MAX_CONNECTIONS
       value: canton.participants.participant_INDEX.storage.parameters.max-connections = 33
 sv:
+  cometbft:
+    watchdog:
+      threshold: 2
+      evaluationIntervalSeconds: 900
   synchronizer:
     skipInitialization: true
+  scan:
+    externalRateLimits:
+      rateLimits:
+        /registry/metadata/v1/info:
+          perIpRangeLimit:
+            maxTokens: 500
+            tokensPerFill: 500
+            fillInterval: 60s
+            overrides:
+              # A single IP address is expressed as a /32 IP range.
+              test:
+                ipRanges:
+                  - 192.68.79.50/32
+                maxTokens: 250
+                tokensPerFill: 250
+                fillInterval: 60s
+              # Multiple IP ranges under a single override key share one token bucket.
+              # This uses Envoy's remote_address_match action, which checks the
+              # connection's remote address against the configured IP ranges.
+              # In this example, the combined traffic from 192.68.78.0/24 and
+              # 10.0.0.0/24 is limited to 1000 req/min total, not 1000 req/min each.
+              validator-net:
+                ipRanges:
+                  - 192.68.78.0/24
+                  - 10.0.0.0/24
+                maxTokens: 1000
+                tokensPerFill: 1000
+                fillInterval: 60s
 splitwell:
   maxDarVersion: '0.1.8'
   participantPruningSchedule:
@@ -37,7 +73,7 @@ splitwell:
     maxDuration: "5m"
     retention: "30d"
 synchronizerMigration:
-  lsuEnabled: true
+  splitSvDeploymentEnabled: true
   frozenMigrationId: 2
   archived:
     - id: 5
@@ -85,6 +121,8 @@ synchronizerMigration:
   active:
     id: 9
     version: 0.3.20
+    sequencer:
+      enableBftSequencer: true
     releaseReference:
       gitReference: "refs/heads/release-line-0.3.20"
       repoUrl: https://github.com/canton-network/splice
@@ -97,7 +135,6 @@ synchronizerMigration:
   upgrade:
     id: 10
     version: 0.3.21
-    enableLogicalSynchronizerDeploymentMode: true
     sequencer:
       enableBftSequencer: true
     releaseReference:
@@ -141,16 +178,29 @@ monitoring:
     muteTimeIntervals:
       - name: sv1-mute
         objectMatchers:
-          - [ 'namespace', '=', 'sv1' ]
-        startTime: '04:00'
-        endTime: '07:00'
-        weekdays:
-          - saturday:sunday
+          - [ 'namespace', '=', 'sv1-test' ]
+        timeWindows:
+          - times:
+              - startTime: '18:00'
+                endTime: '24:00'
+            weekdays:
+              - wednesday
       - name: sv-runbook-mute
         objectMatchers:
-          - [ 'namespace', '=', 'sv' ]
-        startTime: '06:00'
-        endTime: '10:00'
+          - [ 'namespace', '=', 'sv-test' ]
+        timeWindows:
+          - times:
+              - startTime: '18:00'
+                endTime: '24:00'
+            weekdays:
+              - wednesday
+          - times:
+              - startTime: '00:00'
+                endTime: '06:00'
+              - startTime: '12:00'
+                endTime: '13:00'
+            weekdays:
+              - thursday
 operatorDeployment:
   reference:
     gitReference: refs/heads/main
@@ -172,6 +222,8 @@ loadTester:
     scaleUpStep: 3
     windowStartUTC: "02:30"
     windowDurationMinutes: 150
+chaosMesh:
+  podKillSchedule: '@every 120m'
 svs:
   sv: !include(sv.yaml)
     participant:
@@ -199,6 +251,12 @@ svs:
     validatorApp:
       sweep:
         fromEnv: SV1
+    physicalSynchronizerOverrides:
+      9:
+        sequencer:
+          additionalEnvVars:
+            - name: PS9_SEQUENCER_ENV_VAR_NAME
+              value: PS9_SEQUENCER_ENV_VAR_VALUE
   sv-2: !include(sv.yaml) {}
   sv-da-1: !include(sv.yaml) # non "sv-X" key => additional SV that is always deployed (key == node name == k8s namespace)
     publicName: Digital-Asset-1
@@ -237,6 +295,10 @@ svs:
       cantonLogLevel: INFO
       apiRequestLogLevel: DEBUG
 infra:
+  ipWhitelisting:
+    extraWhitelistedIngress:
+      - 1.2.3.4/32
+      - 2.3.4.5/32
   extraCustomResources:
     deny-onboard-prepare-endpoint:
       apiVersion: security.istio.io/v1
@@ -264,6 +326,7 @@ infra:
         key: value
         anotherKey: anotherValue
   istio:
+    enableGeneralIpWhitelist: false
     istiodValues: # example istiod overrides
       global:
         proxy:
@@ -277,11 +340,20 @@ infra:
 cluster:
   nodePools:
     apps:
-      nodeType: n2-standard-16
-    hyperdiskApps:
-      nodeType: c4-standard-16
+      nodeType: n4d-standard-16
       minNodes: 0
       maxNodes: 1
+      zones: '*'
+    additionalApps:
+    - nodeType: n4-standard-16
+      minNodes: 0
+      maxNodes: 1
+      zones: '*'
+    additionalInfra:
+    - nodeType: n4-standard-8
+      minNodes: 1
+      maxNodes: 3
+      zones: '*'
 gha:
   githubRepo: "https://github.com/canton-network/splice"
   runnerVersion: "0.5.10"

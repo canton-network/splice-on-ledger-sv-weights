@@ -21,7 +21,6 @@ import org.lfdecentralizedtrust.splice.environment.ledger.api.{
   TreeUpdateOrOffsetCheckpoint,
 }
 import org.lfdecentralizedtrust.splice.environment.ParticipantAdminConnection.IMPORT_ACS_WORKFLOW_ID_PREFIX
-import org.lfdecentralizedtrust.splice.migration.DomainMigrationInfo
 import org.lfdecentralizedtrust.splice.store.HistoryBackfilling.{
   DestinationBackfillingInfo,
   DestinationHistory,
@@ -29,6 +28,7 @@ import org.lfdecentralizedtrust.splice.store.HistoryBackfilling.{
 }
 import org.lfdecentralizedtrust.splice.store.MultiDomainAcsStore.{HasIngestionSink, IngestionFilter}
 import org.lfdecentralizedtrust.splice.store.db.{AcsJdbcTypes, AcsQueries}
+import db.AsUpdateReturning.*
 import org.lfdecentralizedtrust.splice.util.{
   Contract,
   DomainRecordTimeRange,
@@ -40,6 +40,8 @@ import com.digitalasset.canton.config.CantonRequireTypes.String256M
 import com.digitalasset.canton.data.CantonTimestamp
 import com.digitalasset.canton.lifecycle.CloseContext
 import com.digitalasset.canton.logging.{NamedLoggerFactory, NamedLogging}
+import com.digitalasset.canton.logging.pretty.Pretty
+import com.digitalasset.canton.logging.pretty.Pretty.{param, prettyOfClass}
 import com.digitalasset.canton.resource.DbStorage
 import com.digitalasset.canton.topology.{ParticipantId, PartyId, SynchronizerId}
 import com.digitalasset.canton.tracing.TraceContext
@@ -88,7 +90,7 @@ import org.lfdecentralizedtrust.splice.environment.BaseLedgerConnection
   */
 class UpdateHistory(
     storage: DbStorage,
-    val domainMigrationInfo: DomainMigrationInfo,
+    val domainMigrationId: Long,
     storeName: String,
     participantId: ParticipantId,
     val updateStreamParty: PartyId,
@@ -110,8 +112,6 @@ class UpdateHistory(
 
   import profile.api.jdbcActionExtensionMethods
   import UpdateHistory.*
-
-  private[this] def domainMigrationId = domainMigrationInfo.currentMigrationId
 
   private val state = new AtomicReference[State](State.empty())
 
@@ -147,6 +147,7 @@ class UpdateHistory(
     new MultiDomainAcsStore.IngestionSink {
       override def ingestionFilter: IngestionFilter = IngestionFilter(
         primaryParty = updateStreamParty,
+        includeTemplates = Seq.empty,
         includeInterfaces = Seq.empty,
         includeCreatedEventBlob = false,
       )
@@ -283,8 +284,6 @@ class UpdateHistory(
               new RuntimeException(s"No row for $newHistoryId found, which was just inserted!")
             )
             .map(_.map(LegacyOffset.Api.assertFromStringToLong))
-
-          _ <- cleanUpDataAfterDomainMigration(newHistoryId)
         } yield {
           state.updateAndGet(
             _.copy(
@@ -776,133 +775,6 @@ class UpdateHistory(
     ()
   }
 
-  private[this] def cleanUpDataAfterDomainMigration(
-      historyId: Long
-  )(implicit tc: TraceContext): Future[Unit] = {
-    val previousMigrationId = domainMigrationInfo.currentMigrationId - 1
-    domainMigrationInfo.migrationTimeInfo match {
-      case Some(info) =>
-        for {
-          _ <-
-            if (info.synchronizerWasPaused) {
-              for {
-                _ <- verifyNoRolledBackAcsSnapshots(
-                  historyId,
-                  previousMigrationId,
-                  info.acsRecordTime,
-                )
-                _ <- verifyNoRolledBackData(historyId, previousMigrationId, info.acsRecordTime)
-              } yield ()
-            } else {
-              for {
-                _ <- deleteAcsSnapshotsAfter(historyId, previousMigrationId, info.acsRecordTime)
-                _ <- deleteRolledBackUpdateHistory(
-                  historyId,
-                  previousMigrationId,
-                  info.acsRecordTime,
-                )
-              } yield ()
-            }
-        } yield ()
-      case _ =>
-        logger.debug("No previous domain migration, not checking or deleting updates")
-        Future.unit
-    }
-  }
-
-  private[this] def verifyNoRolledBackData(
-      historyId: Long, // Not using the storeId from the state, as the state might not be updated yet
-      migrationId: Long,
-      recordTime: CantonTimestamp,
-  )(implicit tc: TraceContext): Future[Unit] = {
-    val action = DBIO
-      .sequence(
-        Seq(
-          sql"""
-            select count(*) from update_history_creates
-            where history_id = $historyId and migration_id = $migrationId and record_time > $recordTime
-          """.as[Long].head,
-          sql"""
-            select count(*) from update_history_exercises
-            where history_id = $historyId and migration_id = $migrationId and record_time > $recordTime
-          """.as[Long].head,
-          sql"""
-            select count(*) from update_history_transactions
-            where history_id = $historyId and migration_id = $migrationId and record_time > $recordTime
-          """.as[Long].head,
-          sql"""
-            select count(*) from update_history_assignments
-            where history_id = $historyId and migration_id = $migrationId and record_time > $recordTime
-          """.as[Long].head,
-          sql"""
-            select count(*) from update_history_unassignments
-            where history_id = $historyId and migration_id = $migrationId and record_time > $recordTime
-          """.as[Long].head,
-        )
-      )
-      .map(rows =>
-        if (rows.sum > 0) {
-          throw new IllegalStateException(
-            s"Found $rows rows for $updateStreamParty where migration_id = $migrationId and record_time > $recordTime, " +
-              "but the configuration says the domain was paused during the migration. " +
-              "Check the domain migration configuration and the content of the update history database."
-          )
-        } else {
-          logger.debug(
-            s"No updates found for $updateStreamParty where migration_id = $migrationId and record_time > $recordTime"
-          )
-        }
-      )
-    storage.query(action, "verifyNoRolledBackData")
-  }
-
-  private[this] def deleteRolledBackUpdateHistory(
-      historyId: Long, // Not using the storeId from the state, as the state might not be updated yet
-      migrationId: Long,
-      recordTime: CantonTimestamp,
-  )(implicit tc: TraceContext): Future[Unit] = {
-    logger.info(
-      s"Deleting all updates for $updateStreamParty where migration = $migrationId and record time > $recordTime"
-    )
-    val action = DBIO
-      .sequence(
-        Seq(
-          sqlu"""
-            delete from update_history_creates
-            where history_id = $historyId and migration_id = $migrationId and record_time > $recordTime
-          """,
-          sqlu"""
-            delete from update_history_exercises
-            where history_id = $historyId and migration_id = $migrationId and record_time > $recordTime
-          """,
-          sqlu"""
-            delete from update_history_transactions
-            where history_id = $historyId and migration_id = $migrationId and record_time > $recordTime
-          """,
-          sqlu"""
-            delete from update_history_assignments
-            where history_id = $historyId and migration_id = $migrationId and record_time > $recordTime
-          """,
-          sqlu"""
-            delete from update_history_unassignments
-            where history_id = $historyId and migration_id = $migrationId and record_time > $recordTime
-          """,
-        )
-      )
-      .map(rows =>
-        if (rows.sum > 0) {
-          logger.info(
-            s"Deleted $rows rows for $updateStreamParty where migration_id = $migrationId and record_time > $recordTime. " +
-              "This is expected during a disaster recovery, where we are rolling back the domain to a previous state. " +
-              "In is NOT expected during regular hard domain migrations."
-          )
-        } else {
-          logger.info(s"No rows deleted for $updateStreamParty")
-        }
-      )
-    storage.update(action, "deleteRolledBackUpdateHistory")
-  }
-
   /** Deletes all ACS snapshots with a record time after the given time.
     *
     * Note: ACS snapshots are managed by [[AcsSnapshotStore]] which is part of the scan app
@@ -1020,6 +892,12 @@ class UpdateHistory(
         .update(
           deleteAction.transactionally,
           "deleteUpdatesForTable",
+        )(
+          implicitly,
+          implicitly,
+          { case (n1, n2, n3, n4, n5) =>
+            Seq(n1, n2, n3, n4, n5).exists(_ > 0)
+          },
         )
     } yield (
       logger.info(
@@ -1030,14 +908,14 @@ class UpdateHistory(
   }
 
   private def afterFilters(
-      afterO: Option[(Long, CantonTimestamp)],
+      afterO: Option[TimestampWithMigrationId],
       includeImportUpdates: Boolean,
   ): NonEmptyList[SQLActionBuilder] = {
     val gtMin = if (includeImportUpdates) ">=" else ">"
     afterO match {
       case None =>
         NonEmptyList.of(sql"migration_id >= 0 and record_time #$gtMin ${CantonTimestamp.MinValue}")
-      case Some((afterMigrationId, afterRecordTime)) =>
+      case Some(TimestampWithMigrationId(afterRecordTime, afterMigrationId)) =>
         // This makes it so that the two queries use updt_hist_tran_hi_mi_rt_di,
         NonEmptyList.of(
           sql"migration_id = ${afterMigrationId} and record_time > ${afterRecordTime} ",
@@ -1225,7 +1103,7 @@ class UpdateHistory(
   }
 
   def getUpdatesWithoutImportUpdates(
-      afterO: Option[(Long, CantonTimestamp)],
+      afterO: Option[TimestampWithMigrationId],
       limit: Limit,
   )(implicit tc: TraceContext): Future[Seq[TreeUpdateWithMigrationId]] = {
     val filters = afterFilters(afterO, includeImportUpdates = false)
@@ -1256,7 +1134,7 @@ class UpdateHistory(
   }
 
   def getAllUpdates(
-      afterO: Option[(Long, CantonTimestamp)],
+      afterO: Option[TimestampWithMigrationId],
       limit: PageLimit,
   )(implicit tc: TraceContext): Future[Seq[TreeUpdateWithMigrationId]] = {
     val filters = afterFilters(afterO, includeImportUpdates = true)
@@ -2450,7 +2328,7 @@ class UpdateHistory(
         .queryAndUpdate(
           action.transactionally,
           "destinationHistory.insert",
-        )
+        )(implicitly, implicitly, _ => false)
         .map { nonEmpty =>
           nonEmpty
         }
@@ -2471,28 +2349,6 @@ class UpdateHistory(
 }
 
 object UpdateHistory {
-
-  // Separate method so we can use this without a full UpdateHistory instance.
-  // Since we're interested in the highest known migration id, we don't need to filter by anything
-  // (store ID, participant ID, etc. are not even known at the time we want to call this).
-  def getHighestKnownMigrationId(
-      storage: DbStorage
-  )(implicit
-      ec: ExecutionContext,
-      closeContext: CloseContext,
-      tc: TraceContext,
-  ): Future[Option[Long]] = {
-    for {
-      queryResult <- storage.query(
-        sql"""
-               select max(migration_id) from update_history_last_ingested_offsets
-            """.as[Option[Long]],
-        "getHighestKnownMigrationId",
-      )
-    } yield {
-      queryResult.headOption.flatten
-    }
-  }
 
   sealed trait BackfillingRequirement
   object BackfillingRequirement {
@@ -2741,6 +2597,12 @@ final case class TimestampWithMigrationId(
 object TimestampWithMigrationId {
   implicit val ordering: Ordering[TimestampWithMigrationId] =
     Ordering.by(x => (x.migrationId, x.timestamp))
+
+  implicit val prettyTimestampWithMigrationId: Pretty[TimestampWithMigrationId] =
+    prettyOfClass(
+      param("timestamp", _.timestamp),
+      param("migrationId", _.migrationId),
+    )
 }
 
 final case class TreeUpdateWithMigrationId(

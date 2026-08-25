@@ -77,9 +77,6 @@ trait SpliceDbTest extends DbTest with BeforeAndAfterAll { this: Suite =>
                 incomplete_reassignments,
                 store_descriptors,
                 store_last_ingested_offsets,
-                round_totals,
-                round_party_totals,
-                round_total_amulet_balance,
                 update_history_descriptors,
                 update_history_last_ingested_offsets,
                 update_history_transactions,
@@ -105,7 +102,8 @@ trait SpliceDbTest extends DbTest with BeforeAndAfterAll { this: Suite =>
                 key_value_store,
                 acs_incremental_snapshot_data_next,
                 acs_incremental_snapshot_data_backfill,
-                acs_incremental_snapshot
+                acs_incremental_snapshot,
+                dso_unavailable_parties
             RESTART IDENTITY CASCADE""".asUpdate
           _ <- debugPrintPgActivity()
         } yield (),

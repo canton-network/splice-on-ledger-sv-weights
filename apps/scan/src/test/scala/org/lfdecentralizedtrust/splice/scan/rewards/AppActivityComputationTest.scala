@@ -11,6 +11,7 @@ import com.google.protobuf.timestamp.Timestamp as ProtoTimestamp
 import com.google.protobuf.ByteString
 import org.lfdecentralizedtrust.splice.scan.store.ScanRewardsReferenceStore
 import org.lfdecentralizedtrust.splice.scan.store.db.{DbAppActivityRecordStore, DbScanVerdictStore}
+import org.lfdecentralizedtrust.splice.store.TimestampWithMigrationId
 import org.scalatest.wordspec.AnyWordSpec
 
 import scala.concurrent.Future
@@ -57,6 +58,19 @@ class AppActivityComputationTest extends AnyWordSpec with BaseTest {
       result should have size 1
       result.head.appProviderParties shouldBe Seq("partyA", "partyB")
       result.head.appActivityWeights shouldBe Seq(100L, 100L)
+    }
+
+    "scale provider burn by their activity weights" in {
+      val verdict = mkVerdict(Map(0 -> mkView(Seq("partyA", "partyB"))))
+      val summary = mkSummary(200L, Seq(mkEnvelope(200L, Seq(0))))
+
+      val result = computeWithWeights(
+        Map("partyA" -> BigDecimal(2.2), "partyB" -> BigDecimal("0.8")),
+        Seq((summary, verdict)),
+      )
+      result should have size 1
+      result.head.appProviderParties shouldBe Seq("partyA", "partyB")
+      result.head.appActivityWeights shouldBe Seq(220L, 80L)
     }
 
     // This probably cannot happen, nevertheless we can handle it
@@ -187,19 +201,29 @@ class AppActivityComputationTest extends AnyWordSpec with BaseTest {
 
   private val roundOpensAt = CantonTimestamp.ofEpochSecond(0)
 
-  /** Run computation and extract just the AppActivityRecordT results. */
+  /** Run computation and extract just the AppActivityRecordT results.
+    * All featured providers use the default activity weight of 1.0.
+    */
   private def computeWith(
       featured: Set[String],
+      input: Seq[(DbScanVerdictStore.TrafficSummaryT, v30.Verdict)],
+      svParticipantIds: Set[String] = Set("someSvParticipant"),
+  ): Seq[DbAppActivityRecordStore.AppActivityRecordT] =
+    computeWithWeights(featured.map(_ -> BigDecimal(1)).toMap, input, svParticipantIds)
+
+  /** Run computation with explicit per-provider activity weights. */
+  private def computeWithWeights(
+      featuredWeights: Map[String, BigDecimal],
       input: Seq[(DbScanVerdictStore.TrafficSummaryT, v30.Verdict)],
       svParticipantIds: Set[String] = Set("someSvParticipant"),
   ): Seq[DbAppActivityRecordStore.AppActivityRecordT] = {
     val store = mock[ScanRewardsReferenceStore]
     when(store.lookupActiveOpenMiningRounds(any[Seq[CantonTimestamp]])(any[TraceContext]))
       .thenAnswer { (times: Seq[CantonTimestamp]) =>
-        Future.successful(times.map(_ -> (0L, roundOpensAt)).toMap)
+        Future.successful(times.map(_ -> TimestampWithMigrationId(roundOpensAt, 0L)).toMap)
       }
     when(store.lookupFeaturedAppPartiesAsOf(any[CantonTimestamp])(any[TraceContext]))
-      .thenReturn(Future.successful(featured))
+      .thenReturn(Future.successful(featuredWeights))
     when(store.lookupSvParticipantIdsAsOf(any[CantonTimestamp])(any[TraceContext]))
       .thenReturn(Future.successful(svParticipantIds))
     new AppActivityComputation(store, loggerFactory)(directExecutionContext)

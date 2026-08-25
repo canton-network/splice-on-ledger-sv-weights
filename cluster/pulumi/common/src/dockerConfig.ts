@@ -17,11 +17,10 @@ export class DockerConfig {
   private jsonConfig: pulumi.Output<string>;
 
   private constructor() {
-    const jfrogCreds = DockerConfig.fetchCredentialsFromSecret('artifactory-keys');
     const googleCreds = DockerConfig.fetchGoogleCredentialsFromSecret(
       'us-central1-artifact-reader-key'
     );
-    this.jsonConfig = pulumi.all([jfrogCreds, googleCreds]).apply(([jfrog, google]) => {
+    this.jsonConfig = googleCreds.apply(google => {
       const googleAuth = DockerConfig.toAuthField(google);
       const conf = Buffer.from(
         JSON.stringify({

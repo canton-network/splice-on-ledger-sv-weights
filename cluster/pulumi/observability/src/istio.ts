@@ -1,8 +1,8 @@
 // Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
 import * as pulumi from '@pulumi/pulumi';
-import { ExactNamespace } from '@lfdecentralizedtrust/splice-pulumi-common';
-import { PodMonitor, ServiceMonitor } from '@lfdecentralizedtrust/splice-pulumi-common/src/metrics';
+import { ExactNamespace } from '@canton-network/splice-pulumi-common';
+import { PodMonitor, ServiceMonitor } from '@canton-network/splice-pulumi-common/src/metrics';
 
 export function istioMonitoring(
   ingressNs: ExactNamespace,
@@ -36,11 +36,10 @@ export function istioMonitoring(
         {
           port: 'http-envoy-prom',
           path: '/stats/prometheus',
-          // keep only istio metrics, drop envoy metrics
           metricRelabelings: [
             {
               sourceLabels: ['__name__'],
-              regex: 'istio_.*',
+              regex: '(istio_.*' + '|envoy_.*http_local_rate_limit_.*)',
               action: 'keep',
             },
             // drop instance label, we have the pod name

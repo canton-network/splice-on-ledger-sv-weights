@@ -4,33 +4,50 @@ import {
   activeVersion,
   Auth0Client,
   auth0UserNameEnvVarSource,
-  DecentralizedSynchronizerUpgradeConfig,
   exactNamespace,
   imagePullSecretWithNonDefaultServiceAccount,
   installLedgerApiUserSecret,
-} from '@lfdecentralizedtrust/splice-pulumi-common';
+  spliceConfig,
+} from '@canton-network/splice-pulumi-common';
 import {
   configForSv,
-  installParticipant,
   StaticSvConfig,
   svConfigs,
   svRunbookConfig,
-} from '@lfdecentralizedtrust/splice-pulumi-common-sv';
-import { StackReferences } from '@lfdecentralizedtrust/splice-pulumi-common/src/stackReferences';
+} from '@canton-network/splice-pulumi-common-sv';
+import {
+  installSvNodeStandalone,
+  MigrationArgs,
+  SvsMigrationOutput,
+} from '@canton-network/splice-pulumi-common-sv/src/sv';
+import { StackReferences } from '@canton-network/splice-pulumi-common/src/stackReferences';
+
+import { installParticipant } from './participant';
 
 export async function installNode(sv: string, auth0Client: Auth0Client): Promise<void> {
+  // TODO(#6719) once all clusters have been migrated hardcode splitSvDeploymentEnabled to true
+  const splitSvDeploymentEnabled =
+    spliceConfig.configuration.synchronizerMigration.splitSvDeploymentEnabled;
   const staticConfig = findStaticConfigOrFail(sv);
   const config = configForSv(staticConfig.nodeName);
-  const xns = exactNamespace(staticConfig.nodeName, true, true);
+  const xns = exactNamespace(staticConfig.nodeName, true, !splitSvDeploymentEnabled);
   const serviceAccountName = 'sv';
   const imagePullDeps = imagePullSecretWithNonDefaultServiceAccount(xns, serviceAccountName);
   const auth0Config = auth0Client.getCfg();
   const ledgerApiUserSecret = installLedgerApiUserSecret(auth0Client, xns, 'sv', 'sv');
   const ledgerApiUserSecretSource = auth0UserNameEnvVarSource('sv', true);
-  const participantMigrationInfo = DecentralizedSynchronizerUpgradeConfig.active
-    .migrateParticipantsFromSvCantonToSv
-    ? await getParticipantMigrationInfo(sv)
-    : undefined;
+  // TODO(#6719) once all clusters have been migrated remove this
+  const migrateToSplitSvDeployment =
+    spliceConfig.configuration.synchronizerMigration.migrateToSplitSvDeployment;
+  if (
+    (splitSvDeploymentEnabled || migrateToSplitSvDeployment) &&
+    staticConfig.nodeName !== svRunbookConfig.nodeName
+  ) {
+    const migrationArgs = migrateToSplitSvDeployment
+      ? await getMigrationArgsForSv(staticConfig.nodeName)
+      : undefined;
+    await installSvNodeStandalone(xns, staticConfig, config, auth0Client, [], migrationArgs);
+  }
   await installParticipant(
     {
       xns,
@@ -41,8 +58,6 @@ export async function installNode(sv: string, auth0Client: Auth0Client): Promise
       disableProtection: staticConfig.nodeName === svRunbookConfig.nodeName,
       participantAdminUserNameFrom: ledgerApiUserSecretSource,
       imagePullServiceAccountName: serviceAccountName,
-      migratingDatabaseInstanceName: participantMigrationInfo?.participantDatabaseId,
-      migratingDatabaseSecretName: participantMigrationInfo?.participantDatabaseSecretName,
     },
     { dependsOn: [...imagePullDeps, ledgerApiUserSecret] }
   );
@@ -59,17 +74,17 @@ function findStaticConfigOrFail(sv: string): StaticSvConfig {
   }
 }
 
-async function getParticipantMigrationInfo(
-  sv: string
-): Promise<{ participantDatabaseId: string; participantDatabaseSecretName: string }> {
-  const svCantonRef = StackReferences.svCanton(
-    sv,
-    DecentralizedSynchronizerUpgradeConfig.active.id
-  );
+// TODO(#6719) once all clusters have been migrated remove this
+async function getMigrationArgsForSv(nodeName: string): Promise<MigrationArgs> {
+  const svs = (await StackReferences.cantonNetwork.requireOutputValue('svs')) as SvsMigrationOutput;
+  const sv =
+    svs.find(sv => sv.nodeName === nodeName) ??
+    (() => {
+      throw new Error(`No migration output found for SV: ${nodeName}`);
+    })();
   return {
-    participantDatabaseId: await svCantonRef.requireOutputValue('participantDatabaseId'),
-    participantDatabaseSecretName: await svCantonRef.requireOutputValue(
-      'participantDatabaseSecretName'
-    ),
+    action: 'import',
+    databaseInstanceName: sv.databaseInstanceName,
+    databaseSecretName: sv.databaseSecretName,
   };
 }

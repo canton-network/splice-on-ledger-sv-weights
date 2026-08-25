@@ -8,7 +8,6 @@ import com.daml.ledger.javaapi.data.CreatedEvent
 import org.lfdecentralizedtrust.splice.codegen.java.splice.amulet.{Amulet, LockedAmulet}
 import org.lfdecentralizedtrust.splice.scan.store.AcsSnapshotStore.{
   AcsSnapshot,
-  FailedToAcquireLockException,
   IncrementalAcsSnapshot,
   IncrementalAcsSnapshotTable,
   QueryAcsSnapshotResult,
@@ -17,7 +16,12 @@ import org.lfdecentralizedtrust.splice.scan.store.AcsSnapshotStore.{
 }
 import org.lfdecentralizedtrust.splice.store.UpdateHistory.SelectFromCreateEvents
 import org.lfdecentralizedtrust.splice.store.{HardLimit, Limit, LimitHelpers, UpdateHistory}
-import org.lfdecentralizedtrust.splice.store.db.{AcsJdbcTypes, AcsQueries, AdvisoryLockIds}
+import org.lfdecentralizedtrust.splice.store.db.{
+  AcsJdbcTypes,
+  AcsQueries,
+  AdvisoryLocks,
+  AdvisoryLockIds,
+}
 import org.lfdecentralizedtrust.splice.util.{Contract, HoldingsSummary, PackageQualifiedName}
 import com.digitalasset.canton.data.CantonTimestamp
 import com.digitalasset.canton.lifecycle.{CloseContext, FutureUnlessShutdown}
@@ -52,6 +56,10 @@ class AcsSnapshotStore(
 
   override val profile: JdbcProfile = storage.profile.jdbc
   import profile.api.jdbcActionExtensionMethods
+
+  private implicit def rowsAlteredByIdempotencyCheck[A](implicit
+      row: DbStorage.RowsAltered[A]
+  ): DbStorage.RowsAltered[Option[A]] = _.exists(row(_))
 
   private def historyId = updateHistory.historyId
 
@@ -216,22 +224,7 @@ class AcsSnapshotStore(
   private def withExclusiveSnapshotDataLock[T, E <: Effect](
       action: DBIOAction[T, NoStream, E]
   ): DBIOAction[T, NoStream, Effect.Read & Effect.Transactional & E] =
-    (for {
-      lockResult <- sql"SELECT pg_try_advisory_xact_lock(${AdvisoryLockIds.acsSnapshotDataInsert})"
-        .as[Boolean]
-        .head
-      result <- lockResult match {
-        case true => action
-        // Lock conflicts can happen:
-        // - In production, if the application crashes while writing a snapshot and then restarts
-        //   and tries to write another snapshot before the database has closed the connection and released the lock.
-        // - In production, if two triggers (ingesting and backfilling) happen to write a snapshot at the same time.
-        // - In testing, where multiple scan instances write to the same app database.
-        // In all cases, we want to fail immediately, and rely on the caller's infrastructure to retry.
-        case false =>
-          DBIOAction.failed(FailedToAcquireLockException())
-      }
-    } yield result).transactionally
+    AdvisoryLocks.withTransactionalLock(profile, AdvisoryLockIds.acsSnapshotDataInsert, action)
 
   def deleteSnapshot(
       snapshot: AcsSnapshot
@@ -469,18 +462,18 @@ class AcsSnapshotStore(
       expectedState: Option[IncrementalAcsSnapshot],
   )(implicit
       tc: TraceContext
-  ): DBIOAction[Unit, NoStream, Effect.Transactional & Effect.Read & E] = {
+  ): DBIOAction[Option[R], NoStream, Effect.Transactional & Effect.Read & E] = {
     (for {
       actualState <- getIncrementalSnapshotAction(table)
       result <-
         if (actualState == expectedState) {
-          action.map(_ => ())
+          action.map(Option.apply)
         } else {
           logger.info(
             s"Skipping action because actual state $actualState != expected state $expectedState. " +
               "In production, this is expected only during retries after transient network failures."
           )
-          DBIOAction.unit
+          DBIOAction.successful(Option.empty)
         }
     } yield result).transactionally
   }
@@ -541,10 +534,12 @@ class AcsSnapshotStore(
       )
     }
 
-    storage.queryAndUpdate(
-      withIncrementalSnapshotIdempotencyCheck(table, statement, None),
-      "initializeIncrementalSnapshot",
-    )
+    storage
+      .queryAndUpdate(
+        withIncrementalSnapshotIdempotencyCheck(table, statement, None),
+        "initializeIncrementalSnapshot",
+      )
+      .map(_ => ())
   }
 
   /** Initializes an incremental snapshot that represents an empty ACS at the given record time.
@@ -602,10 +597,12 @@ class AcsSnapshotStore(
       )
     }
 
-    storage.queryAndUpdate(
-      withIncrementalSnapshotIdempotencyCheck(table, statement, None),
-      "initializeIncrementalSnapshotFromImportUpdates",
-    )
+    storage
+      .queryAndUpdate(
+        withIncrementalSnapshotIdempotencyCheck(table, statement, None),
+        "initializeIncrementalSnapshotFromImportUpdates",
+      )
+      .map(_ => ())
   }
 
   /** Copies an incremental snapshot to historical storage.
@@ -620,7 +617,7 @@ class AcsSnapshotStore(
       table: IncrementalAcsSnapshotTable,
       snapshot: IncrementalAcsSnapshot,
       nextSnapshotTargetRecordTime: CantonTimestamp,
-  )(implicit tc: TraceContext): Future[Unit] = {
+  )(implicit tc: TraceContext): Future[Option[Int]] = {
     logger.debug(
       s"Saving incremental snapshot ${snapshot.snapshotId} at ${snapshot.recordTime}"
     )
@@ -693,7 +690,7 @@ class AcsSnapshotStore(
         s"Saved incremental snapshot ${snapshot.snapshotId} at ${snapshot.recordTime} with $copied_rows rows." +
           s" Next snapshot target record time: $nextSnapshotTargetRecordTime"
       )
-      ()
+      copied_rows
     }
     storage.queryAndUpdate(
       withExclusiveSnapshotDataLock(
@@ -780,19 +777,16 @@ class AcsSnapshotStore(
       _ <- sqlu"""delete from #${table.tableName} where snapshot_id = ${snapshot.snapshotId}"""
       _ <- sqlu"""delete from acs_incremental_snapshot where snapshot_id = ${snapshot.snapshotId}"""
     } yield ()
-    storage.queryAndUpdate(
-      withIncrementalSnapshotIdempotencyCheck(table, statement, Some(snapshot)),
-      "deleteIncrementalSnapshot",
-    )
+    storage
+      .queryAndUpdate(
+        withIncrementalSnapshotIdempotencyCheck(table, statement, Some(snapshot)),
+        "deleteIncrementalSnapshot",
+      )
+      .map(_ => ())
   }
 }
 
 object AcsSnapshotStore {
-
-  case class FailedToAcquireLockException()
-      extends RuntimeException(
-        "Failed to acquire advisory lock for writing to the acs snapshot table."
-      )
 
   sealed trait IncrementalAcsSnapshotTable { def tableName: String }
   object IncrementalAcsSnapshotTable {

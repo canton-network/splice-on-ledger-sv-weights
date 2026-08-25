@@ -11,9 +11,9 @@ import userEvent from '@testing-library/user-event';
 import { Wrapper } from '../helpers';
 import { createProposalActions } from '../../utils/governance';
 import { http, HttpResponse } from 'msw';
-import { dsoInfo } from '@lfdecentralizedtrust/splice-common-test-handlers';
+import { dsoInfo } from '@canton-network/splice-common-test-handlers';
 import { server, svUrl } from '../setup/setup';
-import { dateTimeFormatISO } from '@lfdecentralizedtrust/splice-common-frontend-utils';
+import { dateTimeFormatISO } from '@canton-network/splice-common-frontend-utils';
 import dayjs from 'dayjs';
 
 const TestWrapper: React.FC<React.PropsWithChildren> = ({ children }) => {
@@ -38,11 +38,8 @@ async function checkActionSelection(actionName: string, actionValue: string, tes
   const selectInput = actionDropdown.querySelector('[role="combobox"]') as HTMLElement;
   await user.click(selectInput);
 
-  await waitFor(async () => {
-    const actionToSelect = screen.getByText(actionName);
-    expect(actionToSelect).toBeInTheDocument();
-    await user.click(actionToSelect);
-  });
+  const actionToSelect = await screen.findByText(actionName);
+  await user.click(actionToSelect);
 
   const nextButton = screen.getByText('Next');
   expect(nextButton).toBeInTheDocument();
@@ -50,7 +47,7 @@ async function checkActionSelection(actionName: string, actionValue: string, tes
 
   const actionInput = await screen.findByTestId(testId);
   const action = createProposalActions.find(a => a.value === actionValue);
-  expect(actionInput.getAttribute('value')).toBe(action!.name);
+  expect(actionInput.textContent).toBe(action!.name);
 }
 
 describe('Create Proposal', () => {
@@ -91,9 +88,6 @@ describe('Create Proposal', () => {
         <CreateProposal />
       </TestWrapper>
     );
-
-    const actionSelectionTitle = screen.getByText('Select an Action');
-    expect(actionSelectionTitle).toBeDefined();
 
     const actionDropdown = screen.getByTestId('select-action');
     expect(actionDropdown).toBeDefined();
@@ -194,20 +188,19 @@ describe('Create Proposal', () => {
 
     const nextButton = screen.getByText('Next');
     expect(nextButton).toBeDefined();
-    expect(nextButton.getAttribute('disabled')).toBeDefined();
+    expect(nextButton.getAttribute('disabled')).not.toBeNull();
 
     const actionDropdown = screen.getByTestId('select-action');
     expect(actionDropdown).toBeDefined();
 
     const selectInput = actionDropdown.querySelector('[role="combobox"]') as HTMLElement;
-    user.click(selectInput);
+    await user.click(selectInput);
+
+    const actionToSelect = await screen.findByText('Offboard Member');
+    await user.click(actionToSelect);
 
     await waitFor(() => {
-      const actionToSelect = screen.getByText('Offboard Member');
-      expect(actionToSelect).toBeDefined();
-      user.click(actionToSelect);
+      expect(nextButton.getAttribute('disabled')).toBeNull();
     });
-
-    expect(nextButton.getAttribute('disabled')).toBe('');
   });
 });

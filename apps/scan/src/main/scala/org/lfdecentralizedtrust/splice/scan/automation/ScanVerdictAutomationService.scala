@@ -19,10 +19,7 @@ import org.lfdecentralizedtrust.splice.scan.rewards.AppActivityComputation
 import org.lfdecentralizedtrust.splice.scan.store.ScanRewardsReferenceStore
 import org.lfdecentralizedtrust.splice.scan.store.db.DbScanVerdictStore
 import org.lfdecentralizedtrust.splice.scan.ScanSynchronizerNode
-import org.lfdecentralizedtrust.splice.store.{
-  DomainTimeSynchronization,
-  DomainUnpausedSynchronization,
-}
+import org.lfdecentralizedtrust.splice.store.DomainTimeSynchronization
 
 import scala.concurrent.ExecutionContextExecutor
 
@@ -37,7 +34,7 @@ class ScanVerdictAutomationService(
     migrationId: Long,
     synchronizerId: SynchronizerId,
     ingestionMetrics: ScanMediatorVerdictIngestionMetrics,
-    rewardsReferenceStoreO: Option[ScanRewardsReferenceStore],
+    rewardsReferenceStore: ScanRewardsReferenceStore,
 )(implicit
     ec: ExecutionContextExecutor,
     mat: Materializer,
@@ -47,16 +44,13 @@ class ScanVerdictAutomationService(
       config.automation,
       clock,
       DomainTimeSynchronization.Noop,
-      DomainUnpausedSynchronization.Noop,
       retryProvider,
     ) {
 
   override def companion: AutomationServiceCompanion = ScanVerdictAutomationService
 
-  private val appActivityComputationO: Option[AppActivityComputation] =
-    rewardsReferenceStoreO.map { store =>
-      new AppActivityComputation(store, loggerFactory)
-    }
+  private val appActivityComputation: AppActivityComputation =
+    new AppActivityComputation(rewardsReferenceStore, loggerFactory)
 
   registerService(
     new ScanVerdictIngestionService(
@@ -67,7 +61,7 @@ class ScanVerdictAutomationService(
       migrationId = migrationId,
       synchronizerId = synchronizerId,
       ingestionMetrics = ingestionMetrics,
-      appActivityComputationO = appActivityComputationO,
+      appActivityComputation = appActivityComputation,
       backoffClock = triggerContext.pollingClock,
       retryProvider = triggerContext.retryProvider,
       loggerFactory = triggerContext.loggerFactory,

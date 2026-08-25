@@ -3,6 +3,7 @@
 
 package org.lfdecentralizedtrust.splice.scan.automation
 
+import cats.data.NonEmptyList
 import com.daml.grpc.GrpcException
 import com.daml.grpc.adapter.ExecutionSequencerFactory
 import com.daml.metrics.api.MetricsContext
@@ -73,7 +74,7 @@ class ScanVerdictIngestionService(
     migrationId: Long,
     synchronizerId: SynchronizerId,
     ingestionMetrics: ScanMediatorVerdictIngestionMetrics,
-    appActivityComputationO: Option[AppActivityComputation],
+    appActivityComputation: AppActivityComputation,
     backoffClock: Clock,
     override protected val retryProvider: RetryProvider,
     override protected val loggerFactory: NamedLoggerFactory,
@@ -106,10 +107,7 @@ class ScanVerdictIngestionService(
   private def waitForStores(): Future[Unit] =
     for {
       _ <- store.waitUntilInitialized
-      _ <- appActivityComputationO match {
-        case Some(appActivityComputation) => appActivityComputation.waitUntilInitialized
-        case None => Future.unit
-      }
+      _ <- appActivityComputation.waitUntilInitialized
     } yield ()
 
   /** When starting a fresh stream, the record time from which to start streaming */
@@ -129,7 +127,7 @@ class ScanVerdictIngestionService(
         streamVerdictsAndBatchWithTraffic(
           ingestionStart,
           currentMediatorClient,
-          synchronizerNodes.current.sequencerTrafficClient,
+          Some(synchronizerNodes.current.sequencerTrafficClient),
         )
       val completedWithCompleteF = Promise[Option[v30.VerdictsResponse.Complete]]()
       val source = currentSource
@@ -156,7 +154,7 @@ class ScanVerdictIngestionService(
                         streamVerdictsAndBatchWithTraffic(
                           successorIngestionStart,
                           successorMediatorClient,
-                          synchronizerNodes.successor.flatMap(_.sequencerTrafficClient),
+                          synchronizerNodes.successor.map(_.sequencerTrafficClient),
                         )
                           .mapMaterializedValue(_ => NotUsed)
                       case None =>
@@ -221,54 +219,71 @@ class ScanVerdictIngestionService(
       tc: TraceContext
   ): Future[Unit] = {
     val (verdicts, trafficSummary) = input
-    if (verdicts.isEmpty) {
-      logger.error(
-        "Received empty batch of verdicts to ingest. This is never supposed to happen."
-      )
-      Future.successful(())
-    } else {
-
-      // Pair traffic summaries with verdicts by sequencing time
-      val summaryByTime = trafficSummary.map(s => s.sequencingTime -> s).toMap
-      val items =
-        verdicts.map(v =>
+    NonEmptyList.fromList(verdicts.toList) match {
+      case None =>
+        logger.error(
+          "Received empty batch of verdicts to ingest. This is never supposed to happen."
+        )
+        Future.successful(())
+      case Some(verdictsList) =>
+        // Pair traffic summaries with verdicts by sequencing time
+        val summaryByTime = trafficSummary.map(s => s.sequencingTime -> s).toMap
+        val items = verdictsList.map(v =>
           DbScanVerdictStore.fromProto(v, migrationId, synchronizerId, summaryByTime)
         )
 
-      val summariesWithVerdicts = verdicts.flatMap { v =>
-        val recordTime = CantonTimestamp.tryFromProtoTimestamp(v.getRecordTime)
-        summaryByTime.get(recordTime).map(_ -> v)
-      }
-      for {
-        // Compute app activity records (before DB transaction).
-        // Records have verdictRowId = DUMMY_VERDICT_ROW_ID
-        // the store resolves actual row_ids during insertion.
-        appActivityRecords <- appActivityComputationO match {
-          case Some(appActivityComputation) =>
-            appActivityComputation.computeActivities(summariesWithVerdicts).map {
-              _.flatMap { case (summary, _, recordO) =>
-                recordO.map(summary.sequencingTime -> _)
-              }
-            }
-          case None => Future.successful(Seq.empty)
+        val summariesWithVerdicts = verdicts.flatMap { v =>
+          val recordTime = CantonTimestamp.tryFromProtoTimestamp(v.getRecordTime)
+          summaryByTime.get(recordTime).map(_ -> v)
         }
+        for {
+          // Compute app activity records (before DB transaction).
+          // Records have verdictRowId = DUMMY_VERDICT_ROW_ID
+          // the store resolves actual row_ids during insertion.
+          (appActivityRecords, firstActiveRoundO, lastArchivedRoundO) <- {
+            val recordTimes =
+              verdicts.map(v => CantonTimestamp.tryFromProtoTimestamp(v.getRecordTime))
+            for {
+              records <- appActivityComputation.computeActivities(summariesWithVerdicts).map {
+                _.flatMap { case (summary, _, recordO) =>
+                  recordO.map(summary.sequencingTime -> _)
+                }
+              }
+              firstActiveRoundO <- recordTimes.minOption match {
+                case Some(minRecordTime) =>
+                  appActivityComputation.lookupActiveOpenMiningRound(minRecordTime)
+                case None => Future.successful(None)
+              }
+              lastArchivedRoundO <- recordTimes.maxOption match {
+                case Some(maxRecordTime) =>
+                  appActivityComputation.lookupLatestArchivedOpenMiningRound(maxRecordTime)
+                case None => Future.successful(None)
+              }
+            } yield (records, firstActiveRoundO, lastArchivedRoundO)
+          }
 
-        _ <- ensureVerdictsHaveTrafficSummaries(verdicts, summaryByTime)
-        _ <- store.insertVerdictsWithAppActivityRecords(items, appActivityRecords)
-      } yield {
-        val lastRecordTime = verdicts.lastOption
-          .flatMap(v => CantonTimestamp.fromProtoTimestamp(v.getRecordTime).toOption)
-          .getOrElse(CantonTimestamp.MinValue)
-        ingestionMetrics.lastIngestedRecordTime.updateValue(lastRecordTime)
-        ingestionMetrics.verdictCount.mark(verdicts.size.toLong)(MetricsContext.Empty)
-        ingestionMetrics.batchSize.update(verdicts.size.toLong)(MetricsContext.Empty)
-        logger.info(
-          s"Inserted ${verdicts.size} verdicts, ${trafficSummary.size} traffic summaries, " +
-            s"${appActivityRecords.size} app activity records. " +
-            s"Last ingested verdict record_time is now ${store.lastIngestedRecordTime}. " +
-            s"Inserted verdicts: ${verdicts.map(_.updateId)}"
-        )
-      }
+          _ <- ensureVerdictsHaveTrafficSummaries(verdicts, summaryByTime)
+          _ <- store.insertVerdictsWithAppActivityRecords(
+            items,
+            appActivityRecords,
+            hasTrafficSummaries = summaryByTime.nonEmpty,
+            firstActiveRoundO = firstActiveRoundO,
+            lastArchivedRoundO = lastArchivedRoundO,
+          )
+        } yield {
+          val lastRecordTime = verdicts.lastOption
+            .flatMap(v => CantonTimestamp.fromProtoTimestamp(v.getRecordTime).toOption)
+            .getOrElse(CantonTimestamp.MinValue)
+          ingestionMetrics.lastIngestedRecordTime.updateValue(lastRecordTime)
+          ingestionMetrics.verdictCount.mark(verdicts.size.toLong)(MetricsContext.Empty)
+          ingestionMetrics.batchSize.update(verdicts.size.toLong)(MetricsContext.Empty)
+          logger.info(
+            s"Inserted ${verdicts.size} verdicts, ${trafficSummary.size} traffic summaries, " +
+              s"${appActivityRecords.size} app activity records. " +
+              s"Last ingested verdict record_time is now ${store.lastIngestedRecordTime}. " +
+              s"Inserted verdicts: ${verdicts.map(_.updateId)}"
+          )
+        }
     }
   }
 
@@ -286,7 +301,6 @@ class ScanVerdictIngestionService(
       // Recover from NO_EVENT_AT_TIMESTAMPS by returning an empty result.
       // See ensureVerdictsHaveTrafficSummaries for when missing summaries are
       // tolerated vs treated as errors.
-      // TODO(#5460): Add a metric recording missed timestamps for alerting.
       .recoverWith { case ex @ GrpcException(status, trailers) =>
         val statusProto = StatusProto.fromStatusAndTrailers(status, trailers)
         val errorDetails = ErrorDetails.from(statusProto)
@@ -298,9 +312,14 @@ class ScanVerdictIngestionService(
           }
           .headOption
           .getOrElse("none")
-        if (errorCodeId == TrafficControlErrors.NoEventAtTimestamps.id)
+        if (errorCodeId == TrafficControlErrors.NoEventAtTimestamps.id) {
+          ingestionMetrics.noEventAtTimestampsCount.mark()(MetricsContext.Empty)
+          logger.info(
+            s"Sequencer returned NO_EVENT_AT_TIMESTAMPS for ${sequencingTimes.size} timestamps" +
+              s" (first=${sequencingTimes.headOption}, last=${sequencingTimes.lastOption})"
+          )
           Future.successful(Seq.empty)
-        else
+        } else
           Future.failed(ex)
       }
   }
@@ -337,10 +356,7 @@ class ScanVerdictIngestionService(
       verdicts: Seq[v30.Verdict],
       summaryByTime: Map[CantonTimestamp, DbScanVerdictStore.TrafficSummaryT],
   )(implicit tc: TraceContext): Future[Unit] =
-    (store.appActivityRecordStoreO match {
-      case None => Future.successful(None)
-      case Some(s) => s.startedIngestingAt
-    }).map { startO =>
+    store.appActivityRecordStore.startedIngestingAt.map { startO =>
       val missingTimes = ScanVerdictIngestionService.findMissingTrafficSummaries(
         verdicts.map(v => CantonTimestamp.tryFromProtoTimestamp(v.getRecordTime)),
         summaryByTime.keySet,

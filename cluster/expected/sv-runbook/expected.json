@@ -16,7 +16,7 @@
       }
     },
     "name": "cluster-ingress-default",
-    "provider": "urn:pulumi:test-stack::test-project::pulumi:providers:kubernetes::k8s-imgpull-cluster-ingress-default::undefined_id",
+    "provider": "urn:pulumi:test-stack::test-project::pulumi:providers:kubernetes::k8s-imgpull-cluster-ingress-default::04da6b54-80e4-46f7-96ec-b56ff0331ba9",
     "type": "kubernetes:core/v1:ServiceAccountPatch"
   },
   {
@@ -221,7 +221,7 @@
             },
             "approvedSvIdentities": {
               "type": "md5",
-              "value": "5871224b744b45122540483fddbd550f"
+              "value": "6c876b92df2d92fe7ba83e883d031386"
             }
           },
           "network": "test",
@@ -229,9 +229,10 @@
             "version": "0.3.20"
           },
           "synchronizer": {
-            "active": {
+            "current": {
               "chainIdSuffix": "4",
-              "migrationId": 2
+              "migrationId": 2,
+              "synchronizerSerialId": 9
             }
           }
         },
@@ -241,8 +242,7 @@
           "host": "info.sv.mock.global.canton.network.digitalasset.com"
         },
         "runtimeDetails": {
-          "migrationId": 2,
-          "scanUrl": "http://scan-app.sv:5012"
+          "synchronizerSerialId": 9
         },
         "tolerations": [
           {
@@ -604,16 +604,6 @@
   },
   {
     "custom": true,
-    "id": "organization/infra/infra.mock",
-    "inputs": {
-      "name": "organization/infra/infra.mock"
-    },
-    "name": "organization/infra/infra.mock",
-    "provider": "",
-    "type": "pulumi:pulumi:StackReference"
-  },
-  {
-    "custom": true,
     "id": "",
     "inputs": {
       "chart": "oci://ghcr.io/digital-asset/decentralized-canton-sync-dev/helm/splice-scan",
@@ -623,6 +613,12 @@
       "namespace": "sv",
       "timeout": 600,
       "values": {
+        "additionalEnvVars": [
+          {
+            "name": "ADDITIONAL_CONFIG_CLIENT_IP_HEADERS",
+            "value": "canton.scan-apps.scan-app.parameters.rate-limiting.client-ip-headers = [\"x-envoy-external-address\"]\n"
+          }
+        ],
         "affinity": {
           "nodeAffinity": {
             "requiredDuringSchedulingIgnoredDuringExecution": {
@@ -651,11 +647,7 @@
         "metrics": {
           "enable": true
         },
-        "migration": {
-          "id": 2,
-          "migrating": false
-        },
-        "participantAddress": "participant-2",
+        "participantAddress": "participant",
         "persistence": {
           "postgresName": "apps-pg",
           "secretName": "apps-pg-secret"
@@ -677,8 +669,12 @@
           "networkFaviconUrl": "https://www.hyperledger.org/hubfs/hyperledgerfavicon.png",
           "networkName": "Splice"
         },
+        "sponsorScanUrl": "https://scan.sv-2.mock.global.canton.network.digitalasset.com",
         "synchronizers": {
           "current": {
+            "cantonBft": {
+              "p2pUrl": "https://sequencer-p2p-9.sv.mock.global.canton.network.digitalasset.com"
+            },
             "mediator": "global-domain-9-mediator",
             "sequencer": "global-domain-9-sequencer"
           },
@@ -687,7 +683,7 @@
             "sequencer": "global-domain-8-sequencer"
           },
           "successor": {
-            "bftSequencerConfig": {
+            "cantonBft": {
               "p2pUrl": "https://sequencer-p2p-10.sv.mock.global.canton.network.digitalasset.com"
             },
             "mediator": "global-domain-10-mediator",
@@ -850,19 +846,23 @@
           "type": "unlimited"
         },
         "/api/scan/v0/acs": {
-          "clientIp": true,
           "fillInterval": "60s",
-          "maxTokens": 10,
+          "maxTokens": 500,
           "name": "acs",
-          "tokensPerFill": 5,
+          "perIpRangeLimit": {
+            "fillInterval": "60s",
+            "maxTokens": 10,
+            "tokensPerFill": 5
+          },
+          "tokensPerFill": 500,
           "type": "limited"
         },
         "/api/scan/v0/active-synchronizer-serial": {
           "name": "activeSynchronizerSerial",
           "type": "unlimited"
         },
-        "/api/scan/v0/activities": {
-          "name": "activities",
+        "/api/scan/v0/admin/sv/previous-sv-reward-weight": {
+          "name": "sv-previous-sv-reward-weight",
           "type": "unlimited"
         },
         "/api/scan/v0/admin/sv/voterequests": {
@@ -876,10 +876,6 @@
         "/api/scan/v0/admin/validator": {
           "name": "validator-licenses",
           "type": "unlimited"
-        },
-        "/api/scan/v0/aggregated-rounds": {
-          "name": "aggregated-rounds",
-          "type": "banned"
         },
         "/api/scan/v0/amulet-config-for-round": {
           "name": "amulet-config-for-round",
@@ -945,6 +941,10 @@
           "name": "listBulkAcsSnapshotObjects",
           "type": "unlimited"
         },
+        "/api/scan/v0/history/bulk/checksums": {
+          "name": "getBulkHistoryChecksums",
+          "type": "unlimited"
+        },
         "/api/scan/v0/history/bulk/updates": {
           "name": "listBulkUpdateHistoryObjects",
           "type": "unlimited"
@@ -957,6 +957,10 @@
           "name": "reward-accounting-process",
           "type": "unlimited"
         },
+        "/api/scan/v0/lsu": {
+          "name": "lsu",
+          "type": "unlimited"
+        },
         "/api/scan/v0/migrations": {
           "name": "migrations-schedule",
           "type": "unlimited"
@@ -965,25 +969,9 @@
           "name": "open-and-issuing-mining-rounds",
           "type": "unlimited"
         },
-        "/api/scan/v0/rewards-collected": {
-          "name": "rewards-collected",
-          "type": "banned"
-        },
         "/api/scan/v0/roll-forward-lsu": {
           "name": "rollForwardLsu",
           "type": "unlimited"
-        },
-        "/api/scan/v0/round-of-latest-data": {
-          "name": "round-of-latest-data",
-          "type": "banned"
-        },
-        "/api/scan/v0/round-party-totals": {
-          "name": "round-party-totals",
-          "type": "banned"
-        },
-        "/api/scan/v0/round-totals": {
-          "name": "round-totals",
-          "type": "banned"
         },
         "/api/scan/v0/scans": {
           "name": "scans",
@@ -1007,10 +995,6 @@
         },
         "/api/scan/v0/synchronizer-identities": {
           "name": "synchronizer-identities",
-          "type": "unlimited"
-        },
-        "/api/scan/v0/transactions": {
-          "name": "transactions",
           "type": "unlimited"
         },
         "/api/scan/v0/transfer-command": {
@@ -1068,6 +1052,169 @@
         "/api/scan/version": {
           "name": "version",
           "type": "unlimited"
+        },
+        "/registry/allocation-instruction/v1/allocation-factory": {
+          "fillInterval": "60s",
+          "maxTokens": 720,
+          "name": "registry-allocation-factory",
+          "perIpRangeLimit": {
+            "fillInterval": "60s",
+            "maxTokens": 120,
+            "tokensPerFill": 120
+          },
+          "tokensPerFill": 720,
+          "type": "limited"
+        },
+        "/registry/allocation-instruction/v2": {
+          "fillInterval": "60s",
+          "maxTokens": 720,
+          "name": "registry-allocation-instruction-v2",
+          "perIpRangeLimit": {
+            "fillInterval": "60s",
+            "maxTokens": 120,
+            "tokensPerFill": 120
+          },
+          "tokensPerFill": 720,
+          "type": "limited"
+        },
+        "/registry/allocation-instruction/v2/allocation-factory": {
+          "fillInterval": "60s",
+          "maxTokens": 720,
+          "name": "registry-allocation-factory-v2",
+          "perIpRangeLimit": {
+            "fillInterval": "60s",
+            "maxTokens": 120,
+            "tokensPerFill": 120
+          },
+          "tokensPerFill": 720,
+          "type": "limited"
+        },
+        "/registry/allocation/v2/settlement-factory": {
+          "fillInterval": "60s",
+          "maxTokens": 720,
+          "name": "registry-settlement-factory-v2",
+          "perIpRangeLimit": {
+            "fillInterval": "60s",
+            "maxTokens": 120,
+            "tokensPerFill": 120
+          },
+          "tokensPerFill": 720,
+          "type": "limited"
+        },
+        "/registry/allocations/v1": {
+          "fillInterval": "60s",
+          "maxTokens": 720,
+          "name": "registry-allocations",
+          "perIpRangeLimit": {
+            "fillInterval": "60s",
+            "maxTokens": 120,
+            "tokensPerFill": 120
+          },
+          "tokensPerFill": 720,
+          "type": "limited"
+        },
+        "/registry/allocations/v2": {
+          "fillInterval": "60s",
+          "maxTokens": 720,
+          "name": "registry-allocations-v2",
+          "perIpRangeLimit": {
+            "fillInterval": "60s",
+            "maxTokens": 120,
+            "tokensPerFill": 120
+          },
+          "tokensPerFill": 720,
+          "type": "limited"
+        },
+        "/registry/metadata/v1/info": {
+          "fillInterval": "60s",
+          "maxTokens": 720,
+          "name": "registry-metadata-info",
+          "perIpRangeLimit": {
+            "fillInterval": "60s",
+            "maxTokens": 500,
+            "overrides": {
+              "test": {
+                "fillInterval": "60s",
+                "ipRanges": [
+                  "192.68.79.50/32"
+                ],
+                "maxTokens": 250,
+                "tokensPerFill": 250
+              },
+              "validator-net": {
+                "fillInterval": "60s",
+                "ipRanges": [
+                  "192.68.78.0/24",
+                  "10.0.0.0/24"
+                ],
+                "maxTokens": 1000,
+                "tokensPerFill": 1000
+              }
+            },
+            "tokensPerFill": 500
+          },
+          "tokensPerFill": 720,
+          "type": "limited"
+        },
+        "/registry/metadata/v1/instruments": {
+          "fillInterval": "60s",
+          "maxTokens": 720,
+          "name": "registry-metadata-instruments",
+          "perIpRangeLimit": {
+            "fillInterval": "60s",
+            "maxTokens": 120,
+            "tokensPerFill": 120
+          },
+          "tokensPerFill": 720,
+          "type": "limited"
+        },
+        "/registry/transfer-instruction/v1": {
+          "fillInterval": "60s",
+          "maxTokens": 720,
+          "name": "registry-transfer-instruction",
+          "perIpRangeLimit": {
+            "fillInterval": "60s",
+            "maxTokens": 120,
+            "tokensPerFill": 120
+          },
+          "tokensPerFill": 720,
+          "type": "limited"
+        },
+        "/registry/transfer-instruction/v1/transfer-factory": {
+          "fillInterval": "60s",
+          "maxTokens": 1440,
+          "name": "registry-transfer-factory",
+          "perIpRangeLimit": {
+            "fillInterval": "60s",
+            "maxTokens": 240,
+            "tokensPerFill": 240
+          },
+          "tokensPerFill": 1440,
+          "type": "limited"
+        },
+        "/registry/transfer-instruction/v2": {
+          "fillInterval": "60s",
+          "maxTokens": 720,
+          "name": "registry-transfer-instruction-v2",
+          "perIpRangeLimit": {
+            "fillInterval": "60s",
+            "maxTokens": 120,
+            "tokensPerFill": 120
+          },
+          "tokensPerFill": 720,
+          "type": "limited"
+        },
+        "/registry/transfer-instruction/v2/transfer-factory": {
+          "fillInterval": "60s",
+          "maxTokens": 720,
+          "name": "registry-transfer-factory-v2",
+          "perIpRangeLimit": {
+            "fillInterval": "60s",
+            "maxTokens": 120,
+            "tokensPerFill": 120
+          },
+          "tokensPerFill": 720,
+          "type": "limited"
         }
       }
     },
@@ -1094,11 +1241,15 @@
       "active": true,
       "alias": "apps-pg",
       "cloudSqlConfig": {
+        "databaseVersion": "POSTGRES_14",
         "enabled": true,
         "enterprisePlus": false,
         "flags": {
+          "maintenance_work_mem": "2000000",
+          "max_wal_size": "20480",
           "random_page_cost": "1.1",
-          "temp_file_limit": "2147483647"
+          "temp_file_limit": "2147483647",
+          "work_mem": "16384"
         },
         "maintenanceWindow": {
           "day": 2,
@@ -1160,11 +1311,24 @@
           {
             "name": "temp_file_limit",
             "value": "2147483647"
+          },
+          {
+            "name": "max_wal_size",
+            "value": "20480"
+          },
+          {
+            "name": "maintenance_work_mem",
+            "value": "2000000"
+          },
+          {
+            "name": "work_mem",
+            "value": "16384"
           }
         ],
         "deletionProtectionEnabled": false,
         "edition": "ENTERPRISE",
         "insightsConfig": {
+          "enhancedQueryInsightsEnabled": false,
           "queryInsightsEnabled": true
         },
         "ipConfiguration": {
@@ -1214,8 +1378,16 @@
             "value": "canton.sv-apps.sv.local-synchronizer-nodes.current.mediator.pruning {\n                    cron = \"0 0 * * *\"\n                    max-duration = \"30m\"\n                    retention = \"7d\"\n                  }"
           },
           {
+            "name": "ADDITIONAL_CONFIG_CANTON_BFT_PRUNING",
+            "value": "canton.sv-apps.sv.local-synchronizer-nodes.current.sequencer.canton-bft-pruning {\n                    cron = \"0 /10 * * * ?\"\n                    max-duration = \"5m\"\n                    retention = \"15 days\"\n                  }"
+          },
+          {
             "name": "ADDITIONAL_CONFIG_ADDITIONAL_PACKAGES_TO_UNVET",
             "value": "canton.sv-apps.sv.additional-packages-to-unvet.\"splice-wallet-payments\" = [\"0.1.15\", \"0.1.16\"]\ncanton.sv-apps.sv.additional-packages-to-unvet.\"splice-amulet\" = [\"0.1.15\"]"
+          },
+          {
+            "name": "ADDITIONAL_CONFIG_CLIENT_IP_HEADERS",
+            "value": "canton.sv-apps.sv.parameters.rate-limiting.client-ip-headers = [\"x-envoy-external-address\"]\n"
           }
         ],
         "additionalJvmOptions": "-Dcom.sun.management.jmxremote=true -Dcom.sun.management.jmxremote.port=9010 -Dcom.sun.management.jmxremote.rmi.port=9010 -Dcom.sun.management.jmxremote.local.only=false -Dcom.sun.management.jmxremote.authenticate=false -Dcom.sun.management.jmxremote.ssl=false -Djava.rmi.server.hostname=127.0.0.1 -DcustomSvAppJvmFlag",
@@ -1255,16 +1427,6 @@
             "rewardWeightBps": 1000000
           },
           {
-            "extraBeneficiaries": [
-              {
-                "beneficiary": "mock-validator-1::123456789012345678901234567890123456789012234567890123456789012345678",
-                "weight": 100000
-              },
-              {
-                "beneficiary": "Broadridge-validator-1::1220c89a73e7b47f16dfb48a521eeedfe2a8620ea1b19b815ab427388d9f5427faa5",
-                "weight": 50000
-              }
-            ],
             "name": "SV2",
             "publicKey": "PUBLIC_KEY_2==",
             "rewardWeightBps": 150000
@@ -1306,13 +1468,9 @@
         "metrics": {
           "enable": true
         },
-        "migration": {
-          "id": 2,
-          "migrating": false
-        },
         "nodeIdentifier": "DA-Helm-Test-Node",
         "onboardingName": "DA-Helm-Test-Node",
-        "participantAddress": "participant-2",
+        "participantAddress": "participant",
         "permissionedSynchronizer": false,
         "persistence": {
           "postgresName": "apps-pg",
@@ -1361,10 +1519,7 @@
             }
           ],
           "current": {
-            "cometBFT": {
-              "connectionUri": "http://global-domain-9-cometbft-cometbft-rpc:26657",
-              "enabled": true
-            },
+            "enableBftSequencer": true,
             "mediatorAddress": "global-domain-9-mediator",
             "sequencerAddress": "global-domain-9-sequencer",
             "sequencerPruningConfig": {
@@ -1442,7 +1597,7 @@
       }
     },
     "name": "sv-default",
-    "provider": "urn:pulumi:test-stack::test-project::pulumi:providers:kubernetes::k8s-imgpull-sv-default::undefined_id",
+    "provider": "urn:pulumi:test-stack::test-project::pulumi:providers:kubernetes::k8s-imgpull-sv-default::04da6b54-80e4-46f7-96ec-b56ff0331ba9",
     "type": "kubernetes:core/v1:ServiceAccountPatch"
   },
   {
@@ -1471,12 +1626,43 @@
     "custom": true,
     "id": "",
     "inputs": {
+      "apiVersion": "telemetry.istio.io/v1",
+      "kind": "Telemetry",
+      "metadata": {
+        "name": "scan-app-rate-limit-access-log",
+        "namespace": "sv"
+      },
+      "spec": {
+        "accessLogging": [
+          {
+            "filter": {
+              "expression": "response.code == 429"
+            },
+            "providers": [
+              {
+                "name": "envoy"
+              }
+            ]
+          }
+        ],
+        "selector": {
+          "matchLabels": {
+            "app": "scan-app"
+          }
+        }
+      }
+    },
+    "name": "sv-scan-app-rate-limit-access-log",
+    "provider": "",
+    "type": "kubernetes:telemetry.istio.io/v1:Telemetry"
+  },
+  {
+    "custom": true,
+    "id": "",
+    "inputs": {
       "apiVersion": "networking.istio.io/v1alpha3",
       "kind": "EnvoyFilter",
       "metadata": {
-        "annotations": {
-          "proxy.istio.io/config": "proxyStatsMatcher:\n  inclusionRegexps:\n  - \".*http_local_rate_limit.*\""
-        },
         "name": "scan-app-rate-limit",
         "namespace": "sv"
       },
@@ -1542,11 +1728,690 @@
                               }
                             ]
                           }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "acs",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/api/scan/v0/acs"
+                                }
+                              }
+                            ]
+                          }
                         },
                         {
-                          "request_headers": {
-                            "descriptor_key": "client_ip",
-                            "header_name": "x-forwarded-for"
+                          "remote_address_match": {
+                            "address_matcher": {
+                              "cidr_ranges": [],
+                              "invert_match": true
+                            },
+                            "descriptor_value": "per-ip-range-default"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-allocations",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/allocations/v1"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-allocations",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/allocations/v1"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "remote_address_match": {
+                            "address_matcher": {
+                              "cidr_ranges": [],
+                              "invert_match": true
+                            },
+                            "descriptor_value": "per-ip-range-default"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-metadata-info",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/metadata/v1/info"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-metadata-info",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/metadata/v1/info"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "remote_address_match": {
+                            "address_matcher": {
+                              "cidr_ranges": [
+                                {
+                                  "address_prefix": "192.68.79.50",
+                                  "prefix_len": {
+                                    "value": 32
+                                  }
+                                }
+                              ]
+                            },
+                            "descriptor_value": "test"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-metadata-info",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/metadata/v1/info"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "remote_address_match": {
+                            "address_matcher": {
+                              "cidr_ranges": [
+                                {
+                                  "address_prefix": "192.68.78.0",
+                                  "prefix_len": {
+                                    "value": 24
+                                  }
+                                },
+                                {
+                                  "address_prefix": "10.0.0.0",
+                                  "prefix_len": {
+                                    "value": 24
+                                  }
+                                }
+                              ]
+                            },
+                            "descriptor_value": "validator-net"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-metadata-info",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/metadata/v1/info"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "remote_address_match": {
+                            "address_matcher": {
+                              "cidr_ranges": [
+                                {
+                                  "address_prefix": "192.68.79.50",
+                                  "prefix_len": {
+                                    "value": 32
+                                  }
+                                },
+                                {
+                                  "address_prefix": "192.68.78.0",
+                                  "prefix_len": {
+                                    "value": 24
+                                  }
+                                },
+                                {
+                                  "address_prefix": "10.0.0.0",
+                                  "prefix_len": {
+                                    "value": 24
+                                  }
+                                }
+                              ],
+                              "invert_match": true
+                            },
+                            "descriptor_value": "per-ip-range-default"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-metadata-instruments",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/metadata/v1/instruments"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-metadata-instruments",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/metadata/v1/instruments"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "remote_address_match": {
+                            "address_matcher": {
+                              "cidr_ranges": [],
+                              "invert_match": true
+                            },
+                            "descriptor_value": "per-ip-range-default"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-allocation-factory",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/allocation-instruction/v1/allocation-factory"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-allocation-factory",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/allocation-instruction/v1/allocation-factory"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "remote_address_match": {
+                            "address_matcher": {
+                              "cidr_ranges": [],
+                              "invert_match": true
+                            },
+                            "descriptor_value": "per-ip-range-default"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-transfer-instruction",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/transfer-instruction/v1"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-transfer-instruction",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/transfer-instruction/v1"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "remote_address_match": {
+                            "address_matcher": {
+                              "cidr_ranges": [],
+                              "invert_match": true
+                            },
+                            "descriptor_value": "per-ip-range-default"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-transfer-factory",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/transfer-instruction/v1/transfer-factory"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-transfer-factory",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/transfer-instruction/v1/transfer-factory"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "remote_address_match": {
+                            "address_matcher": {
+                              "cidr_ranges": [],
+                              "invert_match": true
+                            },
+                            "descriptor_value": "per-ip-range-default"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-settlement-factory-v2",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/allocation/v2/settlement-factory"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-settlement-factory-v2",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/allocation/v2/settlement-factory"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "remote_address_match": {
+                            "address_matcher": {
+                              "cidr_ranges": [],
+                              "invert_match": true
+                            },
+                            "descriptor_value": "per-ip-range-default"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-allocations-v2",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/allocations/v2"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-allocations-v2",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/allocations/v2"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "remote_address_match": {
+                            "address_matcher": {
+                              "cidr_ranges": [],
+                              "invert_match": true
+                            },
+                            "descriptor_value": "per-ip-range-default"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-allocation-factory-v2",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/allocation-instruction/v2/allocation-factory"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-allocation-factory-v2",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/allocation-instruction/v2/allocation-factory"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "remote_address_match": {
+                            "address_matcher": {
+                              "cidr_ranges": [],
+                              "invert_match": true
+                            },
+                            "descriptor_value": "per-ip-range-default"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-allocation-instruction-v2",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/allocation-instruction/v2"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-allocation-instruction-v2",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/allocation-instruction/v2"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "remote_address_match": {
+                            "address_matcher": {
+                              "cidr_ranges": [],
+                              "invert_match": true
+                            },
+                            "descriptor_value": "per-ip-range-default"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-transfer-factory-v2",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/transfer-instruction/v2/transfer-factory"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-transfer-factory-v2",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/transfer-instruction/v2/transfer-factory"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "remote_address_match": {
+                            "address_matcher": {
+                              "cidr_ranges": [],
+                              "invert_match": true
+                            },
+                            "descriptor_value": "per-ip-range-default"
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-transfer-instruction-v2",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/transfer-instruction/v2"
+                                }
+                              }
+                            ]
+                          }
+                        }
+                      ]
+                    },
+                    {
+                      "actions": [
+                        {
+                          "header_value_match": {
+                            "descriptor_value": "registry-transfer-instruction-v2",
+                            "expect_match": true,
+                            "headers": [
+                              {
+                                "name": ":path",
+                                "string_match": {
+                                  "ignore_case": true,
+                                  "prefix": "/registry/transfer-instruction/v2"
+                                }
+                              }
+                            ]
+                          }
+                        },
+                        {
+                          "remote_address_match": {
+                            "address_matcher": {
+                              "cidr_ranges": [],
+                              "invert_match": true
+                            },
+                            "descriptor_value": "per-ip-range-default"
                           }
                         }
                       ]
@@ -1562,9 +2427,23 @@
                           {
                             "key": "header_match",
                             "value": "acs"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 500,
+                          "tokens_per_fill": 500
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "acs"
                           },
                           {
-                            "key": "client_ip"
+                            "key": "remote_address_match",
+                            "value": "per-ip-range-default"
                           }
                         ],
                         "token_bucket": {
@@ -1572,8 +2451,403 @@
                           "max_tokens": 10,
                           "tokens_per_fill": 5
                         }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-allocations"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 720,
+                          "tokens_per_fill": 720
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-allocations"
+                          },
+                          {
+                            "key": "remote_address_match",
+                            "value": "per-ip-range-default"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 120,
+                          "tokens_per_fill": 120
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-metadata-info"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 720,
+                          "tokens_per_fill": 720
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-metadata-info"
+                          },
+                          {
+                            "key": "remote_address_match",
+                            "value": "test"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 250,
+                          "tokens_per_fill": 250
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-metadata-info"
+                          },
+                          {
+                            "key": "remote_address_match",
+                            "value": "validator-net"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 1000,
+                          "tokens_per_fill": 1000
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-metadata-info"
+                          },
+                          {
+                            "key": "remote_address_match",
+                            "value": "per-ip-range-default"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 500,
+                          "tokens_per_fill": 500
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-metadata-instruments"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 720,
+                          "tokens_per_fill": 720
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-metadata-instruments"
+                          },
+                          {
+                            "key": "remote_address_match",
+                            "value": "per-ip-range-default"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 120,
+                          "tokens_per_fill": 120
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-allocation-factory"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 720,
+                          "tokens_per_fill": 720
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-allocation-factory"
+                          },
+                          {
+                            "key": "remote_address_match",
+                            "value": "per-ip-range-default"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 120,
+                          "tokens_per_fill": 120
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-transfer-instruction"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 720,
+                          "tokens_per_fill": 720
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-transfer-instruction"
+                          },
+                          {
+                            "key": "remote_address_match",
+                            "value": "per-ip-range-default"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 120,
+                          "tokens_per_fill": 120
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-transfer-factory"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 1440,
+                          "tokens_per_fill": 1440
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-transfer-factory"
+                          },
+                          {
+                            "key": "remote_address_match",
+                            "value": "per-ip-range-default"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 240,
+                          "tokens_per_fill": 240
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-settlement-factory-v2"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 720,
+                          "tokens_per_fill": 720
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-settlement-factory-v2"
+                          },
+                          {
+                            "key": "remote_address_match",
+                            "value": "per-ip-range-default"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 120,
+                          "tokens_per_fill": 120
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-allocations-v2"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 720,
+                          "tokens_per_fill": 720
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-allocations-v2"
+                          },
+                          {
+                            "key": "remote_address_match",
+                            "value": "per-ip-range-default"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 120,
+                          "tokens_per_fill": 120
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-allocation-factory-v2"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 720,
+                          "tokens_per_fill": 720
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-allocation-factory-v2"
+                          },
+                          {
+                            "key": "remote_address_match",
+                            "value": "per-ip-range-default"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 120,
+                          "tokens_per_fill": 120
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-allocation-instruction-v2"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 720,
+                          "tokens_per_fill": 720
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-allocation-instruction-v2"
+                          },
+                          {
+                            "key": "remote_address_match",
+                            "value": "per-ip-range-default"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 120,
+                          "tokens_per_fill": 120
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-transfer-factory-v2"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 720,
+                          "tokens_per_fill": 720
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-transfer-factory-v2"
+                          },
+                          {
+                            "key": "remote_address_match",
+                            "value": "per-ip-range-default"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 120,
+                          "tokens_per_fill": 120
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-transfer-instruction-v2"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 720,
+                          "tokens_per_fill": 720
+                        }
+                      },
+                      {
+                        "entries": [
+                          {
+                            "key": "header_match",
+                            "value": "registry-transfer-instruction-v2"
+                          },
+                          {
+                            "key": "remote_address_match",
+                            "value": "per-ip-range-default"
+                          }
+                        ],
+                        "token_bucket": {
+                          "fill_interval": "60s",
+                          "max_tokens": 120,
+                          "tokens_per_fill": 120
+                        }
                       }
                     ],
+                    "enable_x_ratelimit_headers": "DRAFT_VERSION_03",
                     "filter_enabled": {
                       "default_value": {
                         "denominator": "HUNDRED",
@@ -1588,6 +2862,7 @@
                       },
                       "runtime_key": "local_rate_limit_enforced"
                     },
+                    "max_dynamic_descriptors": 10000,
                     "response_headers_to_add": [
                       {
                         "append_action": "OVERWRITE_IF_EXISTS_OR_ADD",
@@ -1714,11 +2989,8 @@
           "metrics": {
             "enable": true
           },
-          "migration": {
-            "id": "2"
-          },
           "nodeIdentifier": "DA-Helm-Test-Node",
-          "participantAddress": "participant-2",
+          "participantAddress": "participant",
           "participantIdentitiesDumpPeriodicBackup": {
             "backupInterval": "10m",
             "location": {

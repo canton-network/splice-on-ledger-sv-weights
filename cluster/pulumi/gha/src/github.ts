@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 import * as gcp from '@pulumi/gcp';
 import * as github from '@pulumi/github';
-import { DockerConfig } from '@lfdecentralizedtrust/splice-pulumi-common/src/dockerConfig';
+import { DockerConfig } from '@canton-network/splice-pulumi-common/src/dockerConfig';
 import { getSecretVersionOutput } from '@pulumi/gcp/secretmanager/getSecretVersion';
 
 import { ghaConfig } from './config';
@@ -50,28 +50,6 @@ export function installGithubRepo(repo: string): void {
   const orgProvider = new github.Provider(`canton-network-provider-${repo}`, {
     owner: ghaConfig.githubOrg,
   });
-
-  // A bit ugly that we reuse this straight from DockerConfig, but we plan to
-  // retire artifactory altogether soon, so we don't bother cleaning this up.
-  const creds = DockerConfig.fetchCredentialsFromSecret('artifactory-keys');
-  new github.ActionsVariable(
-    `artifactory-user-${repo}`,
-    {
-      repository: repo,
-      variableName: 'ARTIFACTORY_USER',
-      value: creds.apply(creds => creds.username),
-    },
-    { provider: orgProvider }
-  );
-  new github.ActionsSecret(
-    `artifactory-password-${repo}`,
-    {
-      repository: repo,
-      secretName: 'ARTIFACTORY_PASSWORD',
-      value: creds.apply(creds => creds.password),
-    },
-    { provider: orgProvider }
-  );
 
   const auth0TestsManagementApi = getSecretVersionOutput({ secret: 'auth0-tests-management-api' });
   new github.ActionsSecret(

@@ -29,14 +29,19 @@ export const MigrationInfoSchema = z
     id: z.number().gte(0),
     version: CnChartVersionSchema,
     releaseReference: GitReferenceSchema.optional(),
-    enableLogicalSynchronizerDeploymentMode: z.boolean().default(false),
-    migrateParticipantsFromSvCantonToSv: z.boolean().default(false),
     sequencer: z
       .object({
         enableBftSequencer: z.boolean().default(false),
+        // Use a separate DB server for DABFT.
+        dedicatedBftSequencerDb: z.boolean().default(true),
       })
       .strict()
       .prefault({}),
+    cometbft: z
+      .object({
+        volumeSize: z.string().optional(),
+      })
+      .optional(),
   })
   .strict();
 
@@ -54,7 +59,9 @@ export const SynchronizerMigrationSchema = z
     archived: z.array(MigrationInfoSchema).optional(),
     activeDatabaseId: z.number().optional(),
     attachPvc: z.boolean().default(true),
-    lsuEnabled: z.boolean().default(false),
-    frozenMigrationId: z.number().optional(),
+    frozenMigrationId: z.number(),
+    // TODO(#6719) once all clusters have been migrated the following two flags can be removed, hardcoding splitSvDeploymentEnabled to true.
+    splitSvDeploymentEnabled: z.boolean().default(false),
+    migrateToSplitSvDeployment: z.boolean().default(false),
   })
   .strict();

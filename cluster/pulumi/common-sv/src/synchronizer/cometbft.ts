@@ -5,6 +5,7 @@ import * as _ from 'lodash';
 import {
   activeVersion,
   appsAffinityAndTolerations,
+  ChartValues,
   CLUSTER_BASENAME,
   CLUSTER_HOSTNAME,
   clusterSmallDisk,
@@ -21,9 +22,8 @@ import {
   standardStorageClassName,
   svCometBftKeysFromSecret,
   withAddedDependencies,
-} from '@lfdecentralizedtrust/splice-pulumi-common';
-import { CnChartVersion } from '@lfdecentralizedtrust/splice-pulumi-common/src/artifacts';
-import { hyperdiskSupportConfig } from '@lfdecentralizedtrust/splice-pulumi-common/src/config/hyperdiskSupportConfig';
+} from '@canton-network/splice-pulumi-common';
+import { CnChartVersion } from '@canton-network/splice-pulumi-common/src/artifacts';
 import { jsonStringify, Output } from '@pulumi/pulumi';
 
 import { svsConfig } from '../config';
@@ -72,10 +72,10 @@ export function installCometBftNode(
   svConfiguration: SingleSvConfiguration,
   migrationId: DomainMigrationIndex,
   isActiveDomain: boolean,
-  isRunningMigration: boolean,
   version: CnChartVersion = activeVersion,
   enableStateSync: boolean = svConfiguration.cometbft?.enableStateSync ?? false,
   enableTimeoutCommit: boolean = false,
+  pvcSize?: string,
   imagePullServiceAccountName?: string,
   disableProtection?: boolean,
   opts?: SpliceCustomResourceOptions
@@ -97,32 +97,11 @@ export function installCometBftNode(
   // upgrade domains don't need cometbft state sync because until they are active cometbft will not really progress its height a lot
   // also for upgrade domains we first deploy the domain and then redeploy the sv app, and as we proxy the calls for state sync through the
   // sv-app we cannot configure state sync until the sv app has migrated
-  // if a migration is running we must not configure state sync because that will also add a pulumi dependency and our migrate flow will break (sv2-4 depending on sv1)
-  const stateSyncEnabled = !isSv1 && enableStateSync && !isRunningMigration && isActiveDomain;
+  const stateSyncEnabled = !isSv1 && enableStateSync && isActiveDomain;
   const keysSecret =
     nodeConfig.privateKey && nodeConfig.validator.privateKey && nodeConfig.validator.publicKey
       ? undefined
       : installCometBftKeysSecret(xns, nodeConfig.validator.keyAddress, migrationId);
-
-  let hyperdiskDbValues = {};
-  if (hyperdiskSupportConfig.hyperdiskSupport.enabled) {
-    hyperdiskDbValues = {
-      pvcName: `cometbft-migration-${migrationId}-hd-pvc`,
-      volumeStorageClass: standardStorageClassName,
-    };
-    if (hyperdiskSupportConfig.hyperdiskSupport.migrating) {
-      const { dataSource } = createVolumeSnapshot({
-        resourceName: `cometbft-${xns.logicalName}-migration-${migrationId}-snapshot`,
-        snapshotName: `cometbft-migration-${migrationId}-pd-snapshot`,
-        namespace: xns.logicalName,
-        pvcName: `global-domain-${migrationId}-cometbft-cometbft-data`,
-      });
-      hyperdiskDbValues = {
-        ...hyperdiskDbValues,
-        dataSource,
-      };
-    }
-  }
 
   const cometbftChartValues = _.mergeWith(cometBftValues, {
     sv1: nodeConfigs.sv1,
@@ -158,12 +137,14 @@ export function installCometBftNode(
       labels: [{ key: 'active_migration', value: isActiveDomain }],
     },
     db: {
-      volumeSize: clusterSmallDisk ? '240Gi' : svsConfig?.cometbft?.volumeSize,
-      ...hyperdiskDbValues,
+      volumeSize: clusterSmallDisk ? '240Gi' : pvcSize || svsConfig?.cometbft?.volumeSize,
+      pvcName: `cometbft-migration-${migrationId}-hd-pvc`,
+      volumeStorageClass: standardStorageClassName,
     },
     extraLogLevelFlags: svConfiguration.logging?.cometbftExtraLogLevelFlags,
     serviceAccountName: imagePullServiceAccountName,
     resources: svConfiguration.cometbft?.resources,
+    watchdog: watchdogValues(migrationId),
   });
   if (svConfiguration.cometbft?.additionalHelmValues) {
     _.merge(cometbftChartValues, svConfiguration.cometbft.additionalHelmValues);
@@ -186,6 +167,27 @@ export function installCometBftNode(
     appsAffinityAndTolerations
   );
   return { rpcServiceName: `${nodeConfig.identifier}-cometbft-rpc`, release };
+}
+
+const CANTON_METRICS_PORT = 10013;
+
+function watchdogValues(migrationId: DomainMigrationIndex): ChartValues {
+  const watchdog = svsConfig?.cometbft?.watchdog;
+  if (watchdog?.disabled) {
+    return { enabled: false };
+  }
+  const synchronizer = `global-domain-${migrationId}`;
+  return {
+    enabled: true,
+    sequencerMetricsUrl: `http://${synchronizer}-sequencer:${CANTON_METRICS_PORT}/metrics`,
+    mediatorMetricsUrl: `http://${synchronizer}-mediator:${CANTON_METRICS_PORT}/metrics`,
+    threshold: watchdog?.threshold,
+    evaluationIntervalSeconds: watchdog?.evaluationIntervalSeconds,
+    pollIntervalSeconds: watchdog?.pollIntervalSeconds,
+    scrapeTimeoutSeconds: watchdog?.scrapeTimeoutSeconds,
+    startupGraceSeconds: watchdog?.startupGraceSeconds,
+    cooldownSeconds: watchdog?.cooldownSeconds,
+  };
 }
 
 function installCometBftKeysSecret(

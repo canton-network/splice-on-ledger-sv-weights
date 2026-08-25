@@ -1,10 +1,7 @@
 // Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
 // SPDX-License-Identifier: Apache-2.0
-import {
-  Auth0ClientType,
-  getAuth0Config,
-  Auth0Fetch,
-} from '@lfdecentralizedtrust/splice-pulumi-common';
+import * as pulumi from '@pulumi/pulumi';
+import { Auth0ClientType, getAuth0Config, Auth0Fetch } from '@canton-network/splice-pulumi-common';
 
 import { installClusterVersion } from './clusterVersion';
 import { installCluster } from './installCluster';
@@ -15,22 +12,29 @@ async function auth0CacheAndInstallCluster(auth0Fetch: Auth0Fetch) {
 
   installClusterVersion();
 
-  const cluster = await installCluster(auth0Fetch);
+  const dso = await installCluster(auth0Fetch);
 
   await auth0Fetch.saveAuth0Cache();
 
-  return cluster;
+  return (await dso?.allSvs)?.map(sv => ({
+    nodeName: sv.nodeName,
+    databaseInstanceName: sv.appsPostgres.databaseId,
+    databaseSecretName: sv.appsPostgres.secretName,
+  }));
 }
 
 async function main() {
   const auth0FetchOutput = getAuth0Config(Auth0ClientType.MAINSTACK);
 
-  auth0FetchOutput.apply(async auth0Fetch => {
-    await auth0CacheAndInstallCluster(auth0Fetch);
+  const svs = auth0FetchOutput.apply(async auth0Fetch => {
+    const svs = await auth0CacheAndInstallCluster(auth0Fetch);
 
     scheduleLoadGenerator(auth0Fetch, []);
+
+    return svs;
   });
+
+  return svs;
 }
 
-// eslint-disable-next-line @typescript-eslint/no-floating-promises
-main();
+export const svs = pulumi.output(main());

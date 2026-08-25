@@ -5,17 +5,20 @@
 
 .. NOTE: add your upcoming release notes below this line. They are included in the `release_notes.rst`.
 
-.. release-notes:: Upcoming
+release-notes:: Upcoming
 
-    - Scan app
+    - Scan & SV App
 
-        - The following deprecated endpoints have been removed from the public API:
+        - The client IP used for per-client-IP HTTP rate limiting is now extracted based on a
+          configurable, ordered list of headers, ``rate-limiting.client-ip-headers``, which defaults
+          to ``["x-forwarded-for", "x-real-ip"]``. The first configured header that is present and
+          whose value parses as an IP literal is used; for comma separated values (as in
+          ``X-Forwarded-For``) the first entry is taken. Configuring an empty list disables the
+          extraction, in which case no per-client-IP rate limit is enforced.
 
-          - ``/v0/top-validators-by-validator-faucets``
-          - ``/v0/top-providers-by-app-rewards``
-          - ``/v0/top-validators-by-validator-rewards``
-          - ``/v0/top-validators-by-purchased-traffic``
+          This replaces the ``rate-limiting.trusted-client-ip-header`` and
+          ``rate-limiting.enable-client-provided-ip-headers`` options, which have been removed.
 
-    - Deployment
+    - Docker
 
-        - Switch docker base images to https://github.com/canton-network/canton-base-images to reduce attack surface.
+        - Updated Docker base image to 1.0.13, which updates gRPC health probe to v0.4.55.
