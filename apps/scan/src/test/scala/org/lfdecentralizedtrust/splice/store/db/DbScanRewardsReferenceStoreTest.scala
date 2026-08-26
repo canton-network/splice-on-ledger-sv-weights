@@ -532,6 +532,7 @@ class DbScanRewardsReferenceStoreTest
       ),
       Collections.emptyMap(),
       true,
+      Optional.empty(),
     )
     contract(
       identifier = templateId,

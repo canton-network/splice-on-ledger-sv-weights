@@ -2090,13 +2090,14 @@ template DsoRules with
         assertDeadlineExceeded "updateSvRightOwnerInfoInstruction.expiresAt" instruction.expiresAt
         return DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult
 
-    -- | Set the beneficiaries with which an SV right owner shares its rewards.
-    --
-    -- In contrast to `DsoRules_UpdateSvRightOwnerInfo`, this does not require a vote, as
-    -- right owners are free to share their own rewards as they see fit.
-    -- TODO: add a matching `DsoRules_UpdateSvRightOwnerParty` choice controlled by the
-    -- current right owner party, so that the party can be rotated without losing the right.
+
     nonconsuming choice DsoRules_UpdateSvRightOwnerBeneficiaries : DsoRules_UpdateSvRightOwnerBeneficiariesResult
+      -- ^ Set the beneficiaries with which an SV right owner shares its rewards.
+      --
+      -- In contrast to `DsoRules_UpdateSvRightOwnerInfo`, this does not require a vote, as
+      -- right owners are free to share their own rewards as they see fit.
+      -- TODO: add a matching `DsoRules_UpdateSvRightOwnerParty` choice controlled by the
+      -- current right owner party, so that the party can be rotated without losing the right.
       with
         name : Text -- ^ The name of the SV right owner whose beneficiaries are set.
         svRightOwnerCid : ContractId SvRightOwner
@@ -2114,6 +2115,7 @@ template DsoRules with
         requireValidSvRightOwnerInfo info
         svRightOwner <- create currentSvRightOwner with info
         return DsoRules_UpdateSvRightOwnerBeneficiariesResult with svRightOwner
+
 
 getSvOperatorNames : DsoRules -> Set Text
 getSvOperatorNames DsoRules{..} = Set.fromList $ map (.name) $ Map.values svs
