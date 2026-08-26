@@ -50,7 +50,7 @@ instance Patchable SvRightOwnerInfo where
 data BeneficiaryInfo = BeneficiaryInfo
   with
     rewardRatio : Decimal
-    -- ^ The proportion of rewards of the SV Right Owner that are shared with this beneficiary. It should be >0.0 and <=1.0
+      -- ^ The proportion of rewards of the SV Right Owner that are shared with this beneficiary. It should be >0.0 and <=1.0
   deriving (Eq, Show)
 
 instance Patchable BeneficiaryInfo where
