@@ -722,7 +722,7 @@ class SV1Initializer(
                           .asJava,
                         sv1Config.isDevNet,
                         java.util.Optional.of(initialRound),
-                        // todo: determine bootstrap use of on-chain weights
+                        // TODO(tech-debt): determine bootstrap use of on-chain weights
                         Optional.empty()
                       ).createAnd.exerciseDsoBootstrap_Bootstrap,
                     )

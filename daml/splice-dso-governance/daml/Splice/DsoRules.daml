@@ -117,7 +117,7 @@ data DsoRules_ActionRequiringConfirmation
     -- ^ Voted action to change the `DsoRulesConfig`. Not idempotent.
   | SRARC_UpdateSvRewardWeight DsoRules_UpdateSvRewardWeight
     -- ^ Voted action to update the reward weight of an SV node operator.
-    -- TODO: Deprecate in favor of `SRARC_UpdateSvRightOwnerInfo` once SV right owners are tracked on-ledger.
+    -- TODO(tech-debt): Deprecate in favor of `SRARC_UpdateSvRightOwnerInfo` once SV right owners are tracked on-ledger.
   | SRARC_CreateExternalPartyAmuletRules DsoRules_CreateExternalPartyAmuletRules
     -- ^ Create ExternalPartyAmuletRules contract if it has not been created as part of network bootstrapping.
   | SRARC_CreateTransferCommandCounter DsoRules_CreateTransferCommandCounter
@@ -1059,7 +1059,7 @@ template DsoRules with
              create this with config = patch newConfig baseConfig this.config
         return DsoRules_SetConfigResult with ..
 
-    -- TODO: Deprecate once SV right owners are tracked on-ledger
+    -- TODO(tech-debt): Deprecate once SV right owners are tracked on-ledger
     choice DsoRules_UpdateSvRewardWeight : DsoRules_UpdateSvRewardWeightResult
       with
         svParty : Party
@@ -1884,7 +1884,7 @@ template DsoRules with
       do
         requireMigratableToOnLedgerSvRightOwners this svRightOwners
         now <- getTime
-        -- TODO: make the expire time of the instruction configurable
+        -- TODO(tech-debt): make the expire time of the instruction configurable
         instruction <- create MigrateToOnLedgerSvRightOwnersInstruction with
           dso
           svRightOwners
@@ -1945,7 +1945,7 @@ template DsoRules with
         requireSvRightOwnerDoesNotExist this name
         requireRewardNodeOperatorExists this info
         now <- getTime
-        -- TODO: make the expire time of the instruction configurable
+        -- TODO(tech-debt): make the expire time of the instruction configurable
         instruction <- create AddSvRightOwnerInstruction with
           dso
           name
@@ -1992,7 +1992,7 @@ template DsoRules with
         requireOnLedgerSvRightOwners this
         requireRemovableSvRightOwner this name
         now <- getTime
-        -- TODO: make the expire time of the instruction configurable
+        -- TODO(tech-debt): make the expire time of the instruction configurable
         instruction <- create RemoveSvRightOwnerInstruction with
           dso
           name
@@ -2050,7 +2050,7 @@ template DsoRules with
         requireRewardNodeOperatorExists this newInfo
         requireValidSvRightOwnerInfo newInfo
         now <- getTime
-        -- TODO: make the expire time of the instruction configurable
+        -- TODO(tech-debt): make the expire time of the instruction configurable
         instruction <- create UpdateSvRightOwnerInfoInstruction with
           dso
           name
@@ -2096,7 +2096,7 @@ template DsoRules with
       --
       -- In contrast to `DsoRules_UpdateSvRightOwnerInfo`, this does not require a vote, as
       -- right owners are free to share their own rewards as they see fit.
-      -- TODO: add a matching `DsoRules_UpdateSvRightOwnerParty` choice controlled by the
+      -- TODO(tech-debt): add a matching `DsoRules_UpdateSvRightOwnerParty` choice controlled by the
       -- current right owner party, so that the party can be rotated without losing the right.
       with
         name : Text -- ^ The name of the SV right owner whose beneficiaries are set.
