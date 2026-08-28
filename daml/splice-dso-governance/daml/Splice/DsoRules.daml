@@ -4,15 +4,14 @@
 {-# LANGUAGE MultiWayIf #-}
 module Splice.DsoRules where
 
-import Prelude hiding (all)
+import Prelude hiding (all, sum)
 import DA.Action (void, unless)
 import DA.Assert
 import DA.Either (partitionEithers)
-import DA.Foldable (foldMap, forA_, all)
+import DA.Foldable (forA_, all, sum)
 import DA.List as List hiding (all)
 import DA.Map (Map)
 import qualified DA.Map as Map
-import DA.Monoid (Sum(..))
 import DA.Optional (isNone, fromSome, fromOptional, isSome)
 import DA.Set (Set)
 import qualified DA.Set as Set
@@ -117,7 +116,6 @@ data DsoRules_ActionRequiringConfirmation
     -- ^ Voted action to change the `DsoRulesConfig`. Not idempotent.
   | SRARC_UpdateSvRewardWeight DsoRules_UpdateSvRewardWeight
     -- ^ Voted action to update the reward weight of an SV node operator.
-    -- TODO(tech-debt): Deprecate in favor of `SRARC_UpdateSvRightOwnerInfo` once SV right owners are tracked on-ledger.
   | SRARC_CreateExternalPartyAmuletRules DsoRules_CreateExternalPartyAmuletRules
     -- ^ Create ExternalPartyAmuletRules contract if it has not been created as part of network bootstrapping.
   | SRARC_CreateTransferCommandCounter DsoRules_CreateTransferCommandCounter
@@ -1059,7 +1057,6 @@ template DsoRules with
              create this with config = patch newConfig baseConfig this.config
         return DsoRules_SetConfigResult with ..
 
-    -- TODO(tech-debt): Deprecate once SV right owners are tracked on-ledger
     choice DsoRules_UpdateSvRewardWeight : DsoRules_UpdateSvRewardWeightResult
       with
         svParty : Party
@@ -1508,7 +1505,7 @@ template DsoRules with
           couponCids <- forA (Map.toList couponWeights) $ \(beneficiary, weight) -> do
             couponCid <- create SvRewardCoupon with
               dso
-              sv = info.party
+              sv = info.rightOwnerParty
               beneficiary
               weight
               round = openRound.round
@@ -1884,7 +1881,6 @@ template DsoRules with
       do
         requireMigratableToOnLedgerSvRightOwners this svRightOwners
         now <- getTime
-        -- TODO(tech-debt): make the expire time of the instruction configurable
         instruction <- create MigrateToOnLedgerSvRightOwnersInstruction with
           dso
           svRightOwners
@@ -1945,7 +1941,6 @@ template DsoRules with
         requireSvRightOwnerDoesNotExist this name
         requireRewardNodeOperatorExists this info
         now <- getTime
-        -- TODO(tech-debt): make the expire time of the instruction configurable
         instruction <- create AddSvRightOwnerInstruction with
           dso
           name
@@ -1992,7 +1987,6 @@ template DsoRules with
         requireOnLedgerSvRightOwners this
         requireRemovableSvRightOwner this name
         now <- getTime
-        -- TODO(tech-debt): make the expire time of the instruction configurable
         instruction <- create RemoveSvRightOwnerInstruction with
           dso
           name
@@ -2050,7 +2044,6 @@ template DsoRules with
         requireRewardNodeOperatorExists this newInfo
         requireValidSvRightOwnerInfo newInfo
         now <- getTime
-        -- TODO(tech-debt): make the expire time of the instruction configurable
         instruction <- create UpdateSvRightOwnerInfoInstruction with
           dso
           name
@@ -2090,7 +2083,6 @@ template DsoRules with
         assertDeadlineExceeded "updateSvRightOwnerInfoInstruction.expiresAt" instruction.expiresAt
         return DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult
 
-
     nonconsuming choice DsoRules_UpdateSvRightOwnerBeneficiaries : DsoRules_UpdateSvRightOwnerBeneficiariesResult
       -- ^ Set the beneficiaries with which an SV right owner shares its rewards.
       --
@@ -2110,7 +2102,7 @@ template DsoRules with
         requireSvRightOwnerExists this name
         currentSvRightOwner <- fetchAndArchive (ForSv with dso; svName = name) svRightOwnerCid
         require "Beneficiaries are set by the SV right owner itself" $
-          currentSvRightOwner.info.party == rightOwner
+          currentSvRightOwner.info.rightOwnerParty == rightOwner
         let info = currentSvRightOwner.info with beneficiaries
         requireValidSvRightOwnerInfo info
         svRightOwner <- create currentSvRightOwner with info
@@ -2167,7 +2159,7 @@ requireMigratableToOnLedgerSvRightOwners this svRightOwners = do
   require "There is at least one SV right owner" (not $ TextMap.null svRightOwners)
   forA_ svRightOwners requireValidSvRightOwnerInfo
   require "The total SV reward weight is preserved" $
-    foldMap (Sum . (.svRewardWeight)) this.svs == foldMap (Sum . (.rewardWeight)) svRightOwners
+    sum (fmap (.svRewardWeight) this.svs) == sum (fmap (.rewardWeight) svRightOwners)
   forA_ svRightOwners $ requireRewardNodeOperatorExists this
 
 template MigrateToOnLedgerSvRightOwnersInstruction with

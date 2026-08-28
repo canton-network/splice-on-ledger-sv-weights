@@ -85,7 +85,7 @@ template DsoBootstrap with
         case sv1RightOwnerName of
           Some rightOwnerName -> do
             let info = SvRightOwnerInfo with
-                    party = sv1Party
+                    rightOwnerParty = sv1Party
                     rewardWeight = sv1RewardWeight
                     rewardNodeOperatorName = sv1Name
                     beneficiaries = Map.empty
