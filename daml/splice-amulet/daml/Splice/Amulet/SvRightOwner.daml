@@ -1,11 +1,13 @@
+-- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
 module Splice.Amulet.SvRightOwner where
 
 import Prelude hiding (all, sum)
 
-import DA.Foldable (all, foldMap, sum)
+import DA.Foldable (all, sum)
 import DA.Map (Map)
 import qualified DA.Map as Map
-import DA.Monoid (Sum(..))
 import Splice.Types (ForDso(..))
 import Splice.Util (HasCheckedFetch(..), Patchable(..), patchScalar)
 
@@ -29,19 +31,20 @@ instance HasCheckedFetch SvRightOwner ForDso where
 -- | Information about a super validator right owner.
 data SvRightOwnerInfo = SvRightOwnerInfo
   with
-    party : Party
+    rightOwnerParty : Party
     rewardWeight : Int
       -- ^ The weight of an SV Right Owner for reward minting
     rewardNodeOperatorName : Text
       -- ^ Name of the SV node operator through which rewards are minted.
     beneficiaries : Map Party BeneficiaryInfo
       -- ^ List of beneficiaries and their percentages for reward distribution. Must not include the right owner's party. Remainder goes to right owner.
+      -- At most 20 beneficiaries are allowed to bound the number of coupons minted per round.
   deriving (Eq, Show)
 
 instance Patchable SvRightOwnerInfo where
   patch new base current = SvRightOwnerInfo
     with
-      party = patch new.party base.party current.party
+      rightOwnerParty = patch new.rightOwnerParty base.rightOwnerParty current.rightOwnerParty
       rewardWeight = patch new.rewardWeight base.rewardWeight current.rewardWeight
       rewardNodeOperatorName = patch new.rewardNodeOperatorName base.rewardNodeOperatorName current.rewardNodeOperatorName
       beneficiaries = patch new.beneficiaries base.beneficiaries current.beneficiaries
@@ -62,8 +65,8 @@ validSvRightOwnerInfo : SvRightOwnerInfo -> Bool
 validSvRightOwnerInfo SvRightOwnerInfo{..} = and
   [ rewardWeight >= 0
   , all ((> 0.0) . rewardRatio) beneficiaries
-  , foldMap (Sum . rewardRatio) beneficiaries <= Sum 1.0
-  , not $ Map.member party beneficiaries
+  , sum (fmap (.rewardRatio) beneficiaries) <= 1.0
+  , not $ Map.member rightOwnerParty beneficiaries
   , Map.size beneficiaries <= 20
   ]
 
@@ -71,7 +74,7 @@ validSvRightOwnerInfo SvRightOwnerInfo{..} = and
 svRewardCouponWeights : SvRightOwnerInfo -> Map Party Int
 svRewardCouponWeights SvRightOwnerInfo{..} =
   if remainingWeight > 0
-  then Map.insert party remainingWeight beneficiaryWeights
+  then Map.insert rightOwnerParty remainingWeight beneficiaryWeights
   else beneficiaryWeights
   where
     remainingWeight = rewardWeight - sum beneficiaryWeights
