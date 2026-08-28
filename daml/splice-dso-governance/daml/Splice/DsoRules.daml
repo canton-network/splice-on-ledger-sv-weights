@@ -1890,10 +1890,8 @@ template DsoRules with
     choice DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstruction : DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstructionResult
       with
         instructionCid : ContractId MigrateToOnLedgerSvRightOwnersInstruction
-        openMiningRoundCid : ContractId OpenMiningRound
-          -- ^ The latest open mining round. SV right owners that are not yet known on-ledger
-          -- start collecting rewards in the round thereafter, as their rewards for this round
-          -- may already have been minted by their SV node operator.
+        openMiningRoundTriple : OpenMiningRoundTriple
+          -- ^ Determines the latest usable round. SV right owners start collecting in the round thereafter, as their SV node operator may already have minted for it.
         svOperatorRewardStateCids : TextMap (ContractId SvRewardState)
           -- ^ The `SvRewardState` contracts of the SV node operators, keyed by the operator's name.
         svOperator : Party
@@ -1905,13 +1903,13 @@ template DsoRules with
         requireMigratableToOnLedgerSvRightOwners this instruction.svRightOwners
         require "Reward states are provided for exactly the SV node operators" $
           Set.fromList (map fst $ TextMap.toList svOperatorRewardStateCids) == getSvOperatorNames this
-        openMiningRound <- fetchReferenceData (ForDso with dso) openMiningRoundCid
+        validatedRounds <- validateOpenMiningRoundTriple dso openMiningRoundTriple
         -- Archive the reward states of the SV node operators, as they do not earn rewards in their own right anymore.
         forA_ (TextMap.toList svOperatorRewardStateCids) $ \(svName, rewardStateCid) ->
           fetchAndArchive (ForSv with dso; svName) rewardStateCid
         svRightOwners <- forA (TextMap.toList instruction.svRightOwners) $ \(name, info) -> do
           svRightOwner <- create SvRightOwner with dso; name; info
-          svRewardState <- createSvRewardState dso name (Round $ openMiningRound.round.number + 1)
+          svRewardState <- createSvRewardState dso name (Round $ validatedRounds.latestUsableRound.round.number + 1)
           pure (name, (svRightOwner, svRewardState))
         newDsoRules <- create this with
           svs = fmap (\info -> info with svRewardWeight = 0) svs
@@ -1951,7 +1949,8 @@ template DsoRules with
     choice DsoRules_ExecuteAddSvRightOwnerInstruction : DsoRules_ExecuteAddSvRightOwnerInstructionResult
       with
         instructionCid : ContractId AddSvRightOwnerInstruction
-        openMiningRoundCid : ContractId OpenMiningRound
+        openMiningRoundTriple : OpenMiningRoundTriple
+          -- ^ Determines the latest usable round, in which the new SV right owner starts collecting rewards.
         svOperator : Party
       controller svOperator
       do
@@ -1961,9 +1960,9 @@ template DsoRules with
         requireSvRightOwnerDoesNotExist this instruction.name
         requireRewardNodeOperatorExists this instruction.info
         assertWithinDeadline "addSvRightOwnerInstruction.expiresAt" instruction.expiresAt
-        openMiningRound <- fetchReferenceData (ForDso with dso) openMiningRoundCid
+        validatedRounds <- validateOpenMiningRoundTriple dso openMiningRoundTriple
         svRightOwner <- create SvRightOwner with dso; name = instruction.name; info = instruction.info
-        svRewardState <- createSvRewardState dso instruction.name openMiningRound.round
+        svRewardState <- createSvRewardState dso instruction.name validatedRounds.latestUsableRound.round
         newDsoRules <- create this with
           svRightOwners = Set.insert instruction.name <$> svRightOwners
         return DsoRules_ExecuteAddSvRightOwnerInstructionResult with ..
