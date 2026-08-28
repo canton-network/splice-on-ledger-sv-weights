@@ -1,0 +1,79 @@
+-- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+module Splice.Scripts.TestSvRightOwners where
+
+import DA.Assert
+import qualified DA.Map as Map
+import qualified DA.Set as Set
+import qualified DA.TextMap as TextMap
+import DA.Time
+
+import Daml.Script
+
+import Splice.Amulet.SvRightOwner
+import Splice.DsoRules
+import Splice.Scripts.DsoTestUtils
+import Splice.Scripts.Util
+
+-- | Migrate the SV node operators of the test network to SV right owners of the same name.
+test_MigrateToOnLedgerSvRightOwners : Script ()
+test_MigrateToOnLedgerSvRightOwners = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNet
+  svRightOwners <- svRightOwnerInfosFromOperators app
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_MigrateToOnLedgerSvRightOwners DsoRules_MigrateToOnLedgerSvRightOwners with
+      svRightOwners
+
+  [(instructionCid, _)] <- query @MigrateToOnLedgerSvRightOwnersInstruction dso
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  svOperatorRewardStateCids <- getSvOperatorRewardStateCids app
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstruction with
+      instructionCid
+      openMiningRoundTriple
+      svOperatorRewardStateCids
+      svOperator = sv1
+
+  [(_, dsoRules)] <- query @DsoRules dso
+  [info.svRewardWeight | info <- Map.values dsoRules.svs] === [0, 0, 0, 0]
+  dsoRules.svRightOwners === Some (Set.fromList ["sv1", "sv2", "sv3", "sv4"])
+
+  owners <- query @SvRightOwner dso
+  TextMap.fromList [(owner.name, owner.info) | (_, owner) <- owners] === svRightOwners
+
+test_ExpireMigrateToOnLedgerSvRightOwnersInstruction : Script ()
+test_ExpireMigrateToOnLedgerSvRightOwnersInstruction = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNet
+  svRightOwners <- svRightOwnerInfosFromOperators app
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_MigrateToOnLedgerSvRightOwners DsoRules_MigrateToOnLedgerSvRightOwners with
+      svRightOwners
+
+  [(instructionCid, _)] <- query @MigrateToOnLedgerSvRightOwnersInstruction dso
+  passTime (hours 2)
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstruction with
+      instructionCid
+      svOperator = sv1
+
+  [] <- query @MigrateToOnLedgerSvRightOwnersInstruction dso
+  pure ()
+
+mkSvRightOwnerInfo : Party -> Int -> Text -> SvRightOwnerInfo
+mkSvRightOwnerInfo rightOwner weight operatorName = SvRightOwnerInfo with
+  rightOwnerParty = rightOwner
+  rewardWeight = weight
+  rewardNodeOperatorName = operatorName
+  beneficiaries = Map.empty
+
+-- | The SV node operators as SV right owners of their own name, preserving the total weight.
+svRightOwnerInfosFromOperators : AmuletApp -> Script (TextMap.TextMap SvRightOwnerInfo)
+svRightOwnerInfosFromOperators app = do
+  [(_, dsoRules)] <- query @DsoRules app.dso
+  pure $ TextMap.fromList
+    [ (info.name, mkSvRightOwnerInfo party info.svRewardWeight info.name)
+    | (party, info) <- Map.toList dsoRules.svs
+    ]
