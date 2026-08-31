@@ -17,6 +17,7 @@ import Daml.Script
 import DA.Time
 
 import Splice.Amulet
+import Splice.Amulet.SvRightOwner
 import Splice.AmuletConfig (AmuletConfig(..), USD, useTrafficBasedAppRewards)
 import Splice.AmuletRules
 import Splice.Issuance
@@ -44,6 +45,11 @@ bpsMultiplier = 10000
 -- TODO(tech-debt): default `onLedgerSvRightOwners` to True in the init helpers below.
 initMainNet : Script (AmuletApp, Party, (Party, Party, Party, Party))
 initMainNet = initDecentralizedSynchronizer False None False
+
+-- | A network whose SV reward weights are tracked on-ledger from the start, with the "sv1"
+-- node operator hosting an SV right owner of the same name.
+initMainNetWithSvRightOwners : Script (AmuletApp, Party, (Party, Party, Party, Party))
+initMainNetWithSvRightOwners = initDecentralizedSynchronizer False None True
 
 
 initMainNetWithAmuletPrice : Decimal -> Script (AmuletApp, Party, (Party, Party, Party, Party))
@@ -151,7 +157,7 @@ initDecentralizedSynchronizerWithAmuletPrice isDevNet initialRound amuletPrice o
     submit dso $ exerciseCmd dsoRulesCid $ DsoRules_AddSv with
       newSvParty = svParty
       newSvName = svName
-      newSvRewardWeight = 3 * bpsMultiplier -- Simulate the new nodes being Tier 2 SV nodes
+      newSvRewardWeight = if onLedgerSvRightOwners then 0 else 3 * bpsMultiplier -- Simulate the new nodes being Tier 2 SV nodes
       newSvParticipantId = svName <> "-participant-id"
       joinedAsOfRound = earliestOpenRound.round
 
@@ -166,6 +172,12 @@ getSvRewardStateCid : AmuletApp -> Text -> Script (ContractId SvRewardState)
 getSvRewardStateCid app svName = do
   [(rewardStateCid, _)] <- queryFilter @SvRewardState app.dso (\state -> state.svName == svName)
   pure rewardStateCid
+
+-- | The SV right owner with the given name.
+getSvRightOwnerCid : AmuletApp -> Text -> Script (ContractId SvRightOwner)
+getSvRightOwnerCid app name = do
+  [(svRightOwnerCid, _)] <- queryFilter @SvRightOwner app.dso (\owner -> owner.name == name)
+  pure svRightOwnerCid
 
 -- | The reward states of all SV node operators, keyed by the operator's name.
 getSvOperatorRewardStateCids : AmuletApp -> Script (TextMap.TextMap (ContractId SvRewardState))
@@ -471,16 +483,18 @@ checkSvRewardStates : AmuletApp -> Script ()
 checkSvRewardStates app = do
   rewardStates <- query @SvRewardState app.dso
   [(_, dsoRules)] <- query @DsoRules app.dso
-  forA_ (Map.values dsoRules.svs) $ \info ->
-    require "Each onboarded andSV name has one SvRewardState contract" $
-      any (\(_, rewardState) -> rewardState.svName == info.name) rewardStates
-  forA_ (Map.values dsoRules.offboardedSvs) $ \info ->
-    require "Each offboarded and SV name has one SvRewardState contract" $
-      any (\(_, rewardState) -> rewardState.svName == info.name) rewardStates
-  let offAndOnboardedSvs = Set.fromList (map (\info -> info.name) (Map.values dsoRules.svs) <> map (\info -> info.name) (Map.values dsoRules.offboardedSvs))
-  Set.fromList [state.svName | (_, state) <- rewardStates] === offAndOnboardedSvs
-  require "No duplicate SvRewardstate contracts" $
-    length rewardStates == Set.size offAndOnboardedSvs
+  -- Reward states are keyed by SV right owner name once weights are tracked on-ledger, and by
+  -- SV node operator name before that.
+  let expectedNames =
+        if onLedgerSvRightOwners dsoRules
+          then getSvRightOwners dsoRules
+          else Set.fromList $ map (.name) (Map.values dsoRules.svs) <> map (.name) (Map.values dsoRules.offboardedSvs)
+  forA_ (Set.toList expectedNames) $ \name ->
+    require ("Name " <> name <> " has one SvRewardState contract") $
+      any (\(_, state) -> state.svName == name) rewardStates
+  Set.fromList [state.svName | (_, state) <- rewardStates] === expectedNames
+  require "No duplicate SvRewardState contracts" $
+    length rewardStates == Set.size expectedNames
 
 -- | Check that there's exactly one status report per SV both off-boarded and onboarded.
 checkSvStatusReports : AmuletApp -> Script ()

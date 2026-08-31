@@ -73,6 +73,52 @@ test_ExpireMigrateToOnLedgerSvRightOwnersInstruction = do
   [] <- query @MigrateToOnLedgerSvRightOwnersInstruction dso
   pure ()
 
+-- | Add a new SV right owner hosted by the SV node operator of the same name.
+test_AddSvRightOwner : Script ()
+test_AddSvRightOwner = do
+  (app, dso, svs@(_, sv2, _, _)) <- initMainNetWithSvRightOwners
+  addSvRightOwner app svs "sv2" sv2
+
+  [(_, dsoRules)] <- query @DsoRules dso
+  dsoRules.svRightOwners === Some (Set.fromList ["sv1", "sv2"])
+
+  [(_, owner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv2")
+  owner.info === mkSvRightOwnerInfo sv2 rightOwnerWeight "sv2"
+
+  checkSvContractInvariants app
+
+test_ExpireAddSvRightOwnerInstruction : Script ()
+test_ExpireAddSvRightOwnerInstruction = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_AddSvRightOwner DsoRules_AddSvRightOwner with
+      name = "sv2"
+      info = mkSvRightOwnerInfo sv2 rightOwnerWeight "sv2"
+
+  [(instructionCid, _)] <- query @AddSvRightOwnerInstruction dso
+  passTime (hours 2)
+
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  submitMustFail (actAs sv1 <> readAs dso) $
+    exerciseCmd dsoRulesCid DsoRules_ExecuteAddSvRightOwnerInstruction with
+      instructionCid
+      openMiningRoundTriple
+      svOperator = sv1
+
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExpireAddSvRightOwnerInstruction with
+      instructionCid
+      sv = Some sv1
+
+  [] <- query @AddSvRightOwnerInstruction dso
+  pure ()
+
+-- | The reward weight given to the SV right owners added by these tests: that of a Tier 2 SV.
+rightOwnerWeight : Int
+rightOwnerWeight = 3 * bpsMultiplier
+
 mkSvRightOwnerInfo : Party -> Int -> Text -> SvRightOwnerInfo
 mkSvRightOwnerInfo rightOwner weight operatorName = SvRightOwnerInfo with
   rightOwnerParty = rightOwner
@@ -88,3 +134,21 @@ svRightOwnerInfosFromOperators app = do
     [ (info.name, mkSvRightOwnerInfo party info.svRewardWeight info.name)
     | (party, info) <- Map.toList dsoRules.svs
     ]
+
+-- | Vote in an SV right owner hosted by the SV node operator of the same name, and execute
+-- the resulting instruction.
+addSvRightOwner : AmuletApp -> (Party, Party, Party, Party) -> Text -> Party -> Script ()
+addSvRightOwner app (sv1, sv2, sv3, sv4) name rightOwnerParty = do
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_AddSvRightOwner DsoRules_AddSvRightOwner with
+      name
+      info = mkSvRightOwnerInfo rightOwnerParty rightOwnerWeight name
+
+  [(instructionCid, _)] <- query @AddSvRightOwnerInstruction app.dso
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExecuteAddSvRightOwnerInstruction with
+      instructionCid
+      openMiningRoundTriple
+      svOperator = sv1
+  pure ()
