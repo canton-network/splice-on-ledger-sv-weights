@@ -54,6 +54,17 @@ test_ExpireMigrateToOnLedgerSvRightOwnersInstruction = do
 
   [(instructionCid, _)] <- query @MigrateToOnLedgerSvRightOwnersInstruction dso
   passTime (hours 2)
+
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+    svOperatorRewardStateCids <- getSvOperatorRewardStateCids app
+    [(dsoRulesCid, _)] <- query @DsoRules dso
+    submitMustFail (actAs sv1 <> readAs dso) $
+      exerciseCmd dsoRulesCid DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstruction with
+        instructionCid
+        openMiningRoundTriple
+        svOperatorRewardStateCids
+        svOperator = sv1
+
   svSubmits app sv1 $ \dsoRulesCid ->
     exerciseCmd dsoRulesCid DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstruction with
       instructionCid
