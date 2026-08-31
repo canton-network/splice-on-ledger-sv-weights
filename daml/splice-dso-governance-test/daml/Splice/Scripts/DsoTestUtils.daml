@@ -12,6 +12,7 @@ import qualified DA.Map as Map
 import DA.Optional (fromOptional)
 import qualified DA.Set as Set
 import qualified DA.Text as T
+import qualified DA.TextMap as TextMap
 import Daml.Script
 import DA.Time
 
@@ -25,7 +26,7 @@ import Splice.ValidatorLicense
 
 import Splice.Scripts.Util
 import Splice.Testing.Registries.AmuletRegistry.Parameters
-import Splice.Testing.Registries.AmuletRegistry (advanceToNextRoundChange)
+import Splice.Testing.Registries.AmuletRegistry (advanceToNextRoundChange, getActiveOpenRoundsSorted)
 
 import Splice.CometBft
 import Splice.DsoRules
@@ -159,6 +160,25 @@ initDecentralizedSynchronizerWithAmuletPrice isDevNet initialRound amuletPrice o
 
   pure (app, dso, (sv1, sv2, sv3, sv4))
 
+
+-- | The reward state of the SV node operator with the given name.
+getSvRewardStateCid : AmuletApp -> Text -> Script (ContractId SvRewardState)
+getSvRewardStateCid app svName = do
+  [(rewardStateCid, _)] <- queryFilter @SvRewardState app.dso (\state -> state.svName == svName)
+  pure rewardStateCid
+
+-- | The reward states of all SV node operators, keyed by the operator's name.
+getSvOperatorRewardStateCids : AmuletApp -> Script (TextMap.TextMap (ContractId SvRewardState))
+getSvOperatorRewardStateCids app = do
+  [(_, rules)] <- query @DsoRules app.dso
+  fmap TextMap.fromList $ forA (Map.values rules.svs) $ \info -> do
+    rewardStateCid <- getSvRewardStateCid app info.name
+    pure (info.name, rewardStateCid)
+
+getOpenMiningRoundTriple : AmuletApp -> Script OpenMiningRoundTriple
+getOpenMiningRoundTriple app = do
+  [(round0Cid, _), (round1Cid, _), (round2Cid, _)] <- getActiveOpenRoundsSorted app.dso
+  pure OpenMiningRoundTriple with round0Cid; round1Cid; round2Cid
 
 getSvInfoByParty : AmuletApp -> Party -> Script SvInfo
 getSvInfoByParty app sv = do
