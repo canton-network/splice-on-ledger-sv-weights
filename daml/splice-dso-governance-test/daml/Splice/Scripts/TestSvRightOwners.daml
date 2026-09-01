@@ -4,6 +4,7 @@
 module Splice.Scripts.TestSvRightOwners where
 
 import DA.Assert
+import DA.List (sort)
 import qualified DA.Map as Map
 import qualified DA.Set as Set
 import qualified DA.TextMap as TextMap
@@ -11,9 +12,11 @@ import DA.Time
 
 import Daml.Script
 
+import Splice.Amulet
 import Splice.Amulet.SvRightOwner
 import Splice.DSO.SvState
 import Splice.DsoRules
+import Splice.Types
 import Splice.Scripts.DsoTestUtils
 import Splice.Scripts.Util
 
@@ -296,6 +299,57 @@ test_ExpireUpdateSvRightOwnerInfoInstruction = do
   [] <- query @UpdateSvRightOwnerInfoInstruction dso
   [(_, unchangedOwner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
   unchangedOwner.info === owner.info
+
+-- | An SV right owner shares its rewards with a beneficiary, which needs no vote.
+test_UpdateSvRightOwnerBeneficiaries : Script ()
+test_UpdateSvRightOwnerBeneficiaries = do
+  (app, dso, (sv1, sv2, _, _)) <- initMainNetWithSvRightOwners
+  let beneficiaries = Map.fromList [(sv2, BeneficiaryInfo with rewardRatio = 0.25)]
+
+  svRightOwnerCid <- getSvRightOwnerCid app "sv1"
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerBeneficiaries with
+      name = "sv1"
+      svRightOwnerCid
+      beneficiaries
+      rightOwner = sv1
+
+  [(_, owner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
+  owner.info.beneficiaries === beneficiaries
+
+-- | Mint one SV reward coupon per beneficiary of an SV right owner, with the remainder of its
+-- weight going to the right owner itself.
+test_ReceiveSvRewardCouponV2 : Script ()
+test_ReceiveSvRewardCouponV2 = do
+  (app, dso, (sv1, sv2, _, _)) <- initMainNetWithSvRightOwners
+  let rewardRatio = 0.25
+
+  svRightOwnerCid <- getSvRightOwnerCid app "sv1"
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerBeneficiaries with
+      name = "sv1"
+      svRightOwnerCid
+      beneficiaries = Map.fromList [(sv2, BeneficiaryInfo with rewardRatio)]
+      rightOwner = sv1
+
+  -- Round 0 opens at bootstrap time, and rewards can only be minted for an open round.
+  passTime (hours 1)
+  [(updatedSvRightOwnerCid, owner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
+  svRewardStateCid <- getSvRewardStateCid app "sv1"
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCouponV2 with
+      svOperator = sv1
+      openRoundCid = openMiningRoundTriple.round0Cid
+      svRightOwnerRewardInputs = TextMap.fromList [("sv1", (updatedSvRightOwnerCid, svRewardStateCid))]
+
+  let beneficiaryWeight = floor (intToDecimal owner.info.rewardWeight * rewardRatio)
+  coupons <- queryFilter @SvRewardCoupon dso (\coupon -> coupon.round == Round 0 && coupon.sv == sv1)
+  sort [(coupon.beneficiary, coupon.weight) | (_, coupon) <- coupons] ===
+    sort [(sv1, owner.info.rewardWeight - beneficiaryWeight), (sv2, beneficiaryWeight)]
+
+  [(_, rewardState)] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv1")
+  rewardState.state.lastRoundCollected === Round 0
 
 -- | The reward weight given to the SV right owners added by these tests: that of a Tier 2 SV.
 rightOwnerWeight : Int
