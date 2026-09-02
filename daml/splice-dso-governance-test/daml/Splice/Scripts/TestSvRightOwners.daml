@@ -191,6 +191,61 @@ test_ExpireRemoveSvRightOwnerInstruction = do
   [_] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv2")
   checkSvContractInvariants app
 
+-- | Update the info of an SV right owner by vote.
+test_UpdateSvRightOwnerInfo : Script ()
+test_UpdateSvRightOwnerInfo = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+  [(_, owner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
+  let newInfo = owner.info with rewardWeight = owner.info.rewardWeight + bpsMultiplier
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo with
+      name = "sv1"
+      baseInfo = owner.info
+      newInfo
+
+  [(instructionCid, _)] <- query @UpdateSvRightOwnerInfoInstruction dso
+  svRightOwnerCid <- getSvRightOwnerCid app "sv1"
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction with
+      instructionCid
+      svRightOwnerCid
+      svOperator = sv1
+
+  [(_, updatedOwner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
+  updatedOwner.info === newInfo
+
+test_ExpireUpdateSvRightOwnerInfoInstruction : Script ()
+test_ExpireUpdateSvRightOwnerInfoInstruction = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+  [(_, owner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo with
+      name = "sv1"
+      baseInfo = owner.info
+      newInfo = owner.info with rewardWeight = owner.info.rewardWeight + bpsMultiplier
+
+  [(instructionCid, _)] <- query @UpdateSvRightOwnerInfoInstruction dso
+  passTime (hours 2)
+
+  svRightOwnerCid <- getSvRightOwnerCid app "sv1"
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  submitMustFail (actAs sv1 <> readAs dso) $
+    exerciseCmd dsoRulesCid DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction with
+      instructionCid
+      svRightOwnerCid
+      svOperator = sv1
+
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExpireUpdateSvRightOwnerInfoInstruction with
+      instructionCid
+      svOperator = sv1
+
+  [] <- query @UpdateSvRightOwnerInfoInstruction dso
+  [(_, unchangedOwner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
+  unchangedOwner.info === owner.info
+
 -- | The reward weight given to the SV right owners added by these tests: that of a Tier 2 SV.
 rightOwnerWeight : Int
 rightOwnerWeight = 3 * bpsMultiplier
