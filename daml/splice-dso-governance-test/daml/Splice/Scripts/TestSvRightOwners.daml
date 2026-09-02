@@ -3,6 +3,7 @@
 
 module Splice.Scripts.TestSvRightOwners where
 
+import DA.Action (replicateA_)
 import DA.Assert
 import DA.List (sort)
 import qualified DA.Map as Map
@@ -350,6 +351,40 @@ test_ReceiveSvRewardCouponV2 = do
 
   [(_, rewardState)] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv1")
   rewardState.state.lastRoundCollected === Round 0
+
+-- | SV reward coupons that nobody claims expire into unclaimed rewards once their round closes,
+-- including the coupons minted for the beneficiaries of an SV right owner.
+test_ExpireSvRewardCoupons : Script ()
+test_ExpireSvRewardCoupons = do
+  (app, dso, (sv1, sv2, _, _)) <- initMainNetWithSvRightOwners
+
+  svRightOwnerCid <- getSvRightOwnerCid app "sv1"
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerBeneficiaries with
+      name = "sv1"
+      svRightOwnerCid
+      beneficiaries = Map.fromList [(sv2, BeneficiaryInfo with rewardRatio = 0.25)]
+      rightOwner = sv1
+
+  passTime (hours 1)
+  [(updatedSvRightOwnerCid, _)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
+  svRewardStateCid <- getSvRewardStateCid app "sv1"
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCouponV2 with
+      svOperator = sv1
+      openRoundCid = openMiningRoundTriple.round0Cid
+      svRightOwnerRewardInputs = TextMap.fromList [("sv1", (updatedSvRightOwnerCid, svRewardStateCid))]
+
+  minted <- queryFilter @SvRewardCoupon dso (\coupon -> coupon.round == Round 0)
+  length minted === 2
+
+  -- Round 0 has to reach its closed phase before its coupons can expire.
+  replicateA_ 5 $ runNextIssuanceD app 1.0 None
+
+  [] <- queryFilter @SvRewardCoupon dso (\coupon -> coupon.round == Round 0)
+  _ :: _ <- query @UnclaimedReward dso
+  pure ()
 
 -- | The reward weight given to the SV right owners added by these tests: that of a Tier 2 SV.
 rightOwnerWeight : Int
