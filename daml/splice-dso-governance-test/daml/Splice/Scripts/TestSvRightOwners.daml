@@ -12,6 +12,7 @@ import DA.Time
 import Daml.Script
 
 import Splice.Amulet.SvRightOwner
+import Splice.DSO.SvState
 import Splice.DsoRules
 import Splice.Scripts.DsoTestUtils
 import Splice.Scripts.Util
@@ -114,6 +115,81 @@ test_ExpireAddSvRightOwnerInstruction = do
 
   [] <- query @AddSvRightOwnerInstruction dso
   pure ()
+
+test_RemoveSvRightOwner : Script ()
+test_RemoveSvRightOwner = do
+  (app, dso, svs@(sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+  addSvRightOwner app svs "sv2" sv2
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_RemoveSvRightOwner DsoRules_RemoveSvRightOwner with
+      name = "sv2"
+
+  [(instructionCid, _)] <- query @RemoveSvRightOwnerInstruction dso
+  svRightOwnerCid <- getSvRightOwnerCid app "sv2"
+  svRewardStateCid <- getSvRewardStateCid app "sv2"
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExecuteRemoveSvRightOwnerInstruction with
+      instructionCid
+      svRightOwnerCid
+      svRewardStateCid
+      svOperator = sv1
+
+  [(_, dsoRules)] <- query @DsoRules dso
+  dsoRules.svRightOwners === Some (Set.fromList ["sv1"])
+  [] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv2")
+  [] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv2")
+  checkSvContractInvariants app
+
+test_CannotRemoveLastSvRightOwner : Script ()
+test_CannotRemoveLastSvRightOwner = do
+  (app, dso, _) <- initMainNetWithSvRightOwners
+
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  submitMustFail dso $
+    exerciseCmd dsoRulesCid DsoRules_RemoveSvRightOwner with
+      name = "sv1"
+
+  [] <- query @RemoveSvRightOwnerInstruction dso
+  [(_, dsoRules)] <- query @DsoRules dso
+  dsoRules.svRightOwners === Some (Set.fromList ["sv1"])
+  [_] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
+  [_] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv1")
+  checkSvContractInvariants app
+
+test_ExpireRemoveSvRightOwnerInstruction : Script ()
+test_ExpireRemoveSvRightOwnerInstruction = do
+  (app, dso, svs@(sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+  addSvRightOwner app svs "sv2" sv2
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_RemoveSvRightOwner DsoRules_RemoveSvRightOwner with
+      name = "sv2"
+
+  [(instructionCid, _)] <- query @RemoveSvRightOwnerInstruction dso
+  svRightOwnerCid <- getSvRightOwnerCid app "sv2"
+  svRewardStateCid <- getSvRewardStateCid app "sv2"
+  passTime (hours 2)
+
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  submitMustFail (actAs sv1 <> readAs dso) $
+    exerciseCmd dsoRulesCid DsoRules_ExecuteRemoveSvRightOwnerInstruction with
+      instructionCid
+      svRightOwnerCid
+      svRewardStateCid
+      svOperator = sv1
+
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExpireRemoveSvRightOwnerInstruction with
+      instructionCid
+      svOperator = sv1
+
+  [] <- query @RemoveSvRightOwnerInstruction dso
+  [(_, dsoRules)] <- query @DsoRules dso
+  dsoRules.svRightOwners === Some (Set.fromList ["sv1", "sv2"])
+  [_] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv2")
+  [_] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv2")
+  checkSvContractInvariants app
 
 -- | The reward weight given to the SV right owners added by these tests: that of a Tier 2 SV.
 rightOwnerWeight : Int
