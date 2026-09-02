@@ -153,8 +153,8 @@ test_CannotRemoveLastSvRightOwner = do
   [] <- query @RemoveSvRightOwnerInstruction dso
   [(_, dsoRules)] <- query @DsoRules dso
   dsoRules.svRightOwners === Some (Set.fromList ["sv1"])
-  [(_, _)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
-  [(_, _)] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv1")
+  [_] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
+  [_] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv1")
   checkSvContractInvariants app
 
 test_ExpireRemoveSvRightOwnerInstruction : Script ()
@@ -187,8 +187,8 @@ test_ExpireRemoveSvRightOwnerInstruction = do
   [] <- query @RemoveSvRightOwnerInstruction dso
   [(_, dsoRules)] <- query @DsoRules dso
   dsoRules.svRightOwners === Some (Set.fromList ["sv1", "sv2"])
-  [(_, _)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv2")
-  [(_, _)] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv2")
+  [_] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv2")
+  [_] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv2")
   checkSvContractInvariants app
 
 -- | The reward weight given to the SV right owners added by these tests: that of a Tier 2 SV.
