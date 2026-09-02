@@ -44,6 +44,57 @@ test_MigrateToOnLedgerSvRightOwners = do
   owners <- query @SvRightOwner dso
   TextMap.fromList [(owner.name, owner.info) | (_, owner) <- owners] === svRightOwners
 
+test_MigrateNonOneToOneSvRightOwners : Script ()
+test_MigrateNonOneToOneSvRightOwners = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <-
+    initDecentralizedSynchronizerWithNonZeroRound False 100 False
+  hostedSv <- allocateParty "hosted-sv"
+  let svRightOwners = TextMap.fromList
+        [ ("sv1", mkSvRightOwnerInfo sv1 (10 * bpsMultiplier) "sv1")
+        , ("sv3", mkSvRightOwnerInfo sv3 (6 * bpsMultiplier) "sv3")
+        , ("hosted-sv", mkSvRightOwnerInfo hostedSv (3 * bpsMultiplier) "sv2")
+        ]
+
+  [(sv3RewardStateCidBefore, sv3RewardStateBefore)] <-
+    queryFilter @SvRewardState dso (\state -> state.svName == "sv3")
+  [_, (_, latestUsableRound)] <- getOpenRoundsSorted app
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_MigrateToOnLedgerSvRightOwners DsoRules_MigrateToOnLedgerSvRightOwners with
+      svRightOwners
+
+  [(instructionCid, _)] <- query @MigrateToOnLedgerSvRightOwnersInstruction dso
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  svOperatorRewardStateCids <- getSvOperatorRewardStateCids app
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstruction with
+      instructionCid
+      openMiningRoundTriple
+      svOperatorRewardStateCids
+      svOperator = sv1
+
+  [(sv3RewardStateCidAfter, sv3RewardStateAfter)] <-
+    queryFilter @SvRewardState dso (\state -> state.svName == "sv3")
+  sv3RewardStateCidAfter === sv3RewardStateCidBefore
+  sv3RewardStateAfter.state === sv3RewardStateBefore.state
+
+  [(_, hostedSvRewardState)] <-
+    queryFilter @SvRewardState dso (\state -> state.svName == "hosted-sv")
+  hostedSvRewardState.state === RewardState with
+    numRoundsMissed = 0
+    numRoundsCollected = 0
+    lastRoundCollected = latestUsableRound.round
+    numCouponsIssued = 0
+
+  [] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv2")
+  [] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv4")
+
+  [(_, dsoRules)] <- query @DsoRules dso
+  dsoRules.svRightOwners === Some (Set.fromList ["sv1", "sv3", "hosted-sv"])
+  owners <- query @SvRightOwner dso
+  TextMap.fromList [(owner.name, owner.info) | (_, owner) <- owners] === svRightOwners
+  checkSvContractInvariants app
+
 test_ExpireMigrateToOnLedgerSvRightOwnersInstruction : Script ()
 test_ExpireMigrateToOnLedgerSvRightOwnersInstruction = do
   (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNet
