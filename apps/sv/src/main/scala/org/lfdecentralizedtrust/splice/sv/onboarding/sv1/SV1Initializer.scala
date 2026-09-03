@@ -37,7 +37,13 @@ import com.digitalasset.canton.topology.store.{
   StoredTopologyTransactions,
 }
 import com.digitalasset.canton.topology.transaction.TopologyMapping.Code
-import com.digitalasset.canton.topology.transaction.*
+import com.digitalasset.canton.topology.transaction.{
+  DecentralizedNamespaceDefinition,
+  ParticipantPermission,
+  SignedTopologyTransaction,
+  TopologyChangeOp,
+  TopologyMapping,
+}
 import com.digitalasset.canton.tracing.TraceContext
 import com.digitalasset.canton.util.MonadUtil
 import com.digitalasset.canton.util.ShowUtil.*
@@ -67,7 +73,13 @@ import org.lfdecentralizedtrust.splice.sv.config.{
   SvOnboardingConfig,
 }
 import org.lfdecentralizedtrust.splice.sv.onboarding.SynchronizerNodeReconciler.SynchronizerNodeState
-import org.lfdecentralizedtrust.splice.sv.onboarding.*
+import org.lfdecentralizedtrust.splice.sv.onboarding.{
+  DsoPartyHosting,
+  NodeInitializerUtil,
+  SetupUtil,
+  SynchronizerNodeInitializer,
+  SynchronizerNodeReconciler,
+}
 import org.lfdecentralizedtrust.splice.sv.store.{SvDsoStore, SvStore, SvSvStore}
 import org.lfdecentralizedtrust.splice.sv.util.SvUtil
 import org.lfdecentralizedtrust.splice.util.SpliceUtil.{defaultAmuletConfig, defaultAnsConfig}
