@@ -1,0 +1,81 @@
+-- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+module Splice.Amulet.SvRightOwner where
+
+import Prelude hiding (all, sum)
+
+import DA.Foldable (all, sum)
+import DA.Map (Map)
+import qualified DA.Map as Map
+import Splice.Types (ForDso(..))
+import Splice.Util (HasCheckedFetch(..), Patchable(..), patchScalar)
+
+-- | An SV right owner, i.e., an entity that owns SV rights and thereby earns SV rewards.
+--
+-- SV right owners are hosted by an SV node operator, which mints their rewards on their
+-- behalf. Multiple SV right owners can be hosted by the same SV node operator, and an SV
+-- node operator is not required to be an SV right owner itself.
+template SvRightOwner
+  with
+    dso : Party
+    name : Text -- ^ Human-readable name; unique among all SV right owners.
+    info : SvRightOwnerInfo
+  where
+    signatory dso
+    ensure validSvRightOwnerInfo info
+
+instance HasCheckedFetch SvRightOwner ForDso where
+  contractGroupId SvRightOwner{dso} = ForDso with dso
+
+-- | Information about a super validator right owner.
+data SvRightOwnerInfo = SvRightOwnerInfo
+  with
+    rightOwnerParty : Party
+    rewardWeight : Int
+      -- ^ The weight of an SV Right Owner for reward minting
+    rewardNodeOperatorName : Text
+      -- ^ Name of the SV node operator through which rewards are minted.
+    beneficiaries : Map Party BeneficiaryInfo
+      -- ^ List of beneficiaries and their percentages for reward distribution. Must not include the right owner's party. Remainder goes to right owner.
+      -- At most 20 beneficiaries are allowed to bound the number of coupons minted per round.
+  deriving (Eq, Show)
+
+instance Patchable SvRightOwnerInfo where
+  patch new base current = SvRightOwnerInfo
+    with
+      rightOwnerParty = patch new.rightOwnerParty base.rightOwnerParty current.rightOwnerParty
+      rewardWeight = patch new.rewardWeight base.rewardWeight current.rewardWeight
+      rewardNodeOperatorName = patch new.rewardNodeOperatorName base.rewardNodeOperatorName current.rewardNodeOperatorName
+      beneficiaries = patch new.beneficiaries base.beneficiaries current.beneficiaries
+
+-- | Information about a beneficiary.
+data BeneficiaryInfo = BeneficiaryInfo
+  with
+    rewardRatio : Decimal
+      -- ^ The proportion of rewards of the SV Right Owner that are shared with this beneficiary. It should be >0.0 and <=1.0
+  deriving (Eq, Show)
+
+instance Patchable BeneficiaryInfo where
+  patch new base current = BeneficiaryInfo
+    with
+      rewardRatio = patchScalar new.rewardRatio base.rewardRatio current.rewardRatio
+
+validSvRightOwnerInfo : SvRightOwnerInfo -> Bool
+validSvRightOwnerInfo SvRightOwnerInfo{..} = and
+  [ rewardWeight >= 0
+  , all ((> 0.0) . rewardRatio) beneficiaries
+  , sum (fmap (.rewardRatio) beneficiaries) <= 1.0
+  , not $ Map.member rightOwnerParty beneficiaries
+  , Map.size beneficiaries <= 20
+  ]
+
+-- | The absolute reward weight for each party that receives rewards in the context of this SV Right Owner.
+svRewardCouponWeights : SvRightOwnerInfo -> Map Party Int
+svRewardCouponWeights SvRightOwnerInfo{..} =
+  if remainingWeight > 0
+  then Map.insert rightOwnerParty remainingWeight beneficiaryWeights
+  else beneficiaryWeights
+  where
+    remainingWeight = rewardWeight - sum beneficiaryWeights
+    beneficiaryWeights = fmap (\BeneficiaryInfo{rewardRatio} -> floor (intToDecimal rewardWeight * rewardRatio)) beneficiaries

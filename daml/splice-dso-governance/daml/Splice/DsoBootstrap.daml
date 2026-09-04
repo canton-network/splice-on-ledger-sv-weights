@@ -4,9 +4,11 @@
 module Splice.DsoBootstrap where
 
 import qualified DA.Map as Map
+import DA.Optional (fromOptional, isSome)
+import qualified DA.Set as Set
 import DA.Time
-import DA.Optional (fromOptional)
 
+import Splice.Amulet.SvRightOwner
 import Splice.AmuletConfig
 import Splice.AmuletRules
 import Splice.ExternalPartyAmuletRules
@@ -35,6 +37,7 @@ template DsoBootstrap with
     initialTrafficState: Map.Map Text TrafficState
     isDevNet : Bool
     initialRound : Optional Int
+    sv1RightOwnerName : Optional Text
   where
     signatory dso
     observer sv1Party
@@ -60,12 +63,14 @@ template DsoBootstrap with
           amuletPrice
           initialRound
         -- create the DSO rules with the SV1 as the sole sv
-        let sv1SvInfo = SvInfo with
+        let
+          joinedAsOfRound = fromOptional (Round 0) result.initialRound
+          sv1SvInfo = SvInfo with
               name = sv1Name
               joinedAsOfRound = fromOptional (Round 0) result.initialRound
-              svRewardWeight = sv1RewardWeight
+              svRewardWeight = if isSome sv1RightOwnerName then 0 else sv1RewardWeight
               participantId = sv1ParticipantId
-        let dsoRules = DsoRules with
+          dsoRules = DsoRules with
               dso
               epoch = 0
               svs = Map.fromList [(sv1Party, sv1SvInfo)]
@@ -74,14 +79,19 @@ template DsoBootstrap with
               config
               initialTrafficState
               isDevNet
+              svRightOwners = Set.singleton <$> sv1RightOwnerName
         create dsoRules
         -- create initial per-sv and per-operator contracts for sv1
-        let addSvChoiceArgs = DsoRules_AddSv with
-              newSvParty = sv1Party
-              newSvName = sv1Name
-              newSvParticipantId = sv1ParticipantId
-              joinedAsOfRound = fromOptional (Round 0) result.initialRound
-              newSvRewardWeight = sv1RewardWeight
-        createPerSvContracts dsoRules addSvChoiceArgs
+        case sv1RightOwnerName of
+          Some rightOwnerName -> do
+            let info = SvRightOwnerInfo with
+                    rightOwnerParty = sv1Party
+                    rewardWeight = sv1RewardWeight
+                    rewardNodeOperatorName = sv1Name
+                    beneficiaries = Map.empty
+            create SvRightOwner with dso; name = rightOwnerName; info
+            createSvRewardState dso rightOwnerName joinedAsOfRound
+          None ->
+            createSvRewardState dso sv1Name joinedAsOfRound
         createPerSvPartyContracts dso sv1Party sv1Name sv1SynchronizerNodes (Some amuletPrice) (getVoteCooldownTime config)
         return DsoBootstrap_BootstrapResult
