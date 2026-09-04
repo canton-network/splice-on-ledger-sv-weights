@@ -109,7 +109,7 @@ test_ExpireMigrateToOnLedgerSvRightOwnersInstruction = do
       svRightOwners
 
   [(instructionCid, _)] <- query @MigrateToOnLedgerSvRightOwnersInstruction dso
-  passTime (hours 2)
+  passTime (hours 6)
 
   openMiningRoundTriple <- getOpenMiningRoundTriple app
   svOperatorRewardStateCids <- getSvOperatorRewardStateCids app
@@ -153,7 +153,7 @@ test_ExpireAddSvRightOwnerInstruction = do
       info = mkSvRightOwnerInfo sv2 rightOwnerWeight "sv2"
 
   [(instructionCid, _)] <- query @AddSvRightOwnerInstruction dso
-  passTime (hours 2)
+  passTime (hours 6)
 
   openMiningRoundTriple <- getOpenMiningRoundTriple app
   [(dsoRulesCid, _)] <- query @DsoRules dso
@@ -224,7 +224,7 @@ test_ExpireRemoveSvRightOwnerInstruction = do
   [(instructionCid, _)] <- query @RemoveSvRightOwnerInstruction dso
   svRightOwnerCid <- getSvRightOwnerCid app "sv2"
   svRewardStateCid <- getSvRewardStateCid app "sv2"
-  passTime (hours 2)
+  passTime (hours 6)
 
   [(dsoRulesCid, _)] <- query @DsoRules dso
   submitMustFail (actAs sv1 <> readAs dso) $
@@ -282,7 +282,7 @@ test_ExpireUpdateSvRightOwnerInfoInstruction = do
       newInfo = owner.info with rewardWeight = owner.info.rewardWeight + bpsMultiplier
 
   [(instructionCid, _)] <- query @UpdateSvRightOwnerInfoInstruction dso
-  passTime (hours 2)
+  passTime (hours 6)
 
   svRightOwnerCid <- getSvRightOwnerCid app "sv1"
   [(dsoRulesCid, _)] <- query @DsoRules dso
@@ -334,7 +334,7 @@ test_ReceiveSvRewardCouponV2 = do
       rightOwner = sv1
 
   -- Round 0 opens at bootstrap time, and rewards can only be minted for an open round.
-  passTime (hours 1)
+  passTime (hours 6)
   [(updatedSvRightOwnerCid, owner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
   svRewardStateCid <- getSvRewardStateCid app "sv1"
   openMiningRoundTriple <- getOpenMiningRoundTriple app
@@ -366,7 +366,7 @@ test_ExpireSvRewardCoupons = do
       beneficiaries = Map.fromList [(sv2, BeneficiaryInfo with rewardRatio = 0.25)]
       rightOwner = sv1
 
-  passTime (hours 1)
+  passTime (hours 6)
   [(updatedSvRightOwnerCid, _)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
   svRewardStateCid <- getSvRewardStateCid app "sv1"
   openMiningRoundTriple <- getOpenMiningRoundTriple app
