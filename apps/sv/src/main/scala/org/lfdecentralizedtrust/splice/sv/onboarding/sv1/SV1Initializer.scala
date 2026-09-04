@@ -734,7 +734,7 @@ class SV1Initializer(
                           .asJava,
                         sv1Config.isDevNet,
                         java.util.Optional.of(initialRound),
-                        // TODO(tech-debt): determine bootstrap use of on-chain weights
+                        // TODO(canton-network/splice#7117): This is phase 1. Proper definitions will come in next phases.
                         Optional.empty(),
                       ).createAnd.exerciseDsoBootstrap_Bootstrap,
                     )

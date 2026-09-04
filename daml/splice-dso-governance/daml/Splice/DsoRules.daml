@@ -115,7 +115,9 @@ data DsoRules_ActionRequiringConfirmation
   | SRARC_SetConfig DsoRules_SetConfig
     -- ^ Voted action to change the `DsoRulesConfig`. Not idempotent.
   | SRARC_UpdateSvRewardWeight DsoRules_UpdateSvRewardWeight
-    -- ^ Voted action to update the reward weight of an SV node operator.
+    -- ^ Voted action to update the reward weight of an SV node operator under legacy SV reward system.
+    -- Obsolete after MigrateToOnLedgerSvRightOwners.
+    -- TODO(canton-network/splice#7117): Remove in phase 4.
   | SRARC_CreateExternalPartyAmuletRules DsoRules_CreateExternalPartyAmuletRules
     -- ^ Create ExternalPartyAmuletRules contract if it has not been created as part of network bootstrapping.
   | SRARC_CreateTransferCommandCounter DsoRules_CreateTransferCommandCounter
@@ -1884,7 +1886,7 @@ template DsoRules with
         instruction <- create MigrateToOnLedgerSvRightOwnersInstruction with
           dso
           svRightOwners
-          expiresAt = now `addRelTime` hours 1
+          expiresAt = now `addRelTime` hours 4
         pure DsoRules_MigrateToOnLedgerSvRightOwnersResult with instruction
 
     choice DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstruction : DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstructionResult
@@ -1949,7 +1951,7 @@ template DsoRules with
           dso
           name
           info
-          expiresAt = now `addRelTime` hours 1
+          expiresAt = now `addRelTime` hours 4
         return DsoRules_AddSvRightOwnerResult with instruction
 
     choice DsoRules_ExecuteAddSvRightOwnerInstruction : DsoRules_ExecuteAddSvRightOwnerInstructionResult
@@ -1995,7 +1997,7 @@ template DsoRules with
         instruction <- create RemoveSvRightOwnerInstruction with
           dso
           name
-          expiresAt = now `addRelTime` hours 1
+          expiresAt = now `addRelTime` hours 4
         return DsoRules_RemoveSvRightOwnerResult with instruction
 
     choice DsoRules_ExecuteRemoveSvRightOwnerInstruction : DsoRules_ExecuteRemoveSvRightOwnerInstructionResult
@@ -2054,7 +2056,7 @@ template DsoRules with
           name
           baseInfo
           newInfo
-          expiresAt = now `addRelTime` hours 1
+          expiresAt = now `addRelTime` hours 4
         return DsoRules_UpdateSvRightOwnerInfoResult with instruction
 
     nonconsuming choice DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction : DsoRules_ExecuteUpdateSvRightOwnerInfoInstructionResult
@@ -2093,7 +2095,7 @@ template DsoRules with
       --
       -- In contrast to `DsoRules_UpdateSvRightOwnerInfo`, this does not require a vote, as
       -- right owners are free to share their own rewards as they see fit.
-      -- TODO(tech-debt): add a matching `DsoRules_UpdateSvRightOwnerParty` choice controlled by the
+      -- TODO(canton-network/splice#7117): add a matching `DsoRules_UpdateSvRightOwnerParty` choice controlled by the
       -- current right owner party, so that the party can be rotated without losing the right.
       with
         name : Text -- ^ The name of the SV right owner whose beneficiaries are set.
