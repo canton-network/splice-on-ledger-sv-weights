@@ -87,7 +87,7 @@ testOnboardValidator = do
   now <- getTime
 
   -- after advancing time we can report active again, report active also ensures sponsor = validator
-  validatorLicenseCid <- submit dso $ 
+  validatorLicenseCid <- submit dso $
     archiveCmd validatorLicenseCid *>
     createCmd validatorLicense
       with
@@ -548,7 +548,7 @@ test_MergeValidatorLicense = do
 
 testBootstrapDevNetWithNonZeroRound : Script ()
 testBootstrapDevNetWithNonZeroRound = do
-  (app, _, _) <- initDecentralizedSynchronizerWithNonZeroRound True 34
+  (app, _, _) <- initDecentralizedSynchronizerWithNonZeroRound True 34 False
   [(_, earliestRound), (_, middleRound), (_, latestRound)] <- getActiveOpenRoundsSorted app.dso
   earliestRound.round === Round 34
   middleRound.round === Round 35
@@ -557,7 +557,7 @@ testBootstrapDevNetWithNonZeroRound = do
 
 testBootstrapMainNetWithNonZeroRound : Script ()
 testBootstrapMainNetWithNonZeroRound = do
-  (app, _, _) <- initDecentralizedSynchronizerWithNonZeroRound False 34
+  (app, _, _) <- initDecentralizedSynchronizerWithNonZeroRound False 34 False
   [(_, earliestRound), (_, middleRound), (_, latestRound)] <- getActiveOpenRoundsSorted app.dso
   earliestRound.round === Round 34
   middleRound.round === Round 35

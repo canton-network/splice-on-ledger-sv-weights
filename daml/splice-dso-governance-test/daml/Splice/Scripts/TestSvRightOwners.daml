@@ -1,0 +1,425 @@
+-- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+module Splice.Scripts.TestSvRightOwners where
+
+import DA.Action (replicateA_)
+import DA.Assert
+import DA.List (sort)
+import qualified DA.Map as Map
+import qualified DA.Set as Set
+import qualified DA.TextMap as TextMap
+import DA.Time
+
+import Daml.Script
+
+import Splice.Amulet
+import Splice.Amulet.SvRightOwner
+import Splice.DSO.SvState
+import Splice.DsoRules
+import Splice.Types
+import Splice.Scripts.DsoTestUtils
+import Splice.Scripts.Util
+
+-- | Migrate the SV node operators of the test network to SV right owners of the same name.
+test_MigrateToOnLedgerSvRightOwners : Script ()
+test_MigrateToOnLedgerSvRightOwners = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNet
+  svRightOwners <- svRightOwnerInfosFromOperators app
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_MigrateToOnLedgerSvRightOwners DsoRules_MigrateToOnLedgerSvRightOwners with
+      svRightOwners
+
+  [(instructionCid, _)] <- query @MigrateToOnLedgerSvRightOwnersInstruction dso
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  svOperatorRewardStateCids <- getSvOperatorRewardStateCids app
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstruction with
+      instructionCid
+      openMiningRoundTriple
+      svOperatorRewardStateCids
+      svOperator = sv1
+
+  [(_, dsoRules)] <- query @DsoRules dso
+  [info.svRewardWeight | info <- Map.values dsoRules.svs] === [0, 0, 0, 0]
+  dsoRules.svRightOwners === Some (Set.fromList ["sv1", "sv2", "sv3", "sv4"])
+
+  owners <- query @SvRightOwner dso
+  TextMap.fromList [(owner.name, owner.info) | (_, owner) <- owners] === svRightOwners
+
+test_MigrateNonOneToOneSvRightOwners : Script ()
+test_MigrateNonOneToOneSvRightOwners = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <-
+    initDecentralizedSynchronizerWithNonZeroRound False 100 False
+  hostedSv <- allocateParty "hosted-sv"
+  let svRightOwners = TextMap.fromList
+        [ ("sv1", mkSvRightOwnerInfo sv1 (10 * bpsMultiplier) "sv1")
+        , ("sv3", mkSvRightOwnerInfo sv3 (6 * bpsMultiplier) "sv3")
+        , ("hosted-sv", mkSvRightOwnerInfo hostedSv (3 * bpsMultiplier) "sv2")
+        ]
+
+  [(sv3RewardStateCidBefore, sv3RewardStateBefore)] <-
+    queryFilter @SvRewardState dso (\state -> state.svName == "sv3")
+  [_, (_, latestUsableRound)] <- getOpenRoundsSorted app
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_MigrateToOnLedgerSvRightOwners DsoRules_MigrateToOnLedgerSvRightOwners with
+      svRightOwners
+
+  [(instructionCid, _)] <- query @MigrateToOnLedgerSvRightOwnersInstruction dso
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  svOperatorRewardStateCids <- getSvOperatorRewardStateCids app
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstruction with
+      instructionCid
+      openMiningRoundTriple
+      svOperatorRewardStateCids
+      svOperator = sv1
+
+  [(sv3RewardStateCidAfter, sv3RewardStateAfter)] <-
+    queryFilter @SvRewardState dso (\state -> state.svName == "sv3")
+  sv3RewardStateCidAfter === sv3RewardStateCidBefore
+  sv3RewardStateAfter.state === sv3RewardStateBefore.state
+
+  [(_, hostedSvRewardState)] <-
+    queryFilter @SvRewardState dso (\state -> state.svName == "hosted-sv")
+  hostedSvRewardState.state === RewardState with
+    numRoundsMissed = 0
+    numRoundsCollected = 0
+    lastRoundCollected = latestUsableRound.round
+    numCouponsIssued = 0
+
+  [] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv2")
+  [] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv4")
+
+  [(_, dsoRules)] <- query @DsoRules dso
+  dsoRules.svRightOwners === Some (Set.fromList ["sv1", "sv3", "hosted-sv"])
+  owners <- query @SvRightOwner dso
+  TextMap.fromList [(owner.name, owner.info) | (_, owner) <- owners] === svRightOwners
+  checkSvContractInvariants app
+
+test_ExpireMigrateToOnLedgerSvRightOwnersInstruction : Script ()
+test_ExpireMigrateToOnLedgerSvRightOwnersInstruction = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNet
+  svRightOwners <- svRightOwnerInfosFromOperators app
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_MigrateToOnLedgerSvRightOwners DsoRules_MigrateToOnLedgerSvRightOwners with
+      svRightOwners
+
+  [(instructionCid, _)] <- query @MigrateToOnLedgerSvRightOwnersInstruction dso
+  passTime (hours 6)
+
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  svOperatorRewardStateCids <- getSvOperatorRewardStateCids app
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  submitMustFail (actAs sv1 <> readAs dso) $
+    exerciseCmd dsoRulesCid DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstruction with
+      instructionCid
+      openMiningRoundTriple
+      svOperatorRewardStateCids
+      svOperator = sv1
+
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstruction with
+      instructionCid
+      svOperator = sv1
+
+  [] <- query @MigrateToOnLedgerSvRightOwnersInstruction dso
+  pure ()
+
+-- | Add a new SV right owner hosted by the SV node operator of the same name.
+test_AddSvRightOwner : Script ()
+test_AddSvRightOwner = do
+  (app, dso, svs@(_, sv2, _, _)) <- initMainNetWithSvRightOwners
+  addSvRightOwner app svs "sv2" sv2
+
+  [(_, dsoRules)] <- query @DsoRules dso
+  dsoRules.svRightOwners === Some (Set.fromList ["sv1", "sv2"])
+
+  [(_, owner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv2")
+  owner.info === mkSvRightOwnerInfo sv2 rightOwnerWeight "sv2"
+
+  checkSvContractInvariants app
+
+test_ExpireAddSvRightOwnerInstruction : Script ()
+test_ExpireAddSvRightOwnerInstruction = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_AddSvRightOwner DsoRules_AddSvRightOwner with
+      name = "sv2"
+      info = mkSvRightOwnerInfo sv2 rightOwnerWeight "sv2"
+
+  [(instructionCid, _)] <- query @AddSvRightOwnerInstruction dso
+  passTime (hours 6)
+
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  submitMustFail (actAs sv1 <> readAs dso) $
+    exerciseCmd dsoRulesCid DsoRules_ExecuteAddSvRightOwnerInstruction with
+      instructionCid
+      openMiningRoundTriple
+      svOperator = sv1
+
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExpireAddSvRightOwnerInstruction with
+      instructionCid
+      sv = Some sv1
+
+  [] <- query @AddSvRightOwnerInstruction dso
+  pure ()
+
+test_RemoveSvRightOwner : Script ()
+test_RemoveSvRightOwner = do
+  (app, dso, svs@(sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+  addSvRightOwner app svs "sv2" sv2
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_RemoveSvRightOwner DsoRules_RemoveSvRightOwner with
+      name = "sv2"
+
+  [(instructionCid, _)] <- query @RemoveSvRightOwnerInstruction dso
+  svRightOwnerCid <- getSvRightOwnerCid app "sv2"
+  svRewardStateCid <- getSvRewardStateCid app "sv2"
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExecuteRemoveSvRightOwnerInstruction with
+      instructionCid
+      svRightOwnerCid
+      svRewardStateCid
+      svOperator = sv1
+
+  [(_, dsoRules)] <- query @DsoRules dso
+  dsoRules.svRightOwners === Some (Set.fromList ["sv1"])
+  [] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv2")
+  [] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv2")
+  checkSvContractInvariants app
+
+test_CannotRemoveLastSvRightOwner : Script ()
+test_CannotRemoveLastSvRightOwner = do
+  (app, dso, _) <- initMainNetWithSvRightOwners
+
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  submitMustFail dso $
+    exerciseCmd dsoRulesCid DsoRules_RemoveSvRightOwner with
+      name = "sv1"
+
+  [] <- query @RemoveSvRightOwnerInstruction dso
+  [(_, dsoRules)] <- query @DsoRules dso
+  dsoRules.svRightOwners === Some (Set.fromList ["sv1"])
+  [_] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
+  [_] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv1")
+  checkSvContractInvariants app
+
+test_ExpireRemoveSvRightOwnerInstruction : Script ()
+test_ExpireRemoveSvRightOwnerInstruction = do
+  (app, dso, svs@(sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+  addSvRightOwner app svs "sv2" sv2
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_RemoveSvRightOwner DsoRules_RemoveSvRightOwner with
+      name = "sv2"
+
+  [(instructionCid, _)] <- query @RemoveSvRightOwnerInstruction dso
+  svRightOwnerCid <- getSvRightOwnerCid app "sv2"
+  svRewardStateCid <- getSvRewardStateCid app "sv2"
+  passTime (hours 6)
+
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  submitMustFail (actAs sv1 <> readAs dso) $
+    exerciseCmd dsoRulesCid DsoRules_ExecuteRemoveSvRightOwnerInstruction with
+      instructionCid
+      svRightOwnerCid
+      svRewardStateCid
+      svOperator = sv1
+
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExpireRemoveSvRightOwnerInstruction with
+      instructionCid
+      svOperator = sv1
+
+  [] <- query @RemoveSvRightOwnerInstruction dso
+  [(_, dsoRules)] <- query @DsoRules dso
+  dsoRules.svRightOwners === Some (Set.fromList ["sv1", "sv2"])
+  [_] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv2")
+  [_] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv2")
+  checkSvContractInvariants app
+
+-- | Update the info of an SV right owner by vote.
+test_UpdateSvRightOwnerInfo : Script ()
+test_UpdateSvRightOwnerInfo = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+  [(_, owner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
+  let newInfo = owner.info with rewardWeight = owner.info.rewardWeight + bpsMultiplier
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo with
+      name = "sv1"
+      baseInfo = owner.info
+      newInfo
+
+  [(instructionCid, _)] <- query @UpdateSvRightOwnerInfoInstruction dso
+  svRightOwnerCid <- getSvRightOwnerCid app "sv1"
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction with
+      instructionCid
+      svRightOwnerCid
+      svOperator = sv1
+
+  [(_, updatedOwner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
+  updatedOwner.info === newInfo
+
+test_ExpireUpdateSvRightOwnerInfoInstruction : Script ()
+test_ExpireUpdateSvRightOwnerInfoInstruction = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+  [(_, owner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo with
+      name = "sv1"
+      baseInfo = owner.info
+      newInfo = owner.info with rewardWeight = owner.info.rewardWeight + bpsMultiplier
+
+  [(instructionCid, _)] <- query @UpdateSvRightOwnerInfoInstruction dso
+  passTime (hours 6)
+
+  svRightOwnerCid <- getSvRightOwnerCid app "sv1"
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  submitMustFail (actAs sv1 <> readAs dso) $
+    exerciseCmd dsoRulesCid DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction with
+      instructionCid
+      svRightOwnerCid
+      svOperator = sv1
+
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExpireUpdateSvRightOwnerInfoInstruction with
+      instructionCid
+      svOperator = sv1
+
+  [] <- query @UpdateSvRightOwnerInfoInstruction dso
+  [(_, unchangedOwner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
+  unchangedOwner.info === owner.info
+
+-- | An SV right owner shares its rewards with a beneficiary, which needs no vote.
+test_UpdateSvRightOwnerBeneficiaries : Script ()
+test_UpdateSvRightOwnerBeneficiaries = do
+  (app, dso, (sv1, sv2, _, _)) <- initMainNetWithSvRightOwners
+  let beneficiaries = Map.fromList [(sv2, BeneficiaryInfo with rewardRatio = 0.25)]
+
+  svRightOwnerCid <- getSvRightOwnerCid app "sv1"
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerBeneficiaries with
+      name = "sv1"
+      svRightOwnerCid
+      beneficiaries
+      rightOwner = sv1
+
+  [(_, owner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
+  owner.info.beneficiaries === beneficiaries
+
+-- | Mint one SV reward coupon per beneficiary of an SV right owner, with the remainder of its
+-- weight going to the right owner itself.
+test_ReceiveSvRewardCouponV2 : Script ()
+test_ReceiveSvRewardCouponV2 = do
+  (app, dso, (sv1, sv2, _, _)) <- initMainNetWithSvRightOwners
+  let rewardRatio = 0.25
+
+  svRightOwnerCid <- getSvRightOwnerCid app "sv1"
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerBeneficiaries with
+      name = "sv1"
+      svRightOwnerCid
+      beneficiaries = Map.fromList [(sv2, BeneficiaryInfo with rewardRatio)]
+      rightOwner = sv1
+
+  -- Round 0 opens at bootstrap time, and rewards can only be minted for an open round.
+  passTime (hours 6)
+  [(updatedSvRightOwnerCid, owner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
+  svRewardStateCid <- getSvRewardStateCid app "sv1"
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCouponV2 with
+      svOperator = sv1
+      openRoundCid = openMiningRoundTriple.round0Cid
+      svRightOwnerRewardInputs = TextMap.fromList [("sv1", (updatedSvRightOwnerCid, svRewardStateCid))]
+
+  let beneficiaryWeight = floor (intToDecimal owner.info.rewardWeight * rewardRatio)
+  coupons <- queryFilter @SvRewardCoupon dso (\coupon -> coupon.round == Round 0 && coupon.sv == sv1)
+  sort [(coupon.beneficiary, coupon.weight) | (_, coupon) <- coupons] ===
+    sort [(sv1, owner.info.rewardWeight - beneficiaryWeight), (sv2, beneficiaryWeight)]
+
+  [(_, rewardState)] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv1")
+  rewardState.state.lastRoundCollected === Round 0
+
+-- | SV reward coupons that nobody claims expire into unclaimed rewards once their round closes,
+-- including the coupons minted for the beneficiaries of an SV right owner.
+test_ExpireSvRewardCoupons : Script ()
+test_ExpireSvRewardCoupons = do
+  (app, dso, (sv1, sv2, _, _)) <- initMainNetWithSvRightOwners
+
+  svRightOwnerCid <- getSvRightOwnerCid app "sv1"
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerBeneficiaries with
+      name = "sv1"
+      svRightOwnerCid
+      beneficiaries = Map.fromList [(sv2, BeneficiaryInfo with rewardRatio = 0.25)]
+      rightOwner = sv1
+
+  passTime (hours 6)
+  [(updatedSvRightOwnerCid, _)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
+  svRewardStateCid <- getSvRewardStateCid app "sv1"
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCouponV2 with
+      svOperator = sv1
+      openRoundCid = openMiningRoundTriple.round0Cid
+      svRightOwnerRewardInputs = TextMap.fromList [("sv1", (updatedSvRightOwnerCid, svRewardStateCid))]
+
+  minted <- queryFilter @SvRewardCoupon dso (\coupon -> coupon.round == Round 0)
+  length minted === 2
+
+  -- Round 0 has to reach its closed phase before its coupons can expire.
+  replicateA_ 5 $ runNextIssuanceD app 1.0 None
+
+  [] <- queryFilter @SvRewardCoupon dso (\coupon -> coupon.round == Round 0)
+  _ :: _ <- query @UnclaimedReward dso
+  pure ()
+
+-- | The reward weight given to the SV right owners added by these tests: that of a Tier 2 SV.
+rightOwnerWeight : Int
+rightOwnerWeight = 3 * bpsMultiplier
+
+mkSvRightOwnerInfo : Party -> Int -> Text -> SvRightOwnerInfo
+mkSvRightOwnerInfo rightOwner weight operatorName = SvRightOwnerInfo with
+  rightOwnerParty = rightOwner
+  rewardWeight = weight
+  rewardNodeOperatorName = operatorName
+  beneficiaries = Map.empty
+
+-- | The SV node operators as SV right owners of their own name, preserving the total weight.
+svRightOwnerInfosFromOperators : AmuletApp -> Script (TextMap.TextMap SvRightOwnerInfo)
+svRightOwnerInfosFromOperators app = do
+  [(_, dsoRules)] <- query @DsoRules app.dso
+  pure $ TextMap.fromList
+    [ (info.name, mkSvRightOwnerInfo party info.svRewardWeight info.name)
+    | (party, info) <- Map.toList dsoRules.svs
+    ]
+
+-- | Vote in an SV right owner hosted by the SV node operator of the same name, and execute
+-- the resulting instruction.
+addSvRightOwner : AmuletApp -> (Party, Party, Party, Party) -> Text -> Party -> Script ()
+addSvRightOwner app (sv1, sv2, sv3, sv4) name rightOwnerParty = do
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_AddSvRightOwner DsoRules_AddSvRightOwner with
+      name
+      info = mkSvRightOwnerInfo rightOwnerParty rightOwnerWeight name
+
+  [(instructionCid, _)] <- query @AddSvRightOwnerInstruction app.dso
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExecuteAddSvRightOwnerInstruction with
+      instructionCid
+      openMiningRoundTriple
+      svOperator = sv1
+  pure ()
