@@ -1495,7 +1495,8 @@ template DsoRules with
             ("Round " <> show openRound.round <> " is greater than the last round a reward has been received for " <> show state.lastRoundCollected)
             (state.lastRoundCollected < openRound.round)
 
-          let couponWeights = svRewardCouponWeights info
+          -- the filtering prevents malicious introduction of zero weights
+          let couponWeights = Map.filter (> 0) (svRewardCouponWeights info)
           newRewardStateCid <- create rewardState with
             state = RewardState with
               lastRoundCollected = openRound.round
