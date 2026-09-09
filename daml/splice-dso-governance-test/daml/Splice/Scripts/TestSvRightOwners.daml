@@ -352,6 +352,52 @@ test_ReceiveSvRewardCouponV2 = do
   [(_, rewardState)] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv1")
   rewardState.state.lastRoundCollected === Round 0
 
+-- | A beneficiary allocation that rounds down to zero must not prevent the remaining coupons
+-- from being created. The zero-weight beneficiary should receive no coupon.
+test_ReceiveSvRewardCouponV2LowWeight : Script ()
+test_ReceiveSvRewardCouponV2LowWeight = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+  [(_, owner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo with
+      name = "sv1"
+      baseInfo = owner.info
+      newInfo = owner.info with rewardWeight = 3
+
+  [(instructionCid, _)] <- query @UpdateSvRightOwnerInfoInstruction dso
+  svRightOwnerCid <- getSvRightOwnerCid app "sv1"
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction with
+      instructionCid
+      svRightOwnerCid
+      svOperator = sv1
+
+  updatedSvRightOwnerCid <- getSvRightOwnerCid app "sv1"
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerBeneficiaries with
+      name = "sv1"
+      svRightOwnerCid = updatedSvRightOwnerCid
+      beneficiaries = Map.fromList
+        [ (sv2, BeneficiaryInfo with rewardRatio = 0.1)
+        , (sv3, BeneficiaryInfo with rewardRatio = 0.5)
+        ]
+      rightOwner = sv1
+
+  passTime (hours 6)
+  rewardOwnerCid <- getSvRightOwnerCid app "sv1"
+  svRewardStateCid <- getSvRewardStateCid app "sv1"
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCouponV2 with
+      svOperator = sv1
+      openRoundCid = openMiningRoundTriple.round0Cid
+      svRightOwnerRewardInputs = TextMap.fromList [("sv1", (rewardOwnerCid, svRewardStateCid))]
+
+  coupons <- queryFilter @SvRewardCoupon dso (\coupon -> coupon.round == Round 0 && coupon.sv == sv1)
+  sort [(coupon.beneficiary, coupon.weight) | (_, coupon) <- coupons] ===
+    sort [(sv1, 2), (sv3, 1)]
+
 -- | SV reward coupons that nobody claims expire into unclaimed rewards once their round closes,
 -- including the coupons minted for the beneficiaries of an SV right owner.
 test_ExpireSvRewardCoupons : Script ()
