@@ -5,8 +5,10 @@
 - [ ] After every flow the right-owner names in `DsoRules`, the live `SvRightOwner` contracts and
       the reward states are the same set, and it is never empty — so the last owner cannot be
       removed.
-- [ ] Right-owner names are unique while live and share one namespace with SV node operator names,
-      and a choice rejects any contract handed to it under the wrong name.
+- [ ] Right-owner names and SV node operator names are two separate sets, each unique among its
+      live entries, and the same name may appear in both: at migration a right owner named after a
+      live operator inherits that operator's reward state.
+- [ ] A choice rejects any contract handed to it under the wrong name.
 - [ ] An owner's weight, beneficiary ratios and hosting node operator are checked when the vote is
       raised and again against the result when it executes.
 - [ ] Only migration checks the network's total reward weight; adding, removing and updating owners
@@ -56,15 +58,20 @@
       rejects a mapping that is incomplete or changes the total weight.
 - [ ] Reward state carries over by name; the state of an operator that does not continue is
       archived, and none is left orphaned.
-- [ ] No owner loses or repeats a round across the cut, except the single round skipped for a name
-      with no legacy predecessor.
+- [ ] No owner loses or repeats a round across the cut: a name that continues from an operator
+      keeps that operator's reward state and its last collected round, while a name with no legacy
+      predecessor starts one round later, because the operator hosting it may already have minted
+      the migration round under the legacy scheme.
 - [ ] Before migration every legacy flow works and every right-owner choice is refused; afterwards
       the reverse.
 - [ ] A network migrates once: no second migration and no way back.
+- [ ] Anything still in flight when the migration executes is either applied before the cut or
+      refused after it, and never left in a state that can neither complete nor expire.
 - [ ] A network that is on-ledger from genesis behaves exactly like a migrated one.
 - [ ] An SV node can still be onboarded after migration, and an onboarding that still carries a
       reward weight is rejected at confirmation rather than left to expire.
-- [ ] Offboarding a node operator leaves none of its right owners unable to mint and no reward state
-      orphaned; nothing repairs the link by itself.
+- [ ] Offboarding a node operator leaves every right owner it hosts unable to mint until a vote
+      moves them to another operator, and leaves their reward states in place; nothing repairs the
+      link by itself.
 - [ ] Hosting is by operator name: an owner can be moved to another operator by vote, and
       re-onboarding an offboarded name re-hosts its owners to the new party.
