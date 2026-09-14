@@ -359,6 +359,8 @@ test_ReceiveSvRewardCouponV2LowWeight = do
   (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
   [(_, owner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
 
+  let ratioFlooringToZero = 0.1
+
   initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
     dsoAction = SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo with
       name = "sv1"
@@ -379,7 +381,7 @@ test_ReceiveSvRewardCouponV2LowWeight = do
       name = "sv1"
       svRightOwnerCid = updatedSvRightOwnerCid
       beneficiaries = Map.fromList
-        [ (sv2, BeneficiaryInfo with rewardRatio = 0.1)
+        [ (sv2, BeneficiaryInfo with rewardRatio = ratioFlooringToZero)
         , (sv3, BeneficiaryInfo with rewardRatio = 0.5)
         ]
       rightOwner = sv1
