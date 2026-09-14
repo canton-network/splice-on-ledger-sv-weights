@@ -479,6 +479,20 @@ checkSvContractInvariants : AmuletApp -> Script ()
 checkSvContractInvariants app = do
   checkSvStatusReports app
   checkSvRewardStates app
+  checkSvRightOwners app
+
+-- | Once weights are on-ledger, the rules, live right owners and reward states must
+-- describe the same non-empty set, with exactly one contract of each kind per name.
+checkSvRightOwners : AmuletApp -> Script ()
+checkSvRightOwners app = do
+  [(_, dsoRules)] <- query @DsoRules app.dso
+  when (onLedgerSvRightOwners dsoRules) $ do
+    let expectedNames = getSvRightOwners dsoRules
+    require "There is at least one SV right owner" $ Set.size expectedNames > 0
+    owners <- query @SvRightOwner app.dso
+    Set.fromList [owner.name | (_, owner) <- owners] === expectedNames
+    require "No duplicate SvRightOwner contracts" $
+      length owners == Set.size expectedNames
 
 checkSvRewardStates : AmuletApp -> Script ()
 checkSvRewardStates app = do

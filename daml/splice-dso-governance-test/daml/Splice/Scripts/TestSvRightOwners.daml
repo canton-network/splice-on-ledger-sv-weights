@@ -5,6 +5,7 @@ module Splice.Scripts.TestSvRightOwners where
 
 import DA.Action (replicateA_)
 import DA.Assert
+import DA.Foldable (forA_)
 import DA.List (sort)
 import qualified DA.Map as Map
 import qualified DA.Set as Set
@@ -210,6 +211,40 @@ test_CannotRemoveLastSvRightOwner = do
   dsoRules.svRightOwners === Some (Set.fromList ["sv1"])
   [_] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
   [_] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv1")
+  checkSvContractInvariants app
+
+test_CannotExecuteRemovalOfLastSvRightOwner : Script ()
+test_CannotExecuteRemovalOfLastSvRightOwner = do
+  (app, dso, svs@(sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+  addSvRightOwner app svs "sv2" sv2
+
+  forA_ ["sv1", "sv2"] $ \name ->
+    initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+      dsoAction = SRARC_RemoveSvRightOwner DsoRules_RemoveSvRightOwner with name
+
+  let removalCommand name = do
+        [(dsoRulesCid, _)] <- query @DsoRules dso
+        [(instructionCid, _)] <- queryFilter @RemoveSvRightOwnerInstruction dso (\i -> i.name == name)
+        svRightOwnerCid <- getSvRightOwnerCid app name
+        svRewardStateCid <- getSvRewardStateCid app name
+        pure $ exerciseCmd dsoRulesCid DsoRules_ExecuteRemoveSvRightOwnerInstruction with
+          instructionCid
+          svRightOwnerCid
+          svRewardStateCid
+          svOperator = sv1
+
+  removeSv2 <- removalCommand "sv2"
+  _ <- submit (actAs sv1 <> readAs dso) removeSv2
+  checkSvContractInvariants app
+
+  -- The remaining instruction cannot remove the final owner.
+  removeSv1 <- removalCommand "sv1"
+  submitMustFail (actAs sv1 <> readAs dso) removeSv1
+
+  [(_, dsoRules)] <- query @DsoRules dso
+  dsoRules.svRightOwners === Some (Set.fromList ["sv1"])
+  [(_, instruction)] <- query @RemoveSvRightOwnerInstruction dso
+  instruction.name === "sv1"
   checkSvContractInvariants app
 
 test_ExpireRemoveSvRightOwnerInstruction : Script ()
