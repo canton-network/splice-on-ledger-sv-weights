@@ -1939,16 +1939,16 @@ template DsoRules with
 
     nonconsuming choice DsoRules_AddSvRightOwner : DsoRules_AddSvRightOwnerResult
       with
-        name : Text -- ^ The name of the SV right owner to add; must not be in use.
+        name : Text -- ^ The name of the SV right owner to add; must not be in use when the instruction is executed.
         info : SvRightOwnerInfo
       controller dso
       do
         requireOnLedgerSvRightOwners this
-        -- Only the payload is checked here. Whether the name is free and the node operator exists
-        -- depends on state that can change between this vote being raised and it being closed, and
-        -- `DsoRules_CloseVoteRequest` executes the action in the transaction that closes the vote,
-        -- with no try/catch. A guard that can turn false in the meantime would therefore make the
-        -- vote request unclosable. Both are re-checked on execution, which is what decides anyway.
+        -- Only the payload is checked here. `DsoRules_CloseVoteRequest` executes the action in the
+        -- transaction that closes the vote, with no try/catch, so a guard on state that can change
+        -- between the vote being raised and closed makes the request fail to close until the SVs
+        -- vote it down. Name and node operator are state, and execution checks both.
+        -- TODO(canton-network/splice#7117): the remove and update choices still guard on state.
         requireValidSvRightOwnerName name
         requireValidSvRightOwnerInfo info
         requireRightOwnerPartyIsNotTheDso dso info
@@ -1973,8 +1973,6 @@ template DsoRules with
         instruction <- fetchAndArchive (ForDso with dso) instructionCid
         requireSvRightOwnerDoesNotExist this instruction.name
         requireRewardNodeOperatorExists this instruction.info
-        requireValidSvRightOwnerInfo instruction.info
-        requireRightOwnerPartyIsNotTheDso dso instruction.info
         assertWithinDeadline "addSvRightOwnerInstruction.expiresAt" instruction.expiresAt
         validatedRounds <- validateOpenMiningRoundTriple dso openMiningRoundTriple
         svRightOwner <- create SvRightOwner with dso; name = instruction.name; info = instruction.info
@@ -2163,15 +2161,17 @@ requireValidSvRightOwnerInfo : SvRightOwnerInfo -> Update ()
 requireValidSvRightOwnerInfo info =
   require "Valid SvRightOwnerInfo" $ validSvRightOwnerInfo info
 
+-- | Tighter than `config.maxTextLength`, which bounds prose: every governance choice recreates
+-- `DsoRules` with the whole name registry inside it.
 maxSvRightOwnerNameLength : Int
 maxSvRightOwnerNameLength = 64
 
 isPrintableAscii : Text -> Bool
 isPrintableAscii text = all (\codePoint -> codePoint >= 32 && codePoint <= 126) (T.toCodePoints text)
 
--- | The name is the owner's permanent identity: it keys the registry in `DsoRules` and the checked
--- fetches of both its contract and its reward state, and only another vote can change it. Non-ASCII
--- is refused because names that render alike but differ in code points defeat the uniqueness check.
+-- | The name is the owner's identity: it keys the registry in `DsoRules` and the checked fetches of
+-- both its contract and its reward state, and no choice changes it. Non-ASCII is refused because
+-- names that render alike but differ in code points defeat `requireSvRightOwnerDoesNotExist`.
 requireValidSvRightOwnerName : Text -> Update ()
 requireValidSvRightOwnerName name = do
   require "SV right owner name is not empty" (name /= "")
@@ -2195,7 +2195,9 @@ requireMigratableToOnLedgerSvRightOwners : DsoRules -> TextMap SvRightOwnerInfo 
 requireMigratableToOnLedgerSvRightOwners this svRightOwners = do
   requireNoOnLedgerSvRightOwners this
   require "There is at least one SV right owner" (not $ TextMap.null svRightOwners)
+  forA_ (map fst (TextMap.toList svRightOwners)) requireValidSvRightOwnerName
   forA_ svRightOwners requireValidSvRightOwnerInfo
+  forA_ svRightOwners (requireRightOwnerPartyIsNotTheDso this.dso)
   require "The total SV reward weight is preserved" $
     sum (fmap (.svRewardWeight) this.svs) == sum (fmap (.rewardWeight) svRightOwners)
   forA_ svRightOwners $ requireRewardNodeOperatorExists this

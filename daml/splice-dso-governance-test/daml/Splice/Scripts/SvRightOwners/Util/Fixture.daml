@@ -4,7 +4,7 @@
 module Splice.Scripts.SvRightOwners.Util.Fixture where
 
 import DA.Action (unless)
-import DA.List (sortOn)
+import DA.List (maximumOn, sortOn)
 import qualified DA.Map as Map
 import DA.Optional (isNone, isSome)
 import qualified DA.Set as Set
@@ -57,8 +57,8 @@ runOn initNetwork test = do
     sv2 = Operator with name = "sv2"; party = sv2Party
     sv3 = Operator with name = "sv3"; party = sv3Party
     sv4 = Operator with name = "sv4"; party = sv4Party
-    -- The owner a network is bootstrapped with is the sv1 operator acting as its own right
-    -- owner. Every owner a test adds has a party of its own instead.
+    -- On an on-ledger network the sv1 operator acts as its own right owner. Under legacy weights
+    -- there is no such contract and sv1 holds the weight itself.
     genesisOwner = SvRightOwner with
       name = "sv1"
       party = sv1Party
@@ -132,11 +132,6 @@ svRightOwnerNamesInDsoRules net = do
     Some names -> pure (Set.toList names)
     None -> fail "this network does not track SV right owners on-ledger"
 
-recordedInfoOf : Network -> SvRightOwner -> Script Amulet.SvRightOwnerInfo
-recordedInfoOf net owner = do
-  [(_, contract)] <- queryFilter @Amulet.SvRightOwner net.app.dso (\c -> c.name == owner.name)
-  pure contract.info
-
 rewardStateOf : Network -> SvRightOwner -> Script RewardState
 rewardStateOf net owner = do
   [(_, contract)] <- queryFilter @SvRewardState net.app.dso (\c -> c.svName == owner.name)
@@ -159,7 +154,6 @@ roundANewSvRightOwnerStartsIn net = do
     Some round <- queryContractId net.app.dso cid
     pure round
   now <- getTime
-  let alreadyOpen = sortOn (.round.number) [round | round <- rounds, round.opensAt <= now]
-  case reverse alreadyOpen of
-    latest :: _ -> pure latest.round
+  case [round | round <- rounds, round.opensAt <= now] of
     [] -> fail "no open mining round has opened yet"
+    alreadyOpen -> pure (maximumOn (.round.number) alreadyOpen).round

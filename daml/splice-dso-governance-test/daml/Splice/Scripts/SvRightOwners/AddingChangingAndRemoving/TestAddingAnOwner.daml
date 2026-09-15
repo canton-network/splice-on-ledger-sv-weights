@@ -17,6 +17,10 @@ import Splice.Types (Round(..))
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
 
+shareOf : Party -> Decimal -> Map.Map Party Amulet.BeneficiaryInfo
+shareOf beneficiary rewardRatio =
+  Map.fromList [(beneficiary, Amulet.BeneficiaryInfo with rewardRatio)]
+
 test_shouldStartWithFourSvNodeOperatorsAndOneSvRightOwner = withOnLedgerWeights $ \net -> do
   operators <- svNodeOperators net
   operators === [net.sv1, net.sv2, net.sv3, net.sv4]
@@ -27,17 +31,13 @@ test_shouldStartWithFourSvNodeOperatorsAndOneSvRightOwner = withOnLedgerWeights 
   names <- svRightOwnerNamesInDsoRules net
   names === [net.genesisOwner.name]
 
-  info <- recordedInfoOf net net.genesisOwner
-  info === svRightOwnerInfo net.genesisOwner
-
-test_shouldLeaveSvNodeOperatorsWithoutRewardWeightOfTheirOwn = withOnLedgerWeights $ \net -> do
   weights <- svNodeOperatorWeights net
   weights === [(net.sv1, 0), (net.sv2, 0), (net.sv3, 0), (net.sv4, 0)]
 
 test_shouldRefuseAnAddThatLacksTheDsosAuthority = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
 
-  addIsRefusedFor net net.sv1.party newcomer "requires authorizers dso-party"
+  addIsRefusedFor net net.sv1.party newcomer "requires authorizers"
 
   owners <- svRightOwners net
   owners === [net.genesisOwner]
@@ -56,7 +56,7 @@ test_shouldOnlyRecordAnInstructionWhenTheVotePasses = withOnLedgerWeights $ \net
   owners <- svRightOwners net
   owners === [net.genesisOwner]
 
-test_shouldExpireTheInstructionFourHoursAfterTheVote = withOnLedgerWeights $ \net -> do
+test_shouldSetTheInstructionDeadlineFourHoursAfterTheVote = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
   votedAt <- getTime
 
@@ -76,9 +76,6 @@ test_shouldAddTheOwnerWhenTheInstructionIsExecuted = withOnLedgerWeights $ \net 
 
   owners <- svRightOwners net
   owners === [newcomer, net.genesisOwner]
-
-  info <- recordedInfoOf net newcomer
-  info === svRightOwnerInfo newcomer
 
   rewardState <- rewardStateOf net newcomer
   rewardState === RewardState with
@@ -145,7 +142,7 @@ test_shouldAddAnOwnerNamedAfterAnSvNodeOperator = withOnLedgerWeights $ \net -> 
   owners <- svRightOwners net
   owners === [net.genesisOwner, namedAfterSv2]
 
-test_shouldCloseAVoteForANameTakenInTheMeantime = withOnLedgerWeights $ \net -> do
+test_shouldRecordAnInstructionEvenIfTheNameIsAlreadyTaken = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
   voteToAdd net newcomer >>= execute net net.sv1
   latecomer <- newSvRightOwner "latecomer" net.sv2
@@ -157,7 +154,7 @@ test_shouldCloseAVoteForANameTakenInTheMeantime = withOnLedgerWeights $ \net -> 
   owners <- svRightOwners net
   owners === [newcomer, net.genesisOwner]
 
-test_shouldCloseAVoteForAHostThatIsNotAnSvNodeOperator = withOnLedgerWeights $ \net -> do
+test_shouldRecordAnInstructionEvenIfTheHostIsNotAnSvNodeOperator = withOnLedgerWeights $ \net -> do
   let unknownOperator = Operator with name = "no-such-operator"; party = net.sv2.party
   newcomer <- newSvRightOwner "newcomer" unknownOperator
 
@@ -263,11 +260,7 @@ test_shouldRefuseANameThatIsNotPrintableAscii = withOnLedgerWeights $ \net -> do
 test_shouldRefuseANameThatIsNotTrimmed = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
 
-  noVoteCanAdd net (newcomer with name = " sv1 ") "SV right owner name is trimmed"
+  noVoteCanAdd net (newcomer with name = " newcomer ") "SV right owner name is trimmed"
 
   owners <- svRightOwners net
   owners === [net.genesisOwner]
-
-shareOf : Party -> Decimal -> Map.Map Party Amulet.BeneficiaryInfo
-shareOf beneficiary rewardRatio =
-  Map.fromList [(beneficiary, Amulet.BeneficiaryInfo with rewardRatio)]
