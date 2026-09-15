@@ -43,11 +43,11 @@ test_MigrateToOnLedgerSvRightOwners = do
       svOperator = sv1
 
   [(_, dsoRules)] <- query @DsoRules dso
-  [info.svRewardWeight | info <- Map.values dsoRules.svs] === [0, 0, 0, 0]
   dsoRules.svRightOwners === Some (Set.fromList ["sv1", "sv2", "sv3", "sv4"])
 
   owners <- query @SvRightOwner dso
   TextMap.fromList [(owner.name, owner.info) | (_, owner) <- owners] === svRightOwners
+  checkSvContractInvariants app
 
 test_MigrateNonOneToOneSvRightOwners : Script ()
 test_MigrateNonOneToOneSvRightOwners = do
@@ -99,6 +99,14 @@ test_MigrateNonOneToOneSvRightOwners = do
   owners <- query @SvRightOwner dso
   TextMap.fromList [(owner.name, owner.info) | (_, owner) <- owners] === svRightOwners
   checkSvContractInvariants app
+
+test_MigrationRejectsIncreasedTotalWeight : Script ()
+test_MigrationRejectsIncreasedTotalWeight =
+  checkMigrationRejectsWeightChange 1
+
+test_MigrationRejectsDecreasedTotalWeight : Script ()
+test_MigrationRejectsDecreasedTotalWeight =
+  checkMigrationRejectsWeightChange (-1)
 
 test_MigrationRejectsWrongReusedRewardStateName : Script ()
 test_MigrationRejectsWrongReusedRewardStateName = do
@@ -767,3 +775,16 @@ checkSvRightOwnerUpdateRejectsMergedInfo app (sv1, sv2, sv3, sv4) newInfo concur
       svOperator = sv1
   [(unchangedCid, unchangedOwner)] <- query @SvRightOwner dso
   (unchangedCid, unchangedOwner) === (currentOwnerCid, currentOwner)
+
+-- | All owner weights remain valid, but their sum differs from the legacy total.
+checkMigrationRejectsWeightChange : Int -> Script ()
+checkMigrationRejectsWeightChange weightDelta = do
+  (app, dso, _) <- initMainNet
+  operatorInfos <- svRightOwnerInfosFromOperators app
+  let svRightOwners = fmap (\info -> info with rewardWeight = info.rewardWeight + weightDelta) operatorInfos
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  submitMustFail dso $
+    exerciseCmd dsoRulesCid DsoRules_MigrateToOnLedgerSvRightOwners with
+      svRightOwners
+  [] <- query @MigrateToOnLedgerSvRightOwnersInstruction dso
+  pure ()
