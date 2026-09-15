@@ -166,7 +166,7 @@ test_ExpireAddSvRightOwnerInstruction = do
   svSubmits app sv1 $ \dsoRulesCid ->
     exerciseCmd dsoRulesCid DsoRules_ExpireAddSvRightOwnerInstruction with
       instructionCid
-      sv = Some sv1
+      svOperator = sv1
 
   [] <- query @AddSvRightOwnerInstruction dso
   pure ()

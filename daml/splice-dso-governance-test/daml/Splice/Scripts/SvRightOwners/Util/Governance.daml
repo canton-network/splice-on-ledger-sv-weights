@@ -78,7 +78,7 @@ executeCommand net svOperator instructionCid = do
 expireCommand : Network -> Party -> ContractId AddSvRightOwnerInstruction -> Script (Commands ())
 expireCommand net sv instructionCid = dsoRulesCommand net $ \dsoRulesCid ->
   exerciseCmd dsoRulesCid DsoRules_ExpireAddSvRightOwnerInstruction with
-    instructionCid; sv = Some sv
+    instructionCid; svOperator = sv
 
 dsoRulesCommand : Network -> (ContractId DsoRules -> Commands a) -> Script (Commands ())
 dsoRulesCommand net mkCommands = do

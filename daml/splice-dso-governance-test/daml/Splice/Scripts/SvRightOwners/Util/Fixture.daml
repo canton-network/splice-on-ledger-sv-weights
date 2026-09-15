@@ -30,7 +30,8 @@ data SvRightOwner = SvRightOwner with
     party : Party
     hostedBy : Operator
     rewardWeight : Int
-  deriving (Eq, Ord, Show)
+    beneficiaries : Map.Map Party Amulet.BeneficiaryInfo
+  deriving (Eq, Show)
 
 data Network = Network with
     app : AmuletScripts.AmuletApp
@@ -63,6 +64,7 @@ runOn initNetwork test = do
       party = sv1Party
       hostedBy = sv1
       rewardWeight = tier1RewardWeight
+      beneficiaries = Map.empty
   DsoTestUtils.checkSvContractInvariants app
 
 tier1RewardWeight : Int
@@ -74,14 +76,15 @@ tier2RewardWeight = 3 * DsoTestUtils.bpsMultiplier
 newSvRightOwner : Text -> Operator -> Script SvRightOwner
 newSvRightOwner name hostedBy = do
   party <- allocateParty (name <> "-party")
-  pure SvRightOwner with name; party; hostedBy; rewardWeight = tier2RewardWeight
+  pure SvRightOwner with
+    name; party; hostedBy; rewardWeight = tier2RewardWeight; beneficiaries = Map.empty
 
 svRightOwnerInfo : SvRightOwner -> Amulet.SvRightOwnerInfo
 svRightOwnerInfo owner = Amulet.SvRightOwnerInfo with
   rightOwnerParty = owner.party
   rewardWeight = owner.rewardWeight
   rewardNodeOperatorName = owner.hostedBy.name
-  beneficiaries = Map.empty
+  beneficiaries = owner.beneficiaries
 
 currentDsoRules : Network -> Script (ContractId DsoRules, DsoRules)
 currentDsoRules net = do
@@ -119,6 +122,7 @@ svRightOwners net = do
       party = contract.info.rightOwnerParty
       hostedBy
       rewardWeight = contract.info.rewardWeight
+      beneficiaries = contract.info.beneficiaries
 
 -- | The right owner names `DsoRules` records, in name order.
 svRightOwnerNamesInDsoRules : Network -> Script [Text]

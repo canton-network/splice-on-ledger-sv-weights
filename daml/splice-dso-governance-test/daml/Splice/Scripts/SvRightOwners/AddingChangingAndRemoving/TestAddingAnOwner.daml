@@ -4,16 +4,20 @@
 module Splice.Scripts.SvRightOwners.AddingChangingAndRemoving.TestAddingAnOwner where
 
 import DA.Assert
+import qualified DA.Map as Map
+import qualified DA.Text as Text
+import DA.Time (addRelTime, hours)
 
 import Daml.Script
 
+import qualified Splice.Amulet.SvRightOwner as Amulet
 import Splice.DSO.SvState (RewardState(..))
 import Splice.Types (Round(..))
 
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
 
-test_theNetworkStartsWithFourSvNodeOperatorsAndOneSvRightOwner = withOnLedgerWeights $ \net -> do
+test_shouldStartWithFourSvNodeOperatorsAndOneSvRightOwner = withOnLedgerWeights $ \net -> do
   operators <- svNodeOperators net
   operators === [net.sv1, net.sv2, net.sv3, net.sv4]
 
@@ -26,11 +30,11 @@ test_theNetworkStartsWithFourSvNodeOperatorsAndOneSvRightOwner = withOnLedgerWei
   info <- recordedInfoOf net net.genesisOwner
   info === svRightOwnerInfo net.genesisOwner
 
-test_theSvNodeOperatorsCarryNoRewardWeightOfTheirOwn = withOnLedgerWeights $ \net -> do
+test_shouldLeaveSvNodeOperatorsWithoutRewardWeightOfTheirOwn = withOnLedgerWeights $ \net -> do
   weights <- svNodeOperatorWeights net
   weights === [(net.sv1, 0), (net.sv2, 0), (net.sv3, 0), (net.sv4, 0)]
 
-test_oneSvNodeOperatorCannotAddAnOwnerOnItsOwn = withOnLedgerWeights $ \net -> do
+test_shouldRefuseAnAddThatLacksTheDsosAuthority = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
 
   addIsRefusedFor net net.sv1.party newcomer "requires authorizers dso-party"
@@ -38,7 +42,12 @@ test_oneSvNodeOperatorCannotAddAnOwnerOnItsOwn = withOnLedgerWeights $ \net -> d
   owners <- svRightOwners net
   owners === [net.genesisOwner]
 
-test_aPassedVoteOnlyRecordsAnInstruction = withOnLedgerWeights $ \net -> do
+test_shouldRefuseAnAddUnderLegacyWeightManagement = withLegacyWeights $ \net -> do
+  newcomer <- newSvRightOwner "newcomer" net.sv2
+
+  noVoteCanAdd net newcomer "svRightOwners are tracked on-ledger"
+
+test_shouldOnlyRecordAnInstructionWhenTheVotePasses = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
 
   instruction <- voteToAdd net newcomer
@@ -47,7 +56,16 @@ test_aPassedVoteOnlyRecordsAnInstruction = withOnLedgerWeights $ \net -> do
   owners <- svRightOwners net
   owners === [net.genesisOwner]
 
-test_executingTheInstructionAddsTheOwner = withOnLedgerWeights $ \net -> do
+test_shouldExpireTheInstructionFourHoursAfterTheVote = withOnLedgerWeights $ \net -> do
+  newcomer <- newSvRightOwner "newcomer" net.sv2
+  votedAt <- getTime
+
+  instruction <- voteToAdd net newcomer
+
+  expiresAt <- instructionExpiresAt net instruction
+  expiresAt === addRelTime votedAt (hours 4)
+
+test_shouldAddTheOwnerWhenTheInstructionIsExecuted = withOnLedgerWeights $ \net -> do
   let host = net.sv2
       someOtherOperator = net.sv3
   newcomer <- newSvRightOwner "newcomer" host
@@ -71,7 +89,15 @@ test_executingTheInstructionAddsTheOwner = withOnLedgerWeights $ \net -> do
 
   expectArchived net instruction
 
-test_onlyAnSvNodeOperatorCanExecuteTheInstruction = withOnLedgerWeights $ \net -> do
+test_shouldLetAnOwnerSeeItsOwnRight = withOnLedgerWeights $ \net -> do
+  newcomer <- newSvRightOwner "newcomer" net.sv2
+
+  voteToAdd net newcomer >>= execute net net.sv1
+
+  visibleToOwner <- query @Amulet.SvRightOwner newcomer.party
+  map (\(_, right) -> right.name) visibleToOwner === [newcomer.name]
+
+test_shouldRefuseExecutionByAPartyThatRunsNoSvNode = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
   instruction <- voteToAdd net newcomer
   stranger <- allocateParty "stranger"
@@ -82,7 +108,7 @@ test_onlyAnSvNodeOperatorCanExecuteTheInstruction = withOnLedgerWeights $ \net -
   owners <- svRightOwners net
   owners === [net.genesisOwner]
 
-test_theInstructionCannotBeExecutedTwice = withOnLedgerWeights $ \net -> do
+test_shouldRefuseASecondExecutionOfTheInstruction = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
   instruction <- voteToAdd net newcomer
 
@@ -92,12 +118,7 @@ test_theInstructionCannotBeExecutedTwice = withOnLedgerWeights $ \net -> do
   owners <- svRightOwners net
   owners === [newcomer, net.genesisOwner]
 
-test_ownersCannotBeAddedUnderLegacyWeightManagement = withLegacyWeights $ \net -> do
-  newcomer <- newSvRightOwner "newcomer" net.sv2
-
-  noVoteCanAdd net newcomer "svRightOwners are tracked on-ledger"
-
-test_severalOwnersCanBeAdded = withOnLedgerWeights $ \net -> do
+test_shouldAddSeveralOwners = withOnLedgerWeights $ \net -> do
   alpha <- newSvRightOwner "alpha" net.sv2
   beta <- newSvRightOwner "beta" net.sv3
 
@@ -107,53 +128,47 @@ test_severalOwnersCanBeAdded = withOnLedgerWeights $ \net -> do
   owners <- svRightOwners net
   owners === [alpha, beta, net.genesisOwner]
 
-test_anOwnerCanBeAddedWithNoRewardWeight = withOnLedgerWeights $ \net -> do
+test_shouldAddAnOwnerWithNoRewardWeight = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
   let unpaid = newcomer with rewardWeight = 0
 
-  instruction <- voteToAdd net unpaid
-  execute net net.sv1 instruction
+  voteToAdd net unpaid >>= execute net net.sv1
 
   owners <- svRightOwners net
   owners === [unpaid, net.genesisOwner]
 
-test_anOwnerCanTakeTheNameOfAnSvNodeOperator = withOnLedgerWeights $ \net -> do
+test_shouldAddAnOwnerNamedAfterAnSvNodeOperator = withOnLedgerWeights $ \net -> do
   namedAfterSv2 <- newSvRightOwner "sv2" net.sv2
 
-  instruction <- voteToAdd net namedAfterSv2
-  execute net net.sv1 instruction
+  voteToAdd net namedAfterSv2 >>= execute net net.sv1
 
   owners <- svRightOwners net
   owners === [net.genesisOwner, namedAfterSv2]
 
-test_aNameThatIsAlreadyAnOwnerCannotBeAddedAgain = withOnLedgerWeights $ \net -> do
-  sameNameAsTheGenesisOwner <- newSvRightOwner "sv1" net.sv2
+test_shouldCloseAVoteForANameTakenInTheMeantime = withOnLedgerWeights $ \net -> do
+  newcomer <- newSvRightOwner "newcomer" net.sv2
+  voteToAdd net newcomer >>= execute net net.sv1
+  latecomer <- newSvRightOwner "latecomer" net.sv2
 
-  noVoteCanAdd net sameNameAsTheGenesisOwner "SV right owner \"sv1\" does not exist"
+  instruction <- voteToAdd net (latecomer with name = "newcomer")
+
+  executeIsRefusedFor net net.sv1.party instruction "SV right owner \"newcomer\" does not exist"
 
   owners <- svRightOwners net
-  owners === [net.genesisOwner]
+  owners === [newcomer, net.genesisOwner]
 
-test_anOwnerHostedByAnUnknownSvNodeOperatorCannotBeAdded = withOnLedgerWeights $ \net -> do
+test_shouldCloseAVoteForAHostThatIsNotAnSvNodeOperator = withOnLedgerWeights $ \net -> do
   let unknownOperator = Operator with name = "no-such-operator"; party = net.sv2.party
   newcomer <- newSvRightOwner "newcomer" unknownOperator
 
-  noVoteCanAdd net newcomer "SV right owner's node operator must exist"
+  instruction <- voteToAdd net newcomer
+
+  executeIsRefusedFor net net.sv1.party instruction "SV right owner's node operator must exist"
 
   owners <- svRightOwners net
   owners === [net.genesisOwner]
 
-test_anOwnerWithANegativeRewardWeightIsRefusedOnlyOnExecution = withOnLedgerWeights $ \net -> do
-  newcomer <- newSvRightOwner "newcomer" net.sv2
-  let inDebt = newcomer with rewardWeight = -1
-
-  instruction <- voteToAdd net inDebt
-  executeIsRefusedFor net net.sv1.party instruction "Template precondition violated"
-
-  owners <- svRightOwners net
-  owners === [net.genesisOwner]
-
-test_theSecondAddOfTheSameNameCanOnlyBeExpired = withOnLedgerWeights $ \net -> do
+test_shouldOnlyAllowExpiryOfASecondAddOfTheSameName = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
   firstInstruction <- voteToAdd net newcomer
   secondInstruction <- voteToAdd net newcomer
@@ -161,15 +176,14 @@ test_theSecondAddOfTheSameNameCanOnlyBeExpired = withOnLedgerWeights $ \net -> d
   execute net net.sv1 firstInstruction
   executeIsRefusedFor net net.sv2.party secondInstruction "SV right owner \"newcomer\" does not exist"
 
-  expiresAt <- instructionExpiresAt net secondInstruction
-  setTime expiresAt
+  instructionExpiresAt net secondInstruction >>= setTime
   expire net net.sv1 secondInstruction
 
   expectArchived net secondInstruction
   owners <- svRightOwners net
   owners === [newcomer, net.genesisOwner]
 
-test_anInstructionCannotBeExpiredBeforeItsDeadline = withOnLedgerWeights $ \net -> do
+test_shouldRefuseExpiryBeforeTheDeadline = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
   instruction <- voteToAdd net newcomer
 
@@ -177,30 +191,83 @@ test_anInstructionCannotBeExpiredBeforeItsDeadline = withOnLedgerWeights $ \net 
 
   expectActive net instruction
 
-test_anExpiredInstructionCanOnlyBeExpired = withOnLedgerWeights $ \net -> do
+test_shouldRefuseExecutionAtOrPastTheDeadline = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
   instruction <- voteToAdd net newcomer
+  instructionExpiresAt net instruction >>= setTime
 
-  expiresAt <- instructionExpiresAt net instruction
-  setTime expiresAt
-
-  executeIsRefusedFor net net.sv1.party instruction 
-    "Ledger time is at or past deadline 'addSvRightOwnerInstruction.expiresAt'"
+  executeIsRefusedFor net net.sv1.party instruction "Ledger time is at or past deadline 'addSvRightOwnerInstruction.expiresAt'"
   expire net net.sv1 instruction
 
   expectArchived net instruction
   owners <- svRightOwners net
   owners === [net.genesisOwner]
 
-test_onlyAnSvNodeOperatorCanExpireAnInstruction = withOnLedgerWeights $ \net -> do
+test_shouldRefuseExpiryByAPartyThatRunsNoSvNode = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
   instruction <- voteToAdd net newcomer
   stranger <- allocateParty "stranger"
-
-  expiresAt <- instructionExpiresAt net instruction
-  setTime expiresAt
+  instructionExpiresAt net instruction >>= setTime
 
   expireIsRefusedFor net stranger instruction "SV party is an actual SV"
   expireIsRefusedFor net net.app.dso instruction "SV party is an actual SV"
 
   expectActive net instruction
+
+test_shouldRefuseAnOwnerWhoseInfoIsInvalid = withOnLedgerWeights $ \net -> do
+  charity <- allocateParty "charity"
+  newcomer <- newSvRightOwner "newcomer" net.sv2
+
+  noVoteCanAdd net (newcomer with rewardWeight = -1) "Valid SvRightOwnerInfo"
+  noVoteCanAdd net (newcomer with beneficiaries = shareOf charity 1.5) "Valid SvRightOwnerInfo"
+  noVoteCanAdd net (newcomer with beneficiaries = shareOf newcomer.party 0.5) "Valid SvRightOwnerInfo"
+
+  owners <- svRightOwners net
+  owners === [net.genesisOwner]
+
+test_shouldRefuseTheDsoPartyAsAnOwner = withOnLedgerWeights $ \net -> do
+  newcomer <- newSvRightOwner "newcomer" net.sv2
+
+  noVoteCanAdd net (newcomer with party = net.app.dso) "SV right owner party is not the DSO party"
+
+  owners <- svRightOwners net
+  owners === [net.genesisOwner]
+
+test_shouldRefuseAnEmptyName = withOnLedgerWeights $ \net -> do
+  newcomer <- newSvRightOwner "newcomer" net.sv2
+
+  noVoteCanAdd net (newcomer with name = "") "SV right owner name is not empty"
+
+  owners <- svRightOwners net
+  owners === [net.genesisOwner]
+
+test_shouldRefuseANameLongerThanSixtyFourCharacters = withOnLedgerWeights $ \net -> do
+  newcomer <- newSvRightOwner "newcomer" net.sv2
+
+  noVoteCanAdd net (newcomer with name = Text.implode (replicate 65 "a"))
+    "SV right owner name is not too long"
+
+  owners <- svRightOwners net
+  owners === [net.genesisOwner]
+
+test_shouldRefuseANameThatIsNotPrintableAscii = withOnLedgerWeights $ \net -> do
+  newcomer <- newSvRightOwner "newcomer" net.sv2
+  let cyrillicA = Text.fromCodePoints [1072]
+
+  noVoteCanAdd net (newcomer with name = "sv" <> cyrillicA) "SV right owner name is printable ASCII"
+  noVoteCanAdd net (newcomer with name = "sv\n1") "SV right owner name is printable ASCII"
+
+  owners <- svRightOwners net
+  owners === [net.genesisOwner]
+
+test_shouldRefuseANameThatIsNotTrimmed = withOnLedgerWeights $ \net -> do
+  newcomer <- newSvRightOwner "newcomer" net.sv2
+
+  noVoteCanAdd net (newcomer with name = " sv1 ") "SV right owner name is trimmed"
+
+  owners <- svRightOwners net
+  owners === [net.genesisOwner]
+
+shareOf : Party -> Decimal -> Map.Map Party Amulet.BeneficiaryInfo
+shareOf beneficiary rewardRatio =
+  Map.fromList [(beneficiary, Amulet.BeneficiaryInfo with rewardRatio)]

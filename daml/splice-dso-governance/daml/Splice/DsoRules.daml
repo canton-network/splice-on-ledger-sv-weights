@@ -1944,8 +1944,14 @@ template DsoRules with
       controller dso
       do
         requireOnLedgerSvRightOwners this
-        requireSvRightOwnerDoesNotExist this name
-        requireRewardNodeOperatorExists this info
+        -- Only the payload is checked here. Whether the name is free and the node operator exists
+        -- depends on state that can change between this vote being raised and it being closed, and
+        -- `DsoRules_CloseVoteRequest` executes the action in the transaction that closes the vote,
+        -- with no try/catch. A guard that can turn false in the meantime would therefore make the
+        -- vote request unclosable. Both are re-checked on execution, which is what decides anyway.
+        requireValidSvRightOwnerName name
+        requireValidSvRightOwnerInfo info
+        requireRightOwnerPartyIsNotTheDso dso info
         now <- getTime
         instruction <- create AddSvRightOwnerInstruction with
           dso
@@ -1967,6 +1973,8 @@ template DsoRules with
         instruction <- fetchAndArchive (ForDso with dso) instructionCid
         requireSvRightOwnerDoesNotExist this instruction.name
         requireRewardNodeOperatorExists this instruction.info
+        requireValidSvRightOwnerInfo instruction.info
+        requireRightOwnerPartyIsNotTheDso dso instruction.info
         assertWithinDeadline "addSvRightOwnerInstruction.expiresAt" instruction.expiresAt
         validatedRounds <- validateOpenMiningRoundTriple dso openMiningRoundTriple
         svRightOwner <- create SvRightOwner with dso; name = instruction.name; info = instruction.info
@@ -1978,10 +1986,10 @@ template DsoRules with
     nonconsuming choice DsoRules_ExpireAddSvRightOwnerInstruction : DsoRules_ExpireAddSvRightOwnerInstructionResult
       with
         instructionCid : ContractId AddSvRightOwnerInstruction
-        sv : Optional Party
-      controller sv
+        svOperator : Party
+      controller svOperator
       do
-        _ <- getAndValidateSvParty this sv
+        _ <- getAndValidateSvParty this (Some svOperator)
         instruction <- fetchAndArchive (ForDso with dso) instructionCid
         assertDeadlineExceeded "addSvRightOwnerInstruction.expiresAt" instruction.expiresAt
         return DsoRules_ExpireAddSvRightOwnerInstructionResult
@@ -2154,6 +2162,29 @@ requireRemovableSvRightOwner this name = do
 requireValidSvRightOwnerInfo : SvRightOwnerInfo -> Update ()
 requireValidSvRightOwnerInfo info =
   require "Valid SvRightOwnerInfo" $ validSvRightOwnerInfo info
+
+maxSvRightOwnerNameLength : Int
+maxSvRightOwnerNameLength = 64
+
+isPrintableAscii : Text -> Bool
+isPrintableAscii text = all (\codePoint -> codePoint >= 32 && codePoint <= 126) (T.toCodePoints text)
+
+-- | The name is the owner's permanent identity: it keys the registry in `DsoRules` and the checked
+-- fetches of both its contract and its reward state, and only another vote can change it. Non-ASCII
+-- is refused because names that render alike but differ in code points defeat the uniqueness check.
+requireValidSvRightOwnerName : Text -> Update ()
+requireValidSvRightOwnerName name = do
+  require "SV right owner name is not empty" (name /= "")
+  require "SV right owner name is not too long" (T.length name <= maxSvRightOwnerNameLength)
+  require "SV right owner name is printable ASCII" (isPrintableAscii name)
+  require "SV right owner name is trimmed" (T.trim name == name)
+
+-- | Coupons minted for the DSO party name it as their own beneficiary, and nothing can exercise
+-- `SvRewardCoupon_ArchiveAsBeneficiary` as the DSO, so such a weight is minted every round and
+-- then expires unclaimed.
+requireRightOwnerPartyIsNotTheDso : Party -> SvRightOwnerInfo -> Update ()
+requireRightOwnerPartyIsNotTheDso dso info =
+  require "SV right owner party is not the DSO party" (info.rightOwnerParty /= dso)
 
 requireRewardNodeOperatorExists : DsoRules -> SvRightOwnerInfo -> Update ()
 requireRewardNodeOperatorExists this info =

@@ -23,6 +23,7 @@ template SvRightOwner
     info : SvRightOwnerInfo
   where
     signatory dso
+    observer info.rightOwnerParty
     ensure validSvRightOwnerInfo info
 
 instance HasCheckedFetch SvRightOwner ForDso where
