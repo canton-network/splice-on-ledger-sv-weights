@@ -23,6 +23,12 @@ template SvRightOwner
     info : SvRightOwnerInfo
   where
     signatory dso
+    -- The owner sets its own beneficiaries through `DsoRules_UpdateSvRightOwnerBeneficiaries`,
+    -- which takes the id of this contract; without this the owner cannot find it. The owner is
+    -- thereby an informee of every add, update and remove, so its party must be known on the
+    -- synchronizer and its participant must have vetted this package before a vote naming it can
+    -- be executed.
+    observer info.rightOwnerParty
     ensure validSvRightOwnerInfo info
 
 instance HasCheckedFetch SvRightOwner ForDso where

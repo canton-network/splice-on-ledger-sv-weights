@@ -1939,13 +1939,21 @@ template DsoRules with
 
     nonconsuming choice DsoRules_AddSvRightOwner : DsoRules_AddSvRightOwnerResult
       with
-        name : Text -- ^ The name of the SV right owner to add; must not be in use.
+        name : Text -- ^ The name of the SV right owner to add; must not be in use when the instruction is executed.
         info : SvRightOwnerInfo
       controller dso
       do
         requireOnLedgerSvRightOwners this
-        requireSvRightOwnerDoesNotExist this name
-        requireRewardNodeOperatorExists this info
+        -- `DsoRules_CloseVoteRequest` executes the action in the transaction that closes the vote,
+        -- with no try/catch, so a guard on state that can change between the vote being raised and
+        -- closed leaves the request unable to close until the SVs vote it down. Whether the name is
+        -- free and whether the node operator exists are both such state, so execution checks them
+        -- rather than this choice. `requireOnLedgerSvRightOwners` is state as well, but it flips
+        -- once and never back, so a vote raised before the migration is meant to fail afterwards.
+        -- TODO(canton-network/splice#7117): the remove and update choices still guard on state.
+        requireValidSvRightOwnerName name
+        requireValidSvRightOwnerInfo info
+        requireRightOwnerPartyIsNotTheDso this info
         now <- getTime
         instruction <- create AddSvRightOwnerInstruction with
           dso
@@ -1978,10 +1986,10 @@ template DsoRules with
     nonconsuming choice DsoRules_ExpireAddSvRightOwnerInstruction : DsoRules_ExpireAddSvRightOwnerInstructionResult
       with
         instructionCid : ContractId AddSvRightOwnerInstruction
-        sv : Optional Party
-      controller sv
+        svOperator : Party
+      controller svOperator
       do
-        _ <- getAndValidateSvParty this sv
+        _ <- getAndValidateSvParty this (Some svOperator)
         instruction <- fetchAndArchive (ForDso with dso) instructionCid
         assertDeadlineExceeded "addSvRightOwnerInstruction.expiresAt" instruction.expiresAt
         return DsoRules_ExpireAddSvRightOwnerInstructionResult
@@ -2050,6 +2058,7 @@ template DsoRules with
         requireSvRightOwnerExists this name
         requireRewardNodeOperatorExists this newInfo
         requireValidSvRightOwnerInfo newInfo
+        requireRightOwnerPartyIsNotTheDso this newInfo
         now <- getTime
         instruction <- create UpdateSvRightOwnerInfoInstruction with
           dso
@@ -2155,6 +2164,32 @@ requireValidSvRightOwnerInfo : SvRightOwnerInfo -> Update ()
 requireValidSvRightOwnerInfo info =
   require "Valid SvRightOwnerInfo" $ validSvRightOwnerInfo info
 
+-- | The name is an identity key, not prose, so it is bounded far below `config.maxTextLength`.
+-- 64 is the widest an operator would type by hand and still leaves the registry that every
+-- governance choice recreates inside `DsoRules` small.
+maxSvRightOwnerNameLength : Int
+maxSvRightOwnerNameLength = 64
+
+isPrintableAscii : Text -> Bool
+isPrintableAscii text = all (\codePoint -> codePoint >= 32 && codePoint <= 126) (T.toCodePoints text)
+
+-- | The name is the owner's identity: it keys the registry in `DsoRules` and the checked fetches of
+-- both its contract and its reward state, and no choice changes it. Non-ASCII is refused because
+-- names that render alike but differ in code points defeat `requireSvRightOwnerDoesNotExist`.
+requireValidSvRightOwnerName : Text -> Update ()
+requireValidSvRightOwnerName name = do
+  require "SV right owner name is not empty" (name /= "")
+  require "SV right owner name is not too long" (T.length name <= maxSvRightOwnerNameLength)
+  require "SV right owner name is printable ASCII" (isPrintableAscii name)
+  require "SV right owner name is trimmed" (T.trim name == name)
+
+-- | Coupons minted for the DSO party name it as their own beneficiary, and nothing can exercise
+-- `SvRewardCoupon_ArchiveAsBeneficiary` as the DSO, so such a weight is minted every round and
+-- then expires unclaimed.
+requireRightOwnerPartyIsNotTheDso : DsoRules -> SvRightOwnerInfo -> Update ()
+requireRightOwnerPartyIsNotTheDso this info =
+  require "SV right owner party is not the DSO party" (info.rightOwnerParty /= this.dso)
+
 requireRewardNodeOperatorExists : DsoRules -> SvRightOwnerInfo -> Update ()
 requireRewardNodeOperatorExists this info =
   require "SV right owner's node operator must exist" $
@@ -2164,10 +2199,16 @@ requireMigratableToOnLedgerSvRightOwners : DsoRules -> TextMap SvRightOwnerInfo 
 requireMigratableToOnLedgerSvRightOwners this svRightOwners = do
   requireNoOnLedgerSvRightOwners this
   require "There is at least one SV right owner" (not $ TextMap.null svRightOwners)
-  forA_ svRightOwners requireValidSvRightOwnerInfo
+  -- TODO(canton-network/splice#7117): the names here are the legacy SV node operator names, which
+  -- `DsoRules_AddSv` never validates, so an operator onboarded under a name these rules reject
+  -- leaves the network unable to migrate.
+  forA_ (map fst $ TextMap.toList svRightOwners) requireValidSvRightOwnerName
+  forA_ svRightOwners $ \info -> do
+    requireValidSvRightOwnerInfo info
+    requireRightOwnerPartyIsNotTheDso this info
+    requireRewardNodeOperatorExists this info
   require "The total SV reward weight is preserved" $
     sum (fmap (.svRewardWeight) this.svs) == sum (fmap (.rewardWeight) svRightOwners)
-  forA_ svRightOwners $ requireRewardNodeOperatorExists this
 
 template MigrateToOnLedgerSvRightOwnersInstruction with
     dso : Party

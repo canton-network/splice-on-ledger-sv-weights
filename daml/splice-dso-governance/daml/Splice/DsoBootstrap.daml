@@ -84,6 +84,7 @@ template DsoBootstrap with
         -- create initial per-sv and per-operator contracts for sv1
         case sv1RightOwnerName of
           Some rightOwnerName -> do
+            requireValidSvRightOwnerName rightOwnerName
             let info = SvRightOwnerInfo with
                     rightOwnerParty = sv1Party
                     rewardWeight = sv1RewardWeight
