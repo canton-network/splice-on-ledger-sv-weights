@@ -18,6 +18,8 @@
 
 - [ ] Owners are added, changed and removed only by a vote, which records an instruction that any SV
       node operator then executes against the current owner contract.
+      Adding is covered by `AddingChangingAndRemoving/TestAddingAnOwner`; changing and
+      removing follow.
 - [ ] A governed update can rewrite every field of an owner, its party included.
 - [ ] Removing an owner archives its reward state and leaves its co-tenants untouched; the freed
       name can later be added again as a new owner, collecting from the round the add lands in.
