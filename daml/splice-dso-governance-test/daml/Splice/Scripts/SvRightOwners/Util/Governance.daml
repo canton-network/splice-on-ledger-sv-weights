@@ -1,6 +1,11 @@
 -- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
 -- SPDX-License-Identifier: Apache-2.0
 
+-- | Governing an SV right owner from a test: raising the vote, executing or expiring the
+-- instruction it records, and pinning the reason a submission was refused. The helpers that
+-- expect to succeed take an `Operator`, because only an SV node operator can exercise those
+-- choices; the ones that expect a refusal take a bare `Party`, so a test can also submit as a
+-- stranger or as the DSO.
 module Splice.Scripts.SvRightOwners.Util.Governance where
 
 import DA.Action (unless)
@@ -85,8 +90,9 @@ dsoRulesCommand net mkCommands = do
   (dsoRulesCid, _) <- currentDsoRules net
   pure $ void $ mkCommands dsoRulesCid
 
--- | The submission is refused, and refused for the stated reason: the model's own wording has
--- to come back in the error, so that removing a guard cannot leave a test green.
+-- | The submission is refused, and refused for the stated reason, so that removing a guard cannot
+-- leave a test green. The reason is whatever wording comes back: this model's own for a `require`
+-- it fails, the engine's for an authorization or a missing contract.
 refusedFor : Network -> Party -> Text -> Commands () -> Script ()
 refusedFor net party refusalReason command = do
   outcome <- trySubmit (actAs party <> readAs net.app.dso) command

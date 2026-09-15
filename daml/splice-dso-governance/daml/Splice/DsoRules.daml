@@ -1944,14 +1944,16 @@ template DsoRules with
       controller dso
       do
         requireOnLedgerSvRightOwners this
-        -- Only the payload is checked here. `DsoRules_CloseVoteRequest` executes the action in the
-        -- transaction that closes the vote, with no try/catch, so a guard on state that can change
-        -- between the vote being raised and closed makes the request fail to close until the SVs
-        -- vote it down. Name and node operator are state, and execution checks both.
+        -- `DsoRules_CloseVoteRequest` executes the action in the transaction that closes the vote,
+        -- with no try/catch, so a guard on state that can change between the vote being raised and
+        -- closed leaves the request unable to close until the SVs vote it down. Whether the name is
+        -- free and whether the node operator exists are both such state, so execution checks them
+        -- rather than this choice. `requireOnLedgerSvRightOwners` is state as well, but it flips
+        -- once and never back, so a vote raised before the migration is meant to fail afterwards.
         -- TODO(canton-network/splice#7117): the remove and update choices still guard on state.
         requireValidSvRightOwnerName name
         requireValidSvRightOwnerInfo info
-        requireRightOwnerPartyIsNotTheDso dso info
+        requireRightOwnerPartyIsNotTheDso this info
         now <- getTime
         instruction <- create AddSvRightOwnerInstruction with
           dso
@@ -2056,6 +2058,7 @@ template DsoRules with
         requireSvRightOwnerExists this name
         requireRewardNodeOperatorExists this newInfo
         requireValidSvRightOwnerInfo newInfo
+        requireRightOwnerPartyIsNotTheDso this newInfo
         now <- getTime
         instruction <- create UpdateSvRightOwnerInfoInstruction with
           dso
@@ -2161,8 +2164,9 @@ requireValidSvRightOwnerInfo : SvRightOwnerInfo -> Update ()
 requireValidSvRightOwnerInfo info =
   require "Valid SvRightOwnerInfo" $ validSvRightOwnerInfo info
 
--- | Tighter than `config.maxTextLength`, which bounds prose: every governance choice recreates
--- `DsoRules` with the whole name registry inside it.
+-- | The name is an identity key, not prose, so it is bounded far below `config.maxTextLength`.
+-- 64 is the widest an operator would type by hand and still leaves the registry that every
+-- governance choice recreates inside `DsoRules` small.
 maxSvRightOwnerNameLength : Int
 maxSvRightOwnerNameLength = 64
 
@@ -2182,9 +2186,9 @@ requireValidSvRightOwnerName name = do
 -- | Coupons minted for the DSO party name it as their own beneficiary, and nothing can exercise
 -- `SvRewardCoupon_ArchiveAsBeneficiary` as the DSO, so such a weight is minted every round and
 -- then expires unclaimed.
-requireRightOwnerPartyIsNotTheDso : Party -> SvRightOwnerInfo -> Update ()
-requireRightOwnerPartyIsNotTheDso dso info =
-  require "SV right owner party is not the DSO party" (info.rightOwnerParty /= dso)
+requireRightOwnerPartyIsNotTheDso : DsoRules -> SvRightOwnerInfo -> Update ()
+requireRightOwnerPartyIsNotTheDso this info =
+  require "SV right owner party is not the DSO party" (info.rightOwnerParty /= this.dso)
 
 requireRewardNodeOperatorExists : DsoRules -> SvRightOwnerInfo -> Update ()
 requireRewardNodeOperatorExists this info =
@@ -2195,12 +2199,16 @@ requireMigratableToOnLedgerSvRightOwners : DsoRules -> TextMap SvRightOwnerInfo 
 requireMigratableToOnLedgerSvRightOwners this svRightOwners = do
   requireNoOnLedgerSvRightOwners this
   require "There is at least one SV right owner" (not $ TextMap.null svRightOwners)
-  forA_ (map fst (TextMap.toList svRightOwners)) requireValidSvRightOwnerName
-  forA_ svRightOwners requireValidSvRightOwnerInfo
-  forA_ svRightOwners (requireRightOwnerPartyIsNotTheDso this.dso)
+  -- TODO(canton-network/splice#7117): the names here are the legacy SV node operator names, which
+  -- `DsoRules_AddSv` never validates, so an operator onboarded under a name these rules reject
+  -- leaves the network unable to migrate.
+  forA_ (map fst $ TextMap.toList svRightOwners) requireValidSvRightOwnerName
+  forA_ svRightOwners $ \info -> do
+    requireValidSvRightOwnerInfo info
+    requireRightOwnerPartyIsNotTheDso this info
+    requireRewardNodeOperatorExists this info
   require "The total SV reward weight is preserved" $
     sum (fmap (.svRewardWeight) this.svs) == sum (fmap (.rewardWeight) svRightOwners)
-  forA_ svRightOwners $ requireRewardNodeOperatorExists this
 
 template MigrateToOnLedgerSvRightOwnersInstruction with
     dso : Party

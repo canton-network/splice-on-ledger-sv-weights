@@ -1,6 +1,10 @@
 -- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
 -- SPDX-License-Identifier: Apache-2.0
 
+-- | The network a right-owner test runs on, and the vocabulary for reading its state back.
+-- `Operator` and `SvRightOwner` are the test's own view of an SV node operator and of an SV
+-- right owner: a test builds one, governs it onto the ledger, and compares `svRightOwners`
+-- against it, without unpacking a contract itself.
 module Splice.Scripts.SvRightOwners.Util.Fixture where
 
 import DA.Action (unless)
