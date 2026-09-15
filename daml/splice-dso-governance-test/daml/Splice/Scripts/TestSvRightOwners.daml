@@ -6,7 +6,7 @@ module Splice.Scripts.TestSvRightOwners where
 import DA.Action (replicateA_)
 import DA.Assert
 import DA.Foldable (forA_)
-import DA.List (sort)
+import DA.List (last, sort)
 import qualified DA.Map as Map
 import qualified DA.Set as Set
 import qualified DA.TextMap as TextMap
@@ -100,6 +100,20 @@ test_MigrateNonOneToOneSvRightOwners = do
   TextMap.fromList [(owner.name, owner.info) | (_, owner) <- owners] === svRightOwners
   checkSvContractInvariants app
 
+test_MigrationRejectsWrongReusedRewardStateName : Script ()
+test_MigrationRejectsWrongReusedRewardStateName = do
+  (app, _, svs) <- initMainNet
+  svRightOwners <- svRightOwnerInfosFromOperators app
+  checkMigrationRejectsWrongRewardStateName app svs svRightOwners
+
+test_MigrationRejectsWrongArchivedRewardStateName : Script ()
+test_MigrationRejectsWrongArchivedRewardStateName = do
+  (app, _, svs) <- initMainNet
+  operatorInfos <- svRightOwnerInfosFromOperators app
+  let svRightOwners = TextMap.fromList
+        [("hosted-" <> name, info) | (name, info) <- TextMap.toList operatorInfos]
+  checkMigrationRejectsWrongRewardStateName app svs svRightOwners
+
 test_ExpireMigrateToOnLedgerSvRightOwnersInstruction : Script ()
 test_ExpireMigrateToOnLedgerSvRightOwnersInstruction = do
   (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNet
@@ -142,6 +156,43 @@ test_AddSvRightOwner = do
   [(_, owner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv2")
   owner.info === mkSvRightOwnerInfo sv2 rightOwnerWeight "sv2"
 
+  checkSvContractInvariants app
+
+test_CannotAddDuplicateSvRightOwner : Script ()
+test_CannotAddDuplicateSvRightOwner = do
+  (app, dso, (sv1, _, _, _)) <- initMainNetWithSvRightOwners
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  submitMustFail dso $
+    exerciseCmd dsoRulesCid DsoRules_AddSvRightOwner with
+      name = "sv1"
+      info = mkSvRightOwnerInfo sv1 rightOwnerWeight "sv1"
+  [] <- query @AddSvRightOwnerInstruction dso
+  checkSvContractInvariants app
+
+-- | Two additions can be approved before a name is in use, but only one can execute.
+test_CannotExecuteDuplicateSvRightOwnerAddition : Script ()
+test_CannotExecuteDuplicateSvRightOwnerAddition = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+  let add = DsoRules_AddSvRightOwner with
+        name = "sv2"
+        info = mkSvRightOwnerInfo sv2 rightOwnerWeight "sv2"
+  replicateA_ 2 $
+    initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+      dsoAction = SRARC_AddSvRightOwner add
+
+  [(firstInstructionCid, _), (secondInstructionCid, _)] <- query @AddSvRightOwnerInstruction dso
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  let execute instructionCid = DsoRules_ExecuteAddSvRightOwnerInstruction with
+        instructionCid
+        openMiningRoundTriple
+        svOperator = sv1
+  svSubmits app sv1 $ \cid -> exerciseCmd cid (execute firstInstructionCid)
+
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  submitMustFail (actAs sv1 <> readAs dso) $
+    exerciseCmd dsoRulesCid (execute secondInstructionCid)
+  [(_, dsoRules)] <- query @DsoRules dso
+  dsoRules.svRightOwners === Some (Set.fromList ["sv1", "sv2"])
   checkSvContractInvariants app
 
 test_ExpireAddSvRightOwnerInstruction : Script ()
@@ -195,6 +246,31 @@ test_RemoveSvRightOwner = do
   dsoRules.svRightOwners === Some (Set.fromList ["sv1"])
   [] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv2")
   [] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv2")
+  checkSvContractInvariants app
+
+-- | Check the owner and reward-state names independently when removing sv2.
+test_RemoveSvRightOwnerRejectsWrongName : Script ()
+test_RemoveSvRightOwnerRejectsWrongName = do
+  (app, dso, svs@(sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+  addSvRightOwner app svs "sv2" sv2
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_RemoveSvRightOwner DsoRules_RemoveSvRightOwner with name = "sv2"
+
+  [(instructionCid, _)] <- query @RemoveSvRightOwnerInstruction dso
+  owner1 <- getSvRightOwnerCid app "sv1"
+  owner2 <- getSvRightOwnerCid app "sv2"
+  state1 <- getSvRewardStateCid app "sv1"
+  state2 <- getSvRewardStateCid app "sv2"
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  let remove (svRightOwnerCid, svRewardStateCid) =
+        exerciseCmd dsoRulesCid DsoRules_ExecuteRemoveSvRightOwnerInstruction with
+          instructionCid
+          svRightOwnerCid
+          svRewardStateCid
+          svOperator = sv1
+  forA_ [(owner1, state2), (owner2, state1)] $ \inputs ->
+    submitMustFail (actAs sv1 <> readAs dso) $ remove inputs
+  _ <- submit (actAs sv1 <> readAs dso) $ remove (owner2, state2)
   checkSvContractInvariants app
 
 test_CannotRemoveLastSvRightOwner : Script ()
@@ -305,6 +381,28 @@ test_UpdateSvRightOwnerInfo = do
   [(_, updatedOwner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
   updatedOwner.info === newInfo
 
+test_UpdateSvRightOwnerInfoRejectsWrongName : Script ()
+test_UpdateSvRightOwnerInfoRejectsWrongName = do
+  (app, dso, svs@(sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+  addSvRightOwner app svs "sv2" sv2
+  [(sv1RightOwnerCid, sv1RightOwner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
+  sv2RightOwnerCid <- getSvRightOwnerCid app "sv2"
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo with
+      name = "sv1"
+      baseInfo = sv1RightOwner.info
+      newInfo = sv1RightOwner.info with rewardWeight = rightOwnerWeight
+
+  [(instructionCid, _)] <- query @UpdateSvRightOwnerInfoInstruction dso
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  let update svRightOwnerCid = exerciseCmd dsoRulesCid DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction with
+        instructionCid
+        svRightOwnerCid
+        svOperator = sv1
+  submitMustFail (actAs sv1 <> readAs dso) $ update sv2RightOwnerCid
+  _ <- submit (actAs sv1 <> readAs dso) $ update sv1RightOwnerCid
+  checkSvContractInvariants app
+
 test_ExpireUpdateSvRightOwnerInfoInstruction : Script ()
 test_ExpireUpdateSvRightOwnerInfoInstruction = do
   (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
@@ -353,6 +451,22 @@ test_UpdateSvRightOwnerBeneficiaries = do
   [(_, owner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv1")
   owner.info.beneficiaries === beneficiaries
 
+test_UpdateSvRightOwnerBeneficiariesRejectsWrongName : Script ()
+test_UpdateSvRightOwnerBeneficiariesRejectsWrongName = do
+  (app, dso, svs@(_, sv2, _, _)) <- initMainNetWithSvRightOwners
+  addSvRightOwner app svs "sv2" sv2
+  svRightOwnerCid <- getSvRightOwnerCid app "sv2"
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  -- Use the supplied contract's actual owner, so only the name is wrong.
+  let update name = exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerBeneficiaries with
+        name
+        svRightOwnerCid
+        beneficiaries = Map.empty
+        rightOwner = sv2
+  submitMustFail (actAs sv2 <> readAs dso) $ update "sv1"
+  _ <- submit (actAs sv2 <> readAs dso) $ update "sv2"
+  checkSvContractInvariants app
+
 -- | Mint one SV reward coupon per beneficiary of an SV right owner, with the remainder of its
 -- weight going to the right owner itself.
 test_ReceiveSvRewardCouponV2 : Script ()
@@ -386,6 +500,18 @@ test_ReceiveSvRewardCouponV2 = do
 
   [(_, rewardState)] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv1")
   rewardState.state.lastRoundCollected === Round 0
+
+test_ReceiveSvRewardCouponV2RejectsWrongOwnerName : Script ()
+test_ReceiveSvRewardCouponV2RejectsWrongOwnerName =
+  checkSvRewardCouponV2RejectsWrongName "sv2" "sv1"
+
+test_ReceiveSvRewardCouponV2RejectsWrongRewardStateName : Script ()
+test_ReceiveSvRewardCouponV2RejectsWrongRewardStateName =
+  checkSvRewardCouponV2RejectsWrongName "sv1" "sv2"
+
+test_ReceiveSvRewardCouponV2RejectsWrongMapKey : Script ()
+test_ReceiveSvRewardCouponV2RejectsWrongMapKey =
+  checkSvRewardCouponV2RejectsWrongName "sv2" "sv2"
 
 -- | A beneficiary allocation that rounds down to zero must not prevent the remaining coupons
 -- from being created. The zero-weight beneficiary should receive no coupon.
@@ -506,3 +632,49 @@ addSvRightOwner app (sv1, sv2, sv3, sv4) name rightOwnerParty = do
       openMiningRoundTriple
       svOperator = sv1
   pure ()
+
+-- | Submit the named owner and reward state under the map key "sv1".
+checkSvRewardCouponV2RejectsWrongName : Text -> Text -> Script ()
+checkSvRewardCouponV2RejectsWrongName rightOwnerName rewardStateName = do
+  (app, dso, svs@(_, sv2, _, _)) <- initMainNetWithSvRightOwners
+  addSvRightOwner app svs "sv2" sv2
+  (openRoundCid, openRound) <- last <$> getOpenRoundsSorted app
+  setTime openRound.opensAt
+  [(svRightOwnerCid, owner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == rightOwnerName)
+  svRewardStateCid <- getSvRewardStateCid app rewardStateName
+  [(dsoRulesCid, dsoRules)] <- query @DsoRules dso
+  [svOperator] <- pure
+    [party | (party, info) <- Map.toList dsoRules.svs, info.name == owner.info.rewardNodeOperatorName]
+  let mint name rewardStateCid = exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCouponV2 with
+        svOperator
+        openRoundCid
+        svRightOwnerRewardInputs = TextMap.fromList [(name, (svRightOwnerCid, rewardStateCid))]
+  submitMustFail (actAs svOperator <> readAs dso) $ mint "sv1" svRewardStateCid
+
+  correctRewardStateCid <- getSvRewardStateCid app rightOwnerName
+  _ <- submit (actAs svOperator <> readAs dso) $ mint rightOwnerName correctRewardStateCid
+  checkSvContractInvariants app
+
+checkMigrationRejectsWrongRewardStateName
+  : AmuletApp -> (Party, Party, Party, Party) -> TextMap.TextMap SvRightOwnerInfo -> Script ()
+checkMigrationRejectsWrongRewardStateName app (sv1, sv2, sv3, sv4) svRightOwners = do
+  let dso = app.dso
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_MigrateToOnLedgerSvRightOwners DsoRules_MigrateToOnLedgerSvRightOwners with
+      svRightOwners
+
+  [(instructionCid, _)] <- query @MigrateToOnLedgerSvRightOwnersInstruction dso
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  rewardStates <- getSvOperatorRewardStateCids app
+  sv1RewardStateCid <- getSvRewardStateCid app "sv1"
+  sv2RewardStateCid <- getSvRewardStateCid app "sv2"
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  let migrate states = exerciseCmd dsoRulesCid DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstruction with
+        instructionCid
+        openMiningRoundTriple
+        svOperatorRewardStateCids = states
+        svOperator = sv1
+  submitMustFail (actAs sv1 <> readAs dso) $
+    migrate (TextMap.insert "sv1" sv2RewardStateCid $ TextMap.insert "sv2" sv1RewardStateCid rewardStates)
+  _ <- submit (actAs sv1 <> readAs dso) $ migrate rewardStates
+  checkSvContractInvariants app
