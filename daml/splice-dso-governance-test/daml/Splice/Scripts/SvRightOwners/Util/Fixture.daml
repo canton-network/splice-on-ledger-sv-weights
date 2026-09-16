@@ -1,0 +1,165 @@
+-- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+module Splice.Scripts.SvRightOwners.Util.Fixture where
+
+import DA.Action (unless)
+import DA.Assert ((===))
+import DA.List (maximumOn, sortOn)
+import qualified DA.Map as Map
+import DA.Optional (isNone, isSome)
+import qualified DA.Set as Set
+
+import Daml.Script
+
+import qualified Splice.Amulet.SvRightOwner as Amulet
+import Splice.AmuletRules (miningRoundTripleCids)
+import Splice.DSO.SvState (RewardState, SvRewardState)
+import Splice.DsoRules (DsoRules)
+import Splice.Types (Round)
+
+import qualified Splice.Scripts.DsoTestUtils as DsoTestUtils
+import qualified Splice.Scripts.Util as AmuletScripts
+
+data Operator = Operator with
+    name : Text
+    party : Party
+  deriving (Eq, Ord, Show)
+
+data SvRightOwner = SvRightOwner with
+    name : Text
+    party : Party
+    hostedBy : Operator
+    rewardWeight : Int
+    beneficiaries : Map.Map Party Amulet.BeneficiaryInfo
+  deriving (Eq, Show)
+
+data Network = Network with
+    app : AmuletScripts.AmuletApp
+    sv1 : Operator
+    sv2 : Operator
+    sv3 : Operator
+    sv4 : Operator
+    genesisOwner : SvRightOwner
+
+withOnLedgerWeights : (Network -> Script ()) -> Script ()
+withOnLedgerWeights = runOn DsoTestUtils.initMainNetWithSvRightOwners
+
+withLegacyWeights : (Network -> Script ()) -> Script ()
+withLegacyWeights = runOn DsoTestUtils.initMainNet
+
+runOn : Script (AmuletScripts.AmuletApp, Party, (Party, Party, Party, Party)) -> (Network -> Script ()) -> Script ()
+runOn initNetwork test = do
+  (app, _, (sv1Party, sv2Party, sv3Party, sv4Party)) <- initNetwork
+  let sv1 = Operator with name = "sv1"; party = sv1Party
+  test Network with
+    app
+    sv1
+    sv2 = Operator with name = "sv2"; party = sv2Party
+    sv3 = Operator with name = "sv3"; party = sv3Party
+    sv4 = Operator with name = "sv4"; party = sv4Party
+    -- On an on-ledger network the sv1 operator acts as its own right owner. Under legacy weights
+    -- there is no such contract and sv1 holds the weight itself.
+    genesisOwner = SvRightOwner with
+      name = "sv1"
+      party = sv1Party
+      hostedBy = sv1
+      rewardWeight = tier1RewardWeight
+      beneficiaries = Map.empty
+  DsoTestUtils.checkSvContractInvariants app
+
+tier1RewardWeight : Int
+tier1RewardWeight = 10 * DsoTestUtils.bpsMultiplier
+
+tier2RewardWeight : Int
+tier2RewardWeight = 3 * DsoTestUtils.bpsMultiplier
+
+newSvRightOwner : Text -> Operator -> Script SvRightOwner
+newSvRightOwner name hostedBy = do
+  party <- allocateParty (name <> "-party")
+  pure SvRightOwner with
+    name; party; hostedBy; rewardWeight = tier2RewardWeight; beneficiaries = Map.empty
+
+svRightOwnerInfo : SvRightOwner -> Amulet.SvRightOwnerInfo
+svRightOwnerInfo owner = Amulet.SvRightOwnerInfo with
+  rightOwnerParty = owner.party
+  rewardWeight = owner.rewardWeight
+  rewardNodeOperatorName = owner.hostedBy.name
+  beneficiaries = owner.beneficiaries
+
+currentDsoRules : Network -> Script (ContractId DsoRules, DsoRules)
+currentDsoRules net = do
+  [dsoRules] <- query @DsoRules net.app.dso
+  pure dsoRules
+
+svNodeOperators : Network -> Script [Operator]
+svNodeOperators net = do
+  (_, dsoRules) <- currentDsoRules net
+  pure $ sortOn (.name)
+    [(Operator with name = svInfo.name; party) | (party, svInfo) <- Map.toList dsoRules.svs]
+
+svLegacyNodeOperatorWeights : Network -> Script [(Operator, Int)]
+svLegacyNodeOperatorWeights net = do
+  operators <- svNodeOperators net
+  (_, dsoRules) <- currentDsoRules net
+  forA operators $ \operator -> case Map.lookup operator.party dsoRules.svs of
+    Some svInfo -> pure (operator, svInfo.svRewardWeight)
+    None -> fail $ "no SV node operator is named " <> operator.name
+
+svRightOwners : Network -> Script [SvRightOwner]
+svRightOwners net = do
+  operators <- svNodeOperators net
+  contracts <- query @Amulet.SvRightOwner net.app.dso
+  forA (sortOn (\(_, contract) -> contract.name) contracts) $ \(_, contract) -> do
+    let hostName = contract.info.rewardNodeOperatorName
+    hostedBy <- case [operator | operator <- operators, operator.name == hostName] of
+      [operator] -> pure operator
+      _ -> fail $ "no SV node operator is named " <> hostName
+    pure SvRightOwner with
+      name = contract.name
+      party = contract.info.rightOwnerParty
+      hostedBy
+      rewardWeight = contract.info.rewardWeight
+      beneficiaries = contract.info.beneficiaries
+
+svRightOwnerRewardWeights : Network -> Script [(Text, Int)]
+svRightOwnerRewardWeights net = do
+  owners <- svRightOwners net
+  pure [(owner.name, owner.rewardWeight) | owner <- owners]
+
+svRightOwnerNamesInDsoRules : Network -> Script [Text]
+svRightOwnerNamesInDsoRules net = do
+  (_, dsoRules) <- currentDsoRules net
+  case dsoRules.svRightOwners of
+    Some names -> pure (Set.toList names)
+    None -> fail "this network does not track SV right owners on-ledger"
+
+rewardStateOf : Network -> SvRightOwner -> Script RewardState
+rewardStateOf net owner = do
+  [(_, contract)] <- queryFilter @SvRewardState net.app.dso (\c -> c.svName == owner.name)
+  pure contract.state
+
+shouldReturn : (Eq a, Show a) => Script a -> a -> Script ()
+shouldReturn action expected = action >>= (=== expected)
+infix 4 `shouldReturn`
+
+expectArchived : (Template t, HasEnsure t) => Network -> ContractId t -> Script ()
+expectArchived net cid = do
+  contract <- queryContractId net.app.dso cid
+  unless (isNone contract) (fail "expected the contract to be archived")
+
+expectActive : (Template t, HasEnsure t) => Network -> ContractId t -> Script ()
+expectActive net cid = do
+  contract <- queryContractId net.app.dso cid
+  unless (isSome contract) (fail "expected the contract to still be active")
+
+roundANewSvRightOwnerStartsIn : Network -> Script Round
+roundANewSvRightOwnerStartsIn net = do
+  triple <- DsoTestUtils.getOpenMiningRoundTriple net.app
+  rounds <- forA (miningRoundTripleCids triple) $ \cid -> do
+    Some round <- queryContractId net.app.dso cid
+    pure round
+  now <- getTime
+  case [round | round <- rounds, round.opensAt <= now] of
+    [] -> fail "no open mining round has opened yet"
+    alreadyOpen -> pure (maximumOn (.round.number) alreadyOpen).round
