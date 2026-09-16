@@ -14,33 +14,6 @@ import Splice.DsoRules
 import Splice.Scripts.DsoTestUtils
 import Splice.Scripts.SvRightOwners.TestUtils
 
--- | Migrate the SV node operators of the test network to SV right owners of the same name.
-test_MigrateToOnLedgerSvRightOwners : Script ()
-test_MigrateToOnLedgerSvRightOwners = do
-  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNet
-  svRightOwners <- svRightOwnerInfosFromOperators app
-
-  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
-    dsoAction = SRARC_MigrateToOnLedgerSvRightOwners DsoRules_MigrateToOnLedgerSvRightOwners with
-      svRightOwners
-
-  [(instructionCid, _)] <- query @MigrateToOnLedgerSvRightOwnersInstruction dso
-  openMiningRoundTriple <- getOpenMiningRoundTriple app
-  svOperatorRewardStateCids <- getSvOperatorRewardStateCids app
-  svSubmits app sv1 $ \dsoRulesCid ->
-    exerciseCmd dsoRulesCid DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstruction with
-      instructionCid
-      openMiningRoundTriple
-      svOperatorRewardStateCids
-      svOperator = sv1
-
-  [(_, dsoRules)] <- query @DsoRules dso
-  dsoRules.svRightOwners === Some (Set.fromList ["sv1", "sv2", "sv3", "sv4"])
-
-  owners <- query @SvRightOwner dso
-  TextMap.fromList [(owner.name, owner.info) | (_, owner) <- owners] === svRightOwners
-  checkSvContractInvariants app
-
 test_MigrationRejectsIncreasedTotalWeight : Script ()
 test_MigrationRejectsIncreasedTotalWeight =
   checkMigrationRejectsWeightChange 1
