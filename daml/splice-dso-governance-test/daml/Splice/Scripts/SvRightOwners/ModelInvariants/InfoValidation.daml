@@ -1,0 +1,103 @@
+-- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+-- | Owner info and hosting operators are validated when approved instructions execute.
+module Splice.Scripts.SvRightOwners.ModelInvariants.InfoValidation where
+
+import DA.Assert
+import qualified DA.Map as Map
+import Daml.Script
+import Splice.Amulet.SvRightOwner
+import Splice.DsoRules
+import Splice.Scripts.DsoTestUtils
+import Splice.Scripts.SvRightOwners.TestUtils
+import Splice.Scripts.Util
+
+test_AddSvRightOwnerRejectsOffboardedOperator : Script ()
+test_AddSvRightOwnerRejectsOffboardedOperator = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_AddSvRightOwner DsoRules_AddSvRightOwner with
+      name = "hosted-sv"
+      info = mkSvRightOwnerInfo sv2 rightOwnerWeight "sv2"
+  [(instructionCid, _)] <- query @AddSvRightOwnerInstruction dso
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_OffboardSv DsoRules_OffboardSv with sv = sv2
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  submitMustFail (actAs sv1 <> readAs dso) $
+    exerciseCmd dsoRulesCid DsoRules_ExecuteAddSvRightOwnerInstruction with
+      instructionCid
+      openMiningRoundTriple
+      svOperator = sv1
+  [] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "hosted-sv")
+  checkSvContractInvariants app
+
+test_UpdateSvRightOwnerInfoRejectsMergedBeneficiariesRewardRatioOverOne : Script ()
+test_UpdateSvRightOwnerInfoRejectsMergedBeneficiariesRewardRatioOverOne = do
+  (app, dso, svs@(_, sv2, sv3, _)) <- initMainNetWithSvRightOwners
+  [(_, owner)] <- query @SvRightOwner dso
+  let newInfo = owner.info with
+        beneficiaries = Map.fromList [(sv2, BeneficiaryInfo 0.6)]
+      concurrentBeneficiaries = Map.fromList [(sv3, BeneficiaryInfo 0.6)]
+  checkSvRightOwnerUpdateRejectsMergedInfo app svs newInfo concurrentBeneficiaries
+
+test_UpdateSvRightOwnerInfoRejectsMergedSelfBeneficiary : Script ()
+test_UpdateSvRightOwnerInfoRejectsMergedSelfBeneficiary = do
+  (app, dso, svs@(_, sv2, _, _)) <- initMainNetWithSvRightOwners
+  [(_, owner)] <- query @SvRightOwner dso
+  let newInfo = owner.info with rightOwnerParty = sv2
+      concurrentBeneficiaries = Map.fromList [(sv2, BeneficiaryInfo 0.25)]
+  checkSvRightOwnerUpdateRejectsMergedInfo app svs newInfo concurrentBeneficiaries
+
+test_UpdateSvRightOwnerInfoRejectsOffboardedOperator : Script ()
+test_UpdateSvRightOwnerInfoRejectsOffboardedOperator = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+  [(svRightOwnerCid, owner)] <- query @SvRightOwner dso
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo with
+      name = "sv1"
+      baseInfo = owner.info
+      newInfo = owner.info with rewardNodeOperatorName = "sv2"
+  [(instructionCid, _)] <- query @UpdateSvRightOwnerInfoInstruction dso
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_OffboardSv DsoRules_OffboardSv with sv = sv2
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  submitMustFail (actAs sv1 <> readAs dso) $
+    exerciseCmd dsoRulesCid DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction with
+      instructionCid
+      svRightOwnerCid
+      svOperator = sv1
+  [(unchangedCid, unchangedOwner)] <- query @SvRightOwner dso
+  (unchangedCid, unchangedOwner) === (svRightOwnerCid, owner)
+
+-- | Approve an update, change beneficiaries independently, then check the merged result.
+checkSvRightOwnerUpdateRejectsMergedInfo
+  : AmuletApp -> (Party, Party, Party, Party) -> SvRightOwnerInfo -> Map.Map Party BeneficiaryInfo -> Script ()
+checkSvRightOwnerUpdateRejectsMergedInfo app (sv1, sv2, sv3, sv4) newInfo concurrentBeneficiaries = do
+  let dso = app.dso
+  [(svRightOwnerCid, owner)] <- query @SvRightOwner dso
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo with
+      name = "sv1"
+      baseInfo = owner.info
+      newInfo
+  [(instructionCid, _)] <- query @UpdateSvRightOwnerInfoInstruction dso
+
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerBeneficiaries with
+      name = "sv1"
+      svRightOwnerCid
+      beneficiaries = concurrentBeneficiaries
+      rightOwner = sv1
+  [(currentOwnerCid, currentOwner)] <- query @SvRightOwner dso
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  submitMustFail (actAs sv1 <> readAs dso) $
+    exerciseCmd dsoRulesCid DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction with
+      instructionCid
+      svRightOwnerCid = currentOwnerCid
+      svOperator = sv1
+  [(unchangedCid, unchangedOwner)] <- query @SvRightOwner dso
+  (unchangedCid, unchangedOwner) === (currentOwnerCid, currentOwner)

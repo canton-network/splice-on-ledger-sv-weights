@@ -1,0 +1,173 @@
+-- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+-- | Owner and operator names are unique within their separate live sets, but may overlap.
+-- Migration reuses an operator's reward state for an owner with the same name.
+module Splice.Scripts.SvRightOwners.ModelInvariants.NameNamespaces where
+
+import DA.Action (replicateA_)
+import DA.Assert
+import qualified DA.Set as Set
+import qualified DA.TextMap as TextMap
+import Daml.Script
+import Splice.Amulet.SvRightOwner
+import Splice.DSO.SvState
+import Splice.DsoRules
+import Splice.Types
+import Splice.Scripts.DsoTestUtils
+import Splice.Scripts.SvRightOwners.TestUtils
+import Splice.Scripts.Util
+
+test_CannotAddDuplicateSvRightOwner : Script ()
+test_CannotAddDuplicateSvRightOwner = do
+  (app, dso, (sv1, _, _, _)) <- initMainNetWithSvRightOwners
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  submitMustFail dso $
+    exerciseCmd dsoRulesCid DsoRules_AddSvRightOwner with
+      name = "sv1"
+      info = mkSvRightOwnerInfo sv1 rightOwnerWeight "sv1"
+  [] <- query @AddSvRightOwnerInstruction dso
+  checkSvContractInvariants app
+
+-- | Two additions can be approved before a name is in use, but only one can execute.
+test_CannotExecuteDuplicateSvRightOwnerAddition : Script ()
+test_CannotExecuteDuplicateSvRightOwnerAddition = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+  let add = DsoRules_AddSvRightOwner with
+        name = "sv2"
+        info = mkSvRightOwnerInfo sv2 rightOwnerWeight "sv2"
+  replicateA_ 2 $
+    initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+      dsoAction = SRARC_AddSvRightOwner add
+
+  [(firstInstructionCid, _), (secondInstructionCid, _)] <- query @AddSvRightOwnerInstruction dso
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  let execute instructionCid = DsoRules_ExecuteAddSvRightOwnerInstruction with
+        instructionCid
+        openMiningRoundTriple
+        svOperator = sv1
+  svSubmits app sv1 $ \cid -> exerciseCmd cid (execute firstInstructionCid)
+
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  submitMustFail (actAs sv1 <> readAs dso) $
+    exerciseCmd dsoRulesCid (execute secondInstructionCid)
+  [(_, dsoRules)] <- query @DsoRules dso
+  dsoRules.svRightOwners === Some (Set.fromList ["sv1", "sv2"])
+  checkSvContractInvariants app
+
+test_MigrateNonOneToOneSvRightOwners : Script ()
+test_MigrateNonOneToOneSvRightOwners = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <-
+    initDecentralizedSynchronizerWithNonZeroRound False 100 False
+  hostedSv <- allocateParty "hosted-sv"
+  let svRightOwners = TextMap.fromList
+        [ ("sv1", mkSvRightOwnerInfo sv1 (10 * bpsMultiplier) "sv1")
+        , ("sv3", mkSvRightOwnerInfo sv3 (6 * bpsMultiplier) "sv3")
+        , ("hosted-sv", mkSvRightOwnerInfo hostedSv (3 * bpsMultiplier) "sv2")
+        ]
+
+  [(sv3RewardStateCidBefore, sv3RewardStateBefore)] <-
+    queryFilter @SvRewardState dso (\state -> state.svName == "sv3")
+  [_, (_, latestUsableRound)] <- getOpenRoundsSorted app
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_MigrateToOnLedgerSvRightOwners DsoRules_MigrateToOnLedgerSvRightOwners with
+      svRightOwners
+
+  [(instructionCid, _)] <- query @MigrateToOnLedgerSvRightOwnersInstruction dso
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  svOperatorRewardStateCids <- getSvOperatorRewardStateCids app
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstruction with
+      instructionCid
+      openMiningRoundTriple
+      svOperatorRewardStateCids
+      svOperator = sv1
+
+  [(sv3RewardStateCidAfter, sv3RewardStateAfter)] <-
+    queryFilter @SvRewardState dso (\state -> state.svName == "sv3")
+  sv3RewardStateCidAfter === sv3RewardStateCidBefore
+  sv3RewardStateAfter.state === sv3RewardStateBefore.state
+
+  [(_, hostedSvRewardState)] <-
+    queryFilter @SvRewardState dso (\state -> state.svName == "hosted-sv")
+  hostedSvRewardState.state === RewardState with
+    numRoundsMissed = 0
+    numRoundsCollected = 0
+    lastRoundCollected = latestUsableRound.round
+    numCouponsIssued = 0
+
+  [] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv2")
+  [] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv4")
+
+  [(_, dsoRules)] <- query @DsoRules dso
+  dsoRules.svRightOwners === Some (Set.fromList ["sv1", "sv3", "hosted-sv"])
+  owners <- query @SvRightOwner dso
+  TextMap.fromList [(owner.name, owner.info) | (_, owner) <- owners] === svRightOwners
+  checkSvContractInvariants app
+
+-- | Add a new SV right owner hosted by the SV node operator of the same name.
+test_AddSvRightOwner : Script ()
+test_AddSvRightOwner = do
+  (app, dso, svs@(_, sv2, _, _)) <- initMainNetWithSvRightOwners
+  addSvRightOwner app svs "sv2" sv2
+
+  [(_, dsoRules)] <- query @DsoRules dso
+  dsoRules.svRightOwners === Some (Set.fromList ["sv1", "sv2"])
+
+  [(_, owner)] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "sv2")
+  owner.info === mkSvRightOwnerInfo sv2 rightOwnerWeight "sv2"
+
+  checkSvContractInvariants app
+
+-- | A second live operator cannot take an existing operator's name in on-ledger mode.
+test_CannotAddDuplicateSvNodeOperatorName : Script ()
+test_CannotAddDuplicateSvNodeOperatorName = do
+  (app, dso, _) <- initMainNetWithSvRightOwners
+  newSvParty <- allocateParty "new-operator"
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  let add = DsoRules_AddSv with
+        newSvParty
+        newSvName = "sv2"
+        newSvRewardWeight = 0
+        newSvParticipantId = "new-operator-participant-id"
+        joinedAsOfRound = Round 0
+  submitMustFail dso $ exerciseCmd dsoRulesCid add
+  _ <- submit dso $ exerciseCmd dsoRulesCid (add with newSvName = "new-operator")
+  checkSvContractInvariants app
+
+-- | Adding an operator with an existing owner's name must not replace its reward state.
+test_AddSvNodeOperatorWithRightOwnerName : Script ()
+test_AddSvNodeOperatorWithRightOwnerName = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+  rightOwner <- allocateParty "right-owner"
+  newSvParty <- allocateParty "new-operator"
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_AddSvRightOwner DsoRules_AddSvRightOwner with
+      name = "hosted-sv"
+      info = mkSvRightOwnerInfo rightOwner rightOwnerWeight "sv1"
+  [(instructionCid, _)] <- query @AddSvRightOwnerInstruction dso
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExecuteAddSvRightOwnerInstruction with
+      instructionCid
+      openMiningRoundTriple
+      svOperator = sv1
+  ownerCidBefore <- getSvRightOwnerCid app "hosted-sv"
+  rewardStateCidBefore <- getSvRewardStateCid app "hosted-sv"
+
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  _ <- submit dso $ exerciseCmd dsoRulesCid DsoRules_AddSv with
+    newSvParty
+    newSvName = "hosted-sv"
+    newSvRewardWeight = 0
+    newSvParticipantId = "new-operator-participant-id"
+    joinedAsOfRound = Round 0
+
+  operatorInfo <- getSvInfoByParty app newSvParty
+  operatorInfo.name === "hosted-sv"
+  ownerCidAfter <- getSvRightOwnerCid app "hosted-sv"
+  rewardStateCidAfter <- getSvRewardStateCid app "hosted-sv"
+  ownerCidAfter === ownerCidBefore
+  rewardStateCidAfter === rewardStateCidBefore
+  checkSvContractInvariants app
