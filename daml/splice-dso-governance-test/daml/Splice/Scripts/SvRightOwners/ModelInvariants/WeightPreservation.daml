@@ -1,0 +1,67 @@
+-- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+-- | Migration preserves total reward weight and clears legacy operator weights.
+-- Later owner changes can increase or decrease the total without changing operator weights.
+module Splice.Scripts.SvRightOwners.ModelInvariants.WeightPreservation where
+
+import DA.Assert
+import Daml.Script
+import Splice.Amulet.SvRightOwner
+import Splice.DsoRules
+import Splice.Scripts.DsoTestUtils
+import Splice.Scripts.SvRightOwners.TestUtils
+
+test_MigrationRejectsIncreasedTotalWeight : Script ()
+test_MigrationRejectsIncreasedTotalWeight =
+  checkMigrationRejectsWeightChange 1
+
+test_MigrationRejectsDecreasedTotalWeight : Script ()
+test_MigrationRejectsDecreasedTotalWeight =
+  checkMigrationRejectsWeightChange (-1)
+
+-- | Adding, updating in either direction, and removing an owner freely change the total.
+test_CanChangeTotalSvRightOwnerWeight : Script ()
+test_CanChangeTotalSvRightOwnerWeight = do
+  (app, dso, svs@(sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+  [(_, initialOwner)] <- query @SvRightOwner dso
+  let initialTotal = initialOwner.info.rewardWeight
+      checkTotal expected = do
+        owners <- query @SvRightOwner dso
+        sum [owner.info.rewardWeight | (_, owner) <- owners] === expected
+        checkSvContractInvariants app
+
+  checkTotal initialTotal
+  addSvRightOwner app svs "sv2" sv2
+  checkTotal (initialTotal + rightOwnerWeight)
+
+  updateSvWeight app svs "sv2" (2 * rightOwnerWeight)
+  checkTotal (initialTotal + 2 * rightOwnerWeight)
+  updateSvWeight app svs "sv2" (rightOwnerWeight - 1)
+  checkTotal (initialTotal + rightOwnerWeight - 1)
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_RemoveSvRightOwner DsoRules_RemoveSvRightOwner with name = "sv2"
+  [(instructionCid, _)] <- query @RemoveSvRightOwnerInstruction dso
+  svRightOwnerCid <- getSvRightOwnerCid app "sv2"
+  svRewardStateCid <- getSvRewardStateCid app "sv2"
+  svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExecuteRemoveSvRightOwnerInstruction with
+      instructionCid
+      svRightOwnerCid
+      svRewardStateCid
+      svOperator = sv1
+  checkTotal initialTotal
+
+-- | All owner weights remain valid, but their sum differs from the legacy total.
+checkMigrationRejectsWeightChange : Int -> Script ()
+checkMigrationRejectsWeightChange weightDelta = do
+  (app, dso, _) <- initMainNet
+  operatorInfos <- svRightOwnerInfosFromOperators app
+  let svRightOwners = fmap (\info -> info with rewardWeight = info.rewardWeight + weightDelta) operatorInfos
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+  submitMustFail dso $
+    exerciseCmd dsoRulesCid DsoRules_MigrateToOnLedgerSvRightOwners with
+      svRightOwners
+  [] <- query @MigrateToOnLedgerSvRightOwnersInstruction dso
+  pure ()
