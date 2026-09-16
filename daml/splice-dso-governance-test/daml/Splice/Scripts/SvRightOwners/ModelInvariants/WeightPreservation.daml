@@ -6,8 +6,6 @@
 module Splice.Scripts.SvRightOwners.ModelInvariants.WeightPreservation where
 
 import DA.Assert
-import qualified DA.Set as Set
-import qualified DA.TextMap as TextMap
 import Daml.Script
 import Splice.Amulet.SvRightOwner
 import Splice.DsoRules

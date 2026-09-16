@@ -8,15 +8,11 @@ module Splice.Scripts.SvRightOwners.ModelInvariants.NameNamespaces where
 import DA.Action (replicateA_)
 import DA.Assert
 import qualified DA.Set as Set
-import qualified DA.TextMap as TextMap
 import Daml.Script
-import Splice.Amulet.SvRightOwner
-import Splice.DSO.SvState
 import Splice.DsoRules
 import Splice.Types
 import Splice.Scripts.DsoTestUtils
 import Splice.Scripts.SvRightOwners.TestUtils
-import Splice.Scripts.Util
 
 test_CannotAddDuplicateSvRightOwner : Script ()
 test_CannotAddDuplicateSvRightOwner = do
