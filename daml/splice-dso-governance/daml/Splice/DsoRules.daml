@@ -613,6 +613,7 @@ template DsoRules with
         newSvParty : Party
         newSvName : Text
         newSvRewardWeight : Int
+          -- ^ Legacy SV operator reward weight. Must be zero after SV right owners migration.
         newSvParticipantId : Text
         joinedAsOfRound : Round
       controller dso
@@ -1205,6 +1206,8 @@ template DsoRules with
         newSvName : Text
         newParticipantId : Text
         newSvRewardWeight : Int
+          -- ^ Legacy SV operator reward weight. Must be zero for onboarding to complete after
+          -- SV right migration.
         reason : Text
       controller dso
       do
