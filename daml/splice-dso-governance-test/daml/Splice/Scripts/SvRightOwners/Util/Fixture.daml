@@ -122,11 +122,6 @@ svRightOwners net = do
       rewardWeight = contract.info.rewardWeight
       beneficiaries = contract.info.beneficiaries
 
-svRightOwnerRewardWeights : Network -> Script [(Text, Int)]
-svRightOwnerRewardWeights net = do
-  owners <- svRightOwners net
-  pure [(owner.name, owner.rewardWeight) | owner <- owners]
-
 svRightOwnerNamesInDsoRules : Network -> Script [Text]
 svRightOwnerNamesInDsoRules net = do
   (_, dsoRules) <- currentDsoRules net

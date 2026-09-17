@@ -94,12 +94,10 @@ refusedFor net party refusalReason command = do
 
 instructionRecordedBy : Network -> Script () -> Script (ContractId AddSvRightOwnerInstruction)
 instructionRecordedBy net governanceStep = do
-  before <- pendingInstructions net
+  let pendingInstructions = map fst <$> query @AddSvRightOwnerInstruction net.app.dso
+  before <- pendingInstructions
   governanceStep
-  after <- pendingInstructions net
+  after <- pendingInstructions
   case [instructionCid | instructionCid <- after, instructionCid `notElem` before] of
     [instructionCid] -> pure instructionCid
     _ -> fail "expected exactly one instruction to be recorded"
-
-pendingInstructions : Network -> Script [ContractId AddSvRightOwnerInstruction]
-pendingInstructions net = map fst <$> query @AddSvRightOwnerInstruction net.app.dso
