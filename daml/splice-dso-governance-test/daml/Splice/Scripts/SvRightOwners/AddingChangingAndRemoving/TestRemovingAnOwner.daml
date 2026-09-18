@@ -1,0 +1,55 @@
+-- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+module Splice.Scripts.SvRightOwners.AddingChangingAndRemoving.TestRemovingAnOwner where
+
+import DA.Time (addRelTime, hours)
+
+import Daml.Script
+
+import Splice.DsoRules (RemoveSvRightOwnerInstruction(..))
+
+import Splice.Scripts.SvRightOwners.Util.Fixture
+import Splice.Scripts.SvRightOwners.Util.Governance
+
+test_shouldRefuseRemovingAnOwnerWithoutTheDsosAuthority = withOnLedgerWeights $ \net -> do
+  outsider <- allocateParty "outsider"
+  removeIsRefusedFor net net.sv1.party net.genesisOwner.name "requires authorizers"
+  removeIsRefusedFor net outsider net.genesisOwner.name "requires authorizers"
+
+test_shouldRefuseRemovingAnOwnerUnderLegacyWeightManagement = withLegacyWeights $ \net -> do
+  removeIsRefusedFor net net.app.dso net.genesisOwner.name "svRightOwners are tracked on-ledger"
+
+-- | The name is matched exactly, so one that only differs in case names no owner at all.
+test_shouldRefuseRemovingAnOwnerThatDoesNotExist = withOnLedgerWeights $ \net -> do
+  removeIsRefusedFor net net.app.dso "no-such-owner" "SV right owner \"no-such-owner\" exists"
+  removeIsRefusedFor net net.app.dso "SV1" "SV right owner \"SV1\" exists"
+
+-- | Right-owner names and SV node operator names are separate registries: sv2 runs a node, owns no right.
+test_shouldRefuseRemovingAnSvNodeOperatorThatOwnsNoRight = withOnLedgerWeights $ \net -> do
+  removeIsRefusedFor net net.app.dso net.sv2.name "SV right owner \"sv2\" exists"
+
+-- | `requireRemovableSvRightOwner` keeps the last owner, so that `DsoRules` can never end up empty.
+test_shouldRefuseRemovingTheLastOwner = withOnLedgerWeights $ \net -> do
+  removeIsRefusedFor net net.app.dso net.genesisOwner.name "There is more than one SV right owner"
+
+-- | The positive control for the guard above: the same owner becomes removable once it is not the last.
+test_shouldRecordARemovalOfTheFirstOwnerOnceASecondExists = withOnLedgerWeights $ \net -> do
+  _ <- addNewSvRightOwner net "newcomer" net.sv2
+  votedAt <- getTime
+
+  instruction <- voteToRemove net net.genesisOwner.name
+
+  contractPayload net instruction `shouldReturn` RemoveSvRightOwnerInstruction with
+    dso = net.app.dso; name = net.genesisOwner.name; expiresAt = addRelTime votedAt (hours 4)
+
+test_shouldOnlyRecordAnInstructionWhenTheVotePasses = withOnLedgerWeights $ \net -> do
+  newcomer <- addNewSvRightOwner net "newcomer" net.sv2
+  votedAt <- getTime
+
+  instruction <- voteToRemove net newcomer.name
+
+  contractPayload net instruction `shouldReturn` RemoveSvRightOwnerInstruction with
+    dso = net.app.dso; name = newcomer.name; expiresAt = addRelTime votedAt (hours 4)
+  svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
+  svRightOwnerNamesInDsoRules net `shouldReturn` [newcomer.name, net.genesisOwner.name]
