@@ -138,6 +138,11 @@ shouldReturn : (Eq a, Show a) => Script a -> a -> Script ()
 shouldReturn action expected = action >>= (=== expected)
 infix 4 `shouldReturn`
 
+contractPayload : (Template t, HasEnsure t) => Network -> ContractId t -> Script t
+contractPayload net cid = do
+  Some contract <- queryContractId net.app.dso cid
+  pure contract
+
 expectArchived : (Template t, HasEnsure t) => Network -> ContractId t -> Script ()
 expectArchived net cid = do
   contract <- queryContractId net.app.dso cid

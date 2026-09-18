@@ -17,10 +17,17 @@ import Splice.DsoRules
   , DsoRules_AddSvRightOwner(..)
   , DsoRules_ExecuteAddSvRightOwnerInstruction(..)
   , DsoRules_ExpireAddSvRightOwnerInstruction(..)
+  , DsoRules_RemoveSvRightOwner(..)
+  , RemoveSvRightOwnerInstruction
   )
 
 import qualified Splice.Scripts.DsoTestUtils as DsoTestUtils
 import Splice.Scripts.SvRightOwners.Util.Fixture
+
+passVote : Network -> DsoRules_ActionRequiringConfirmation -> Script ()
+passVote net dsoAction = DsoTestUtils.initiateAndAcceptVote net.app
+  [net.sv1.party, net.sv2.party, net.sv3.party, net.sv4.party]
+  ARC_DsoRules with dsoAction
 
 addChoiceFor : SvRightOwner -> DsoRules_AddSvRightOwner
 addChoiceFor owner = DsoRules_AddSvRightOwner with
@@ -29,9 +36,21 @@ addChoiceFor owner = DsoRules_AddSvRightOwner with
 
 voteToAdd : Network -> SvRightOwner -> Script (ContractId AddSvRightOwnerInstruction)
 voteToAdd net owner = instructionRecordedBy net $
-  DsoTestUtils.initiateAndAcceptVote net.app
-    [net.sv1.party, net.sv2.party, net.sv3.party, net.sv4.party]
-    ARC_DsoRules with dsoAction = SRARC_AddSvRightOwner (addChoiceFor owner)
+  passVote net $ SRARC_AddSvRightOwner (addChoiceFor owner)
+
+addNewSvRightOwner : Network -> Text -> Operator -> Script SvRightOwner
+addNewSvRightOwner net name hostedBy = do
+  owner <- newSvRightOwner name hostedBy
+  voteToAdd net owner >>= execute net net.sv1
+  pure owner
+
+-- | Removal names the owner and nothing else, so these take the name rather than the owner.
+removeChoiceFor : Text -> DsoRules_RemoveSvRightOwner
+removeChoiceFor ownerName = DsoRules_RemoveSvRightOwner with name = ownerName
+
+voteToRemove : Network -> Text -> Script (ContractId RemoveSvRightOwnerInstruction)
+voteToRemove net ownerName = instructionRecordedBy net $
+  passVote net $ SRARC_RemoveSvRightOwner (removeChoiceFor ownerName)
 
 execute : Network -> Operator -> ContractId AddSvRightOwnerInstruction -> Script ()
 execute net operator instructionCid = do
@@ -53,14 +72,17 @@ expireIsRefusedFor net party instructionCid refusalReason = do
   command <- expireCommand net party instructionCid
   refusedFor net party refusalReason command
 
-instructionExpiresAt : Network -> ContractId AddSvRightOwnerInstruction -> Script Time
-instructionExpiresAt net instructionCid = do
-  Some instruction <- queryContractId net.app.dso instructionCid
-  pure instruction.expiresAt
+instructionExpiresAt : (Template i, HasEnsure i, HasField "expiresAt" i Time) => Network -> ContractId i -> Script Time
+instructionExpiresAt net instructionCid = (.expiresAt) <$> contractPayload net instructionCid
 
 addIsRefusedFor : Network -> Party -> SvRightOwner -> Text -> Script ()
 addIsRefusedFor net party owner refusalReason = do
   command <- dsoRulesCommand net $ \dsoRulesCid -> exerciseCmd dsoRulesCid (addChoiceFor owner)
+  refusedFor net party refusalReason command
+
+removeIsRefusedFor : Network -> Party -> Text -> Text -> Script ()
+removeIsRefusedFor net party ownerName refusalReason = do
+  command <- dsoRulesCommand net $ \dsoRulesCid -> exerciseCmd dsoRulesCid (removeChoiceFor ownerName)
   refusedFor net party refusalReason command
 
 executeCommand : Network -> Party -> ContractId AddSvRightOwnerInstruction -> Script (Commands ())
@@ -92,9 +114,9 @@ refusedFor net party refusalReason command = do
       unless (refusalReason `isInfixOf` reported) $
         fail $ "expected a refusal because " <> show refusalReason <> ", not: " <> reported
 
-instructionRecordedBy : Network -> Script () -> Script (ContractId AddSvRightOwnerInstruction)
+instructionRecordedBy : forall i. (Template i, HasEnsure i) => Network -> Script () -> Script (ContractId i)
 instructionRecordedBy net governanceStep = do
-  let pendingInstructions = map fst <$> query @AddSvRightOwnerInstruction net.app.dso
+  let pendingInstructions = map fst <$> query @i net.app.dso
   before <- pendingInstructions
   governanceStep
   after <- pendingInstructions
