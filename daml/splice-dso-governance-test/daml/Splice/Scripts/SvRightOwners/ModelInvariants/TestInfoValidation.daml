@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: Apache-2.0
 
 -- | Owner info and hosting operators are validated when approved instructions execute.
-module Splice.Scripts.SvRightOwners.ModelInvariants.InfoValidation where
+module Splice.Scripts.SvRightOwners.ModelInvariants.TestInfoValidation where
 
 import DA.Assert
 import qualified DA.Map as Map

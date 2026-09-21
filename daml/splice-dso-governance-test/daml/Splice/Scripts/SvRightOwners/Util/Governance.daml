@@ -118,6 +118,7 @@ addSvRightOwner app (sv1, sv2, sv3, sv4) name rightOwnerParty = do
   DsoTestUtils.svSubmits app sv1 $ \dsoRulesCid ->
     exerciseCmd dsoRulesCid DsoRules_ExecuteAddSvRightOwnerInstruction with
       instructionCid; openMiningRoundTriple; svOperator = sv1
+  pure ()
 
 updateSvWeight : AmuletScripts.AmuletApp -> (Party, Party, Party, Party) -> Text -> Int -> Script ()
 updateSvWeight app (sv1, sv2, sv3, sv4) ownerName weight = do
@@ -131,3 +132,4 @@ updateSvWeight app (sv1, sv2, sv3, sv4) ownerName weight = do
   DsoTestUtils.svSubmits app sv1 $ \dsoRulesCid ->
     exerciseCmd dsoRulesCid DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction with
       instructionCid; svRightOwnerCid; svOperator = sv1
+  pure ()

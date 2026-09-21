@@ -2,17 +2,20 @@
 -- SPDX-License-Identifier: Apache-2.0
 
 -- | Choices reject contracts supplied under the wrong name.
-module Splice.Scripts.SvRightOwners.ModelInvariants.ContractNameValidation where
+module Splice.Scripts.SvRightOwners.ModelInvariants.TestContractNameValidation where
 
 import DA.List (last)
+import DA.Functor (void)
 import qualified DA.Map as Map
 import qualified DA.TextMap as TextMap
 import Daml.Script
 import Splice.Amulet.SvRightOwner
 import Splice.DsoRules
+import Splice.DSO.SvState
 import Splice.Scripts.DsoTestUtils
 import Splice.Scripts.SvRightOwners.Util.Fixture hiding (SvRightOwner)
 import Splice.Scripts.SvRightOwners.Util.Governance
+import Splice.Scripts.Util
 
 test_shouldRejectMigrationWithAReusedRewardState = withLegacyWeights $ \net -> do
   instruction <- migrationRequestedFor net =<< svRightOwnerInfosFromOperators net.app
@@ -90,7 +93,7 @@ migrate net instructionCid rewardStates = do
   pure Attempt with
     submittedBy = net.sv1.party
     disclosedTo = net.app.dso
-    command = exerciseCmd dsoRulesCid DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstruction with
+    command = void $ exerciseCmd dsoRulesCid DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstruction with
       instructionCid; openMiningRoundTriple; svOperatorRewardStateCids = rewardStates; svOperator = net.sv1.party
 
 rewardStatesWithSwappedNames
@@ -116,7 +119,7 @@ remove net instructionCid ownerName rewardStateName = do
   pure Attempt with
     submittedBy = net.sv1.party
     disclosedTo = net.app.dso
-    command = exerciseCmd dsoRulesCid DsoRules_ExecuteRemoveSvRightOwnerInstruction with
+    command = void $ exerciseCmd dsoRulesCid DsoRules_ExecuteRemoveSvRightOwnerInstruction with
       instructionCid; svRightOwnerCid; svRewardStateCid; svOperator = net.sv1.party
 
 infoUpdateRequestedFor : Network -> Text -> Script (ContractId UpdateSvRightOwnerInfoInstruction)
@@ -136,7 +139,7 @@ updateInfo net instructionCid ownerName = do
   pure Attempt with
     submittedBy = net.sv1.party
     disclosedTo = net.app.dso
-    command = exerciseCmd dsoRulesCid DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction with
+    command = void $ exerciseCmd dsoRulesCid DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction with
       instructionCid; svRightOwnerCid; svOperator = net.sv1.party
 
 updateBeneficiaries : Network -> Text -> Text -> Script Attempt
@@ -147,7 +150,7 @@ updateBeneficiaries net name ownerName = do
   pure Attempt with
     submittedBy = net.sv2.party
     disclosedTo = net.app.dso
-    command = exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerBeneficiaries with
+    command = void $ exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerBeneficiaries with
       name; svRightOwnerCid; beneficiaries = Map.empty; rightOwner = net.sv2.party
 
 -- | Build a coupon submission as map key, supplied owner, supplied reward state.
@@ -163,6 +166,6 @@ rewardCoupon net mapKey ownerName rewardStateName = do
   pure Attempt with
     submittedBy = svOperator
     disclosedTo = net.app.dso
-    command = exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCouponV2 with
+    command = void $ exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCouponV2 with
       svOperator; openRoundCid
       svRightOwnerRewardInputs = TextMap.fromList [(mapKey, (svRightOwnerCid, svRewardStateCid))]

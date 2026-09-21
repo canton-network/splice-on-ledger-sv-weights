@@ -2,7 +2,7 @@
 -- SPDX-License-Identifier: Apache-2.0
 
 -- | The rules, live owners and reward states describe the same non-empty set.
-module Splice.Scripts.SvRightOwners.ModelInvariants.OwnerSetConsistency where
+module Splice.Scripts.SvRightOwners.ModelInvariants.TestOwnerSetConsistency where
 
 import DA.Assert
 import DA.Foldable (forA_)

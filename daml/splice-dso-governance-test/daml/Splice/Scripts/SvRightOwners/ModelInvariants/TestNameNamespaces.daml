@@ -3,7 +3,7 @@
 
 -- | Owner and operator names are unique within their separate live sets, but may overlap.
 -- Migration reuses an operator's reward state for an owner with the same name.
-module Splice.Scripts.SvRightOwners.ModelInvariants.NameNamespaces where
+module Splice.Scripts.SvRightOwners.ModelInvariants.TestNameNamespaces where
 
 import DA.Action (replicateA_)
 import DA.Assert
