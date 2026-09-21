@@ -12,26 +12,31 @@ import Daml.Script
 import Splice.DsoRules
 import Splice.Types
 import Splice.Scripts.DsoTestUtils
-import Splice.Scripts.SvRightOwners.TestUtils
+import Splice.Scripts.SvRightOwners.Util.Fixture
 
-test_CannotAddDuplicateSvRightOwner : Script ()
-test_CannotAddDuplicateSvRightOwner = do
-  (app, dso, (sv1, _, _, _)) <- initMainNetWithSvRightOwners
+test_CannotAddDuplicateSvRightOwner = withOnLedgerWeights $ \net -> do
+  let app = net.app
+      dso = app.dso
+      sv1 = net.sv1.party
   [(dsoRulesCid, _)] <- query @DsoRules dso
   submitMustFail dso $
     exerciseCmd dsoRulesCid DsoRules_AddSvRightOwner with
       name = "sv1"
-      info = mkSvRightOwnerInfo sv1 rightOwnerWeight "sv1"
+      info = svRightOwnerInfoFor sv1 tier2RewardWeight "sv1"
   [] <- query @AddSvRightOwnerInstruction dso
   checkSvContractInvariants app
 
 -- | Two additions can be approved before a name is in use, but only one can execute.
-test_CannotExecuteDuplicateSvRightOwnerAddition : Script ()
-test_CannotExecuteDuplicateSvRightOwnerAddition = do
-  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+test_CannotExecuteDuplicateSvRightOwnerAddition = withOnLedgerWeights $ \net -> do
+  let app = net.app
+      dso = app.dso
+      sv1 = net.sv1.party
+      sv2 = net.sv2.party
+      sv3 = net.sv3.party
+      sv4 = net.sv4.party
   let add = DsoRules_AddSvRightOwner with
         name = "sv2"
-        info = mkSvRightOwnerInfo sv2 rightOwnerWeight "sv2"
+        info = svRightOwnerInfoFor sv2 tier2RewardWeight "sv2"
   replicateA_ 2 $
     initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
       dsoAction = SRARC_AddSvRightOwner add
@@ -52,9 +57,9 @@ test_CannotExecuteDuplicateSvRightOwnerAddition = do
   checkSvContractInvariants app
 
 -- | A second live operator cannot take an existing operator's name in on-ledger mode.
-test_CannotAddDuplicateSvNodeOperatorName : Script ()
-test_CannotAddDuplicateSvNodeOperatorName = do
-  (app, dso, _) <- initMainNetWithSvRightOwners
+test_CannotAddDuplicateSvNodeOperatorName = withOnLedgerWeights $ \net -> do
+  let app = net.app
+      dso = app.dso
   newSvParty <- allocateParty "new-operator"
   [(dsoRulesCid, _)] <- query @DsoRules dso
   let add = DsoRules_AddSv with
@@ -68,15 +73,19 @@ test_CannotAddDuplicateSvNodeOperatorName = do
   checkSvContractInvariants app
 
 -- | Adding an operator with an existing owner's name must not replace its reward state.
-test_AddSvNodeOperatorWithRightOwnerName : Script ()
-test_AddSvNodeOperatorWithRightOwnerName = do
-  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+test_AddSvNodeOperatorWithRightOwnerName = withOnLedgerWeights $ \net -> do
+  let app = net.app
+      dso = app.dso
+      sv1 = net.sv1.party
+      sv2 = net.sv2.party
+      sv3 = net.sv3.party
+      sv4 = net.sv4.party
   rightOwner <- allocateParty "right-owner"
   newSvParty <- allocateParty "new-operator"
   initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
     dsoAction = SRARC_AddSvRightOwner DsoRules_AddSvRightOwner with
       name = "hosted-sv"
-      info = mkSvRightOwnerInfo rightOwner rightOwnerWeight "sv1"
+      info = svRightOwnerInfoFor rightOwner tier2RewardWeight "sv1"
   [(instructionCid, _)] <- query @AddSvRightOwnerInstruction dso
   openMiningRoundTriple <- getOpenMiningRoundTriple app
   svSubmits app sv1 $ \dsoRulesCid ->

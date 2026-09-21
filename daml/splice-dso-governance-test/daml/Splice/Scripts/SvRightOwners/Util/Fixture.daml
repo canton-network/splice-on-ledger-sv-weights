@@ -9,6 +9,7 @@ import DA.List (maximumOn, sortOn)
 import qualified DA.Map as Map
 import DA.Optional (isNone, isSome)
 import qualified DA.Set as Set
+import qualified DA.TextMap as TextMap
 
 import Daml.Script
 
@@ -86,6 +87,21 @@ svRightOwnerInfo owner = Amulet.SvRightOwnerInfo with
   rewardWeight = owner.rewardWeight
   rewardNodeOperatorName = owner.hostedBy.name
   beneficiaries = owner.beneficiaries
+
+svRightOwnerInfoFor : Party -> Int -> Text -> Amulet.SvRightOwnerInfo
+svRightOwnerInfoFor rightOwner weight operatorName = Amulet.SvRightOwnerInfo with
+  rightOwnerParty = rightOwner
+  rewardWeight = weight
+  rewardNodeOperatorName = operatorName
+  beneficiaries = Map.empty
+
+svRightOwnerInfosFromOperators : AmuletScripts.AmuletApp -> Script (TextMap.TextMap Amulet.SvRightOwnerInfo)
+svRightOwnerInfosFromOperators app = do
+  [(_, dsoRules)] <- query @DsoRules app.dso
+  pure $ TextMap.fromList
+    [ (info.name, svRightOwnerInfoFor party info.svRewardWeight info.name)
+    | (party, info) <- Map.toList dsoRules.svs
+    ]
 
 currentDsoRules : Network -> Script (ContractId DsoRules, DsoRules)
 currentDsoRules net = do

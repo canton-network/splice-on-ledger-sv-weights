@@ -10,16 +10,21 @@ import Daml.Script
 import Splice.Amulet.SvRightOwner
 import Splice.DsoRules
 import Splice.Scripts.DsoTestUtils
-import Splice.Scripts.SvRightOwners.TestUtils
+import Splice.Scripts.SvRightOwners.Util.Fixture hiding (SvRightOwner)
+import Splice.Scripts.SvRightOwners.Util.Governance
 import Splice.Scripts.Util
 
-test_AddSvRightOwnerRejectsOffboardedOperator : Script ()
-test_AddSvRightOwnerRejectsOffboardedOperator = do
-  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+test_AddSvRightOwnerRejectsOffboardedOperator = withOnLedgerWeights $ \net -> do
+  let app = net.app
+      dso = app.dso
+      sv1 = net.sv1.party
+      sv2 = net.sv2.party
+      sv3 = net.sv3.party
+      sv4 = net.sv4.party
   initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
     dsoAction = SRARC_AddSvRightOwner DsoRules_AddSvRightOwner with
       name = "hosted-sv"
-      info = mkSvRightOwnerInfo sv2 rightOwnerWeight "sv2"
+      info = svRightOwnerInfoFor sv2 tier2RewardWeight "sv2"
   [(instructionCid, _)] <- query @AddSvRightOwnerInstruction dso
 
   initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
@@ -34,26 +39,35 @@ test_AddSvRightOwnerRejectsOffboardedOperator = do
   [] <- queryFilter @SvRightOwner dso (\owner -> owner.name == "hosted-sv")
   checkSvContractInvariants app
 
-test_UpdateSvRightOwnerInfoRejectsMergedBeneficiariesRewardRatioOverOne : Script ()
-test_UpdateSvRightOwnerInfoRejectsMergedBeneficiariesRewardRatioOverOne = do
-  (app, dso, svs@(_, sv2, sv3, _)) <- initMainNetWithSvRightOwners
+test_UpdateSvRightOwnerInfoRejectsMergedBeneficiariesRewardRatioOverOne = withOnLedgerWeights $ \net -> do
+  let app = net.app
+      dso = app.dso
+      svs = (net.sv1.party, net.sv2.party, net.sv3.party, net.sv4.party)
+      sv2 = net.sv2.party
+      sv3 = net.sv3.party
   [(_, owner)] <- query @SvRightOwner dso
   let newInfo = owner.info with
         beneficiaries = Map.fromList [(sv2, BeneficiaryInfo 0.6)]
       concurrentBeneficiaries = Map.fromList [(sv3, BeneficiaryInfo 0.6)]
   checkSvRightOwnerUpdateRejectsMergedInfo app svs newInfo concurrentBeneficiaries
 
-test_UpdateSvRightOwnerInfoRejectsMergedSelfBeneficiary : Script ()
-test_UpdateSvRightOwnerInfoRejectsMergedSelfBeneficiary = do
-  (app, dso, svs@(_, sv2, _, _)) <- initMainNetWithSvRightOwners
+test_UpdateSvRightOwnerInfoRejectsMergedSelfBeneficiary = withOnLedgerWeights $ \net -> do
+  let app = net.app
+      dso = app.dso
+      svs = (net.sv1.party, net.sv2.party, net.sv3.party, net.sv4.party)
+      sv2 = net.sv2.party
   [(_, owner)] <- query @SvRightOwner dso
   let newInfo = owner.info with rightOwnerParty = sv2
       concurrentBeneficiaries = Map.fromList [(sv2, BeneficiaryInfo 0.25)]
   checkSvRightOwnerUpdateRejectsMergedInfo app svs newInfo concurrentBeneficiaries
 
-test_UpdateSvRightOwnerInfoRejectsOffboardedOperator : Script ()
-test_UpdateSvRightOwnerInfoRejectsOffboardedOperator = do
-  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+test_UpdateSvRightOwnerInfoRejectsOffboardedOperator = withOnLedgerWeights $ \net -> do
+  let app = net.app
+      dso = app.dso
+      sv1 = net.sv1.party
+      sv2 = net.sv2.party
+      sv3 = net.sv3.party
+      sv4 = net.sv4.party
   [(svRightOwnerCid, owner)] <- query @SvRightOwner dso
   initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
     dsoAction = SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo with

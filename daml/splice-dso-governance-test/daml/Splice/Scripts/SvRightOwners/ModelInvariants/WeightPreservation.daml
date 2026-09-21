@@ -10,7 +10,8 @@ import Daml.Script
 import Splice.Amulet.SvRightOwner
 import Splice.DsoRules
 import Splice.Scripts.DsoTestUtils
-import Splice.Scripts.SvRightOwners.TestUtils
+import Splice.Scripts.SvRightOwners.Util.Fixture hiding (SvRightOwner)
+import Splice.Scripts.SvRightOwners.Util.Governance
 
 test_MigrationRejectsIncreasedTotalWeight : Script ()
 test_MigrationRejectsIncreasedTotalWeight =
@@ -21,9 +22,10 @@ test_MigrationRejectsDecreasedTotalWeight =
   checkMigrationRejectsWeightChange (-1)
 
 -- | Adding, updating in either direction, and removing an owner freely change the total.
-test_CanChangeTotalSvRightOwnerWeight : Script ()
-test_CanChangeTotalSvRightOwnerWeight = do
-  (app, dso, svs@(sv1, sv2, sv3, sv4)) <- initMainNetWithSvRightOwners
+test_CanChangeTotalSvRightOwnerWeight = withOnLedgerWeights $ \net -> do
+  let app = net.app
+      dso = app.dso
+      svs@(sv1, sv2, sv3, sv4) = (net.sv1.party, net.sv2.party, net.sv3.party, net.sv4.party)
   [(_, initialOwner)] <- query @SvRightOwner dso
   let initialTotal = initialOwner.info.rewardWeight
       checkTotal expected = do
@@ -33,12 +35,12 @@ test_CanChangeTotalSvRightOwnerWeight = do
 
   checkTotal initialTotal
   addSvRightOwner app svs "sv2" sv2
-  checkTotal (initialTotal + rightOwnerWeight)
+  checkTotal (initialTotal + tier2RewardWeight)
 
-  updateSvWeight app svs "sv2" (2 * rightOwnerWeight)
-  checkTotal (initialTotal + 2 * rightOwnerWeight)
-  updateSvWeight app svs "sv2" (rightOwnerWeight - 1)
-  checkTotal (initialTotal + rightOwnerWeight - 1)
+  updateSvWeight app svs "sv2" (2 * tier2RewardWeight)
+  checkTotal (initialTotal + 2 * tier2RewardWeight)
+  updateSvWeight app svs "sv2" (tier2RewardWeight - 1)
+  checkTotal (initialTotal + tier2RewardWeight - 1)
 
   initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
     dsoAction = SRARC_RemoveSvRightOwner DsoRules_RemoveSvRightOwner with name = "sv2"
@@ -54,9 +56,9 @@ test_CanChangeTotalSvRightOwnerWeight = do
   checkTotal initialTotal
 
 -- | All owner weights remain valid, but their sum differs from the legacy total.
-checkMigrationRejectsWeightChange : Int -> Script ()
-checkMigrationRejectsWeightChange weightDelta = do
-  (app, dso, _) <- initMainNet
+checkMigrationRejectsWeightChange weightDelta = withLegacyWeights $ \net -> do
+  let app = net.app
+      dso = app.dso
   operatorInfos <- svRightOwnerInfosFromOperators app
   let svRightOwners = fmap (\info -> info with rewardWeight = info.rewardWeight + weightDelta) operatorInfos
   [(dsoRulesCid, _)] <- query @DsoRules dso
