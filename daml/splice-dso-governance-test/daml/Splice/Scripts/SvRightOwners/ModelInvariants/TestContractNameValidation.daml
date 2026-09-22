@@ -4,8 +4,10 @@
 -- | Choices reject contracts supplied under the wrong name.
 module Splice.Scripts.SvRightOwners.ModelInvariants.TestContractNameValidation where
 
-import DA.List (last)
 import DA.Functor (void)
+import DA.Action (unless)
+import DA.List (last)
+import DA.Text (isInfixOf)
 import qualified DA.Map as Map
 import qualified DA.TextMap as TextMap
 import Daml.Script
@@ -21,7 +23,7 @@ test_shouldRejectMigrationWithAReusedRewardState = withLegacyWeights $ \net -> d
   instruction <- migrationRequestedFor net =<< svRightOwnerInfosFromOperators net.app
   rewardStates <- getSvOperatorRewardStateCids net.app
 
-  rewardStatesWithSwappedNames net rewardStates >>= migrate net instruction >>= shouldBeRejected
+  swapRewardStateNames net rewardStates >>= migrate net instruction >>= shouldBeRejected contractNameMismatch
   migrate net instruction rewardStates >>= shouldSucceed
 
 test_shouldRejectMigrationWithAnArchivedRewardState = withLegacyWeights $ \net -> do
@@ -30,36 +32,44 @@ test_shouldRejectMigrationWithAnArchivedRewardState = withLegacyWeights $ \net -
     [("hosted-" <> name, info) | (name, info) <- TextMap.toList owners]
   rewardStates <- getSvOperatorRewardStateCids net.app
 
-  rewardStatesWithSwappedNames net rewardStates >>= migrate net instruction >>= shouldBeRejected
+  swapRewardStateNames net rewardStates >>= migrate net instruction >>= shouldBeRejected contractNameMismatch
   migrate net instruction rewardStates >>= shouldSucceed
 
 test_shouldRejectRemovingAnOwnerWithContractsNamedForDifferentOwners = withOnLedgerWeights $ \net -> do
   instruction <- removalRequestedFor net "sv2"
 
-  remove net instruction "sv1" "sv2" >>= shouldBeRejected
-  remove net instruction "sv2" "sv1" >>= shouldBeRejected
+  remove net instruction "sv1" "sv2" >>= shouldBeRejected contractNameMismatch
+  remove net instruction "sv2" "sv1" >>= shouldBeRejected contractNameMismatch
   remove net instruction "sv2" "sv2" >>= shouldSucceed
 
 test_shouldRejectUpdatingOwnerInfoWithAContractNamedForAnotherOwner = withOnLedgerWeights $ \net -> do
   instruction <- infoUpdateRequestedFor net "sv1"
 
-  updateInfo net instruction "sv2" >>= shouldBeRejected
+  updateInfo net instruction "sv2" >>= shouldBeRejected contractNameMismatch
   updateInfo net instruction "sv1" >>= shouldSucceed
 
 test_shouldRejectUpdatingBeneficiariesUnderAnotherOwnersName = withOnLedgerWeights $ \net -> do
-  updateBeneficiaries net "sv1" "sv2" >>= shouldBeRejected
+  addOwnerNamed net "sv2"
+
+  updateBeneficiaries net "sv1" "sv2" >>= shouldBeRejected contractNameMismatch
   updateBeneficiaries net "sv2" "sv2" >>= shouldSucceed
 
 test_shouldRejectRewardCouponWithAnOwnerNamedForAnotherKey = withOnLedgerWeights $ \net -> do
-  rewardCoupon net "sv1" "sv2" "sv1" >>= shouldBeRejected
+  addOwnerNamed net "sv2"
+
+  rewardCoupon net "sv1" "sv2" "sv1" >>= shouldBeRejected contractNameMismatch
   rewardCoupon net "sv2" "sv2" "sv2" >>= shouldSucceed
 
 test_shouldRejectRewardCouponWithARewardStateNamedForAnotherKey = withOnLedgerWeights $ \net -> do
-  rewardCoupon net "sv1" "sv1" "sv2" >>= shouldBeRejected
+  addOwnerNamed net "sv2"
+
+  rewardCoupon net "sv1" "sv1" "sv2" >>= shouldBeRejected contractNameMismatch
   rewardCoupon net "sv1" "sv1" "sv1" >>= shouldSucceed
 
 test_shouldRejectRewardCouponWithTheWrongMapKey = withOnLedgerWeights $ \net -> do
-  rewardCoupon net "sv1" "sv2" "sv2" >>= shouldBeRejected
+  addOwnerNamed net "sv2"
+
+  rewardCoupon net "sv1" "sv2" "sv2" >>= shouldBeRejected contractNameMismatch
   rewardCoupon net "sv2" "sv2" "sv2" >>= shouldSucceed
 
 data Attempt = Attempt with
@@ -67,9 +77,20 @@ data Attempt = Attempt with
   disclosedTo : Party
   command : Commands ()
 
-shouldBeRejected : Attempt -> Script ()
-shouldBeRejected (Attempt with submittedBy; disclosedTo; command) =
-  submitMustFail (actAs submittedBy <> readAs disclosedTo) command
+contractNameMismatch : Text
+contractNameMismatch = "Contract group identifier mismatch"
+
+shouldBeRejected : Text -> Attempt -> Script ()
+shouldBeRejected expectedReason (Attempt with submittedBy; disclosedTo; command) = do
+  outcome <- trySubmit (actAs submittedBy <> readAs disclosedTo) command
+  case outcome of
+    Right _ -> fail $ "expected a rejection because " <> show expectedReason
+    Left failure -> do
+      let reportedReason = case failure of
+            FailureStatusError status -> status.message
+            other -> show other
+      unless (expectedReason `isInfixOf` reportedReason) $
+        fail $ "expected a rejection because " <> show expectedReason <> ", not: " <> reportedReason
 
 shouldSucceed : Attempt -> Script ()
 shouldSucceed (Attempt with submittedBy; disclosedTo; command) = do
@@ -96,16 +117,16 @@ migrate net instructionCid rewardStates = do
     command = void $ exerciseCmd dsoRulesCid DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstruction with
       instructionCid; openMiningRoundTriple; svOperatorRewardStateCids = rewardStates; svOperator = net.sv1.party
 
-rewardStatesWithSwappedNames
+swapRewardStateNames
   : Network -> TextMap.TextMap (ContractId SvRewardState) -> Script (TextMap.TextMap (ContractId SvRewardState))
-rewardStatesWithSwappedNames net rewardStates = do
+swapRewardStateNames net rewardStates = do
   sv1RewardStateCid <- getSvRewardStateCid net.app "sv1"
   sv2RewardStateCid <- getSvRewardStateCid net.app "sv2"
   pure $ TextMap.insert "sv1" sv2RewardStateCid $ TextMap.insert "sv2" sv1RewardStateCid rewardStates
 
 removalRequestedFor : Network -> Text -> Script (ContractId RemoveSvRightOwnerInstruction)
 removalRequestedFor net name = do
-  addSvRightOwner net.app (net.sv1.party, net.sv2.party, net.sv3.party, net.sv4.party) name net.sv2.party
+  addOwnerNamed net name
   initiateAndAcceptVote net.app [net.sv1.party, net.sv2.party, net.sv3.party, net.sv4.party] $ ARC_DsoRules with
     dsoAction = SRARC_RemoveSvRightOwner DsoRules_RemoveSvRightOwner with name
   [(instructionCid, _)] <- query @RemoveSvRightOwnerInstruction net.app.dso
@@ -124,7 +145,7 @@ remove net instructionCid ownerName rewardStateName = do
 
 infoUpdateRequestedFor : Network -> Text -> Script (ContractId UpdateSvRightOwnerInfoInstruction)
 infoUpdateRequestedFor net name = do
-  addSvRightOwner net.app (net.sv1.party, net.sv2.party, net.sv3.party, net.sv4.party) "sv2" net.sv2.party
+  addOwnerNamed net "sv2"
   [(_, owner)] <- queryFilter @SvRightOwner net.app.dso (\owner -> owner.name == name)
   initiateAndAcceptVote net.app [net.sv1.party, net.sv2.party, net.sv3.party, net.sv4.party] $ ARC_DsoRules with
     dsoAction = SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo with
@@ -144,7 +165,6 @@ updateInfo net instructionCid ownerName = do
 
 updateBeneficiaries : Network -> Text -> Text -> Script Attempt
 updateBeneficiaries net name ownerName = do
-  addSvRightOwner net.app (net.sv1.party, net.sv2.party, net.sv3.party, net.sv4.party) "sv2" net.sv2.party
   svRightOwnerCid <- getSvRightOwnerCid net.app ownerName
   (dsoRulesCid, _) <- currentDsoRules net
   pure Attempt with
@@ -156,7 +176,6 @@ updateBeneficiaries net name ownerName = do
 -- | Build a coupon submission as map key, supplied owner, supplied reward state.
 rewardCoupon : Network -> Text -> Text -> Text -> Script Attempt
 rewardCoupon net mapKey ownerName rewardStateName = do
-  addSvRightOwner net.app (net.sv1.party, net.sv2.party, net.sv3.party, net.sv4.party) "sv2" net.sv2.party
   (openRoundCid, openRound) <- last <$> getOpenRoundsSorted net.app
   setTime openRound.opensAt
   [(svRightOwnerCid, owner)] <- queryFilter @SvRightOwner net.app.dso (\owner -> owner.name == ownerName)
@@ -169,3 +188,7 @@ rewardCoupon net mapKey ownerName rewardStateName = do
     command = void $ exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCouponV2 with
       svOperator; openRoundCid
       svRightOwnerRewardInputs = TextMap.fromList [(mapKey, (svRightOwnerCid, svRewardStateCid))]
+
+addOwnerNamed : Network -> Text -> Script ()
+addOwnerNamed net name =
+  addSvRightOwner net.app (net.sv1.party, net.sv2.party, net.sv3.party, net.sv4.party) name net.sv2.party
