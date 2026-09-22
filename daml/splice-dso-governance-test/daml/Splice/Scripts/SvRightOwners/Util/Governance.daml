@@ -3,23 +3,19 @@
 
 module Splice.Scripts.SvRightOwners.Util.Governance where
 
-import DA.Action (unless)
 import DA.Functor (void)
-import DA.Text (isInfixOf)
+import DA.List (last)
+import qualified DA.Map as Map
+import qualified DA.TextMap as TextMap
 
 import Daml.Script
 
+import qualified Splice.Amulet.SvRightOwner as Amulet
+import Splice.DSO.SvState (SvRewardState)
 import Splice.DsoRules
-  ( ActionRequiringConfirmation(..)
-  , AddSvRightOwnerInstruction
-  , DsoRules
-  , DsoRules_ActionRequiringConfirmation(..)
-  , DsoRules_AddSvRightOwner(..)
-  , DsoRules_ExecuteAddSvRightOwnerInstruction(..)
-  , DsoRules_ExpireAddSvRightOwnerInstruction(..)
-  )
 
 import qualified Splice.Scripts.DsoTestUtils as DsoTestUtils
+import qualified Splice.Scripts.Util as AmuletScripts
 import Splice.Scripts.SvRightOwners.Util.Fixture
 
 addChoiceFor : SvRightOwner -> DsoRules_AddSvRightOwner
@@ -30,7 +26,7 @@ addChoiceFor owner = DsoRules_AddSvRightOwner with
 voteToAdd : Network -> SvRightOwner -> Script (ContractId AddSvRightOwnerInstruction)
 voteToAdd net owner = instructionRecordedBy net $
   DsoTestUtils.initiateAndAcceptVote net.app
-    [net.sv1.party, net.sv2.party, net.sv3.party, net.sv4.party]
+    (svParties net)
     ARC_DsoRules with dsoAction = SRARC_AddSvRightOwner (addChoiceFor owner)
 
 execute : Network -> Operator -> ContractId AddSvRightOwnerInstruction -> Script ()
@@ -80,18 +76,6 @@ dsoRulesCommand net mkCommands = do
   (dsoRulesCid, _) <- currentDsoRules net
   pure $ void $ mkCommands dsoRulesCid
 
-refusedFor : Network -> Party -> Text -> Commands () -> Script ()
-refusedFor net party refusalReason command = do
-  outcome <- trySubmit (actAs party <> readAs net.app.dso) command
-  case outcome of
-    Right _ -> fail $ "expected a refusal because: " <> refusalReason
-    Left failure -> do
-      let reported = case failure of
-            FailureStatusError status -> status.message
-            other -> show other
-      unless (refusalReason `isInfixOf` reported) $
-        fail $ "expected a refusal because " <> show refusalReason <> ", not: " <> reported
-
 instructionRecordedBy : Network -> Script () -> Script (ContractId AddSvRightOwnerInstruction)
 instructionRecordedBy net governanceStep = do
   let pendingInstructions = map fst <$> query @AddSvRightOwnerInstruction net.app.dso
@@ -101,3 +85,118 @@ instructionRecordedBy net governanceStep = do
   case [instructionCid | instructionCid <- after, instructionCid `notElem` before] of
     [instructionCid] -> pure instructionCid
     _ -> fail "expected exactly one instruction to be recorded"
+
+addSvRightOwner : AmuletScripts.AmuletApp -> (Party, Party, Party, Party) -> Text -> Party -> Script ()
+addSvRightOwner app (sv1, sv2, sv3, sv4) name rightOwnerParty = do
+  DsoTestUtils.initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_AddSvRightOwner DsoRules_AddSvRightOwner with
+      name
+      info = svRightOwnerInfoFor rightOwnerParty tier2RewardWeight name
+  [(instructionCid, _)] <- query @AddSvRightOwnerInstruction app.dso
+  openMiningRoundTriple <- DsoTestUtils.getOpenMiningRoundTriple app
+  DsoTestUtils.svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExecuteAddSvRightOwnerInstruction with
+      instructionCid; openMiningRoundTriple; svOperator = sv1
+  pure ()
+
+updateSvWeight : AmuletScripts.AmuletApp -> (Party, Party, Party, Party) -> Text -> Int -> Script ()
+updateSvWeight app (sv1, sv2, sv3, sv4) ownerName weight = do
+  [(svRightOwnerCid, owner)] <- queryFilter @Amulet.SvRightOwner app.dso (\owner -> owner.name == ownerName)
+  DsoTestUtils.initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo with
+      name = ownerName
+      baseInfo = owner.info
+      newInfo = owner.info with rewardWeight = weight
+  [(instructionCid, _)] <- query @UpdateSvRightOwnerInfoInstruction app.dso
+  DsoTestUtils.svSubmits app sv1 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction with
+      instructionCid; svRightOwnerCid; svOperator = sv1
+  pure ()
+
+migrationRequestedFor
+  : Network -> TextMap.TextMap Amulet.SvRightOwnerInfo -> Script (ContractId MigrateToOnLedgerSvRightOwnersInstruction)
+migrationRequestedFor net owners = do
+  DsoTestUtils.initiateAndAcceptVote net.app (svParties net) $ ARC_DsoRules with
+    dsoAction = SRARC_MigrateToOnLedgerSvRightOwners DsoRules_MigrateToOnLedgerSvRightOwners with
+      svRightOwners = owners
+  [(instructionCid, _)] <- query @MigrateToOnLedgerSvRightOwnersInstruction net.app.dso
+  pure instructionCid
+
+migrate
+  : Network -> ContractId MigrateToOnLedgerSvRightOwnersInstruction -> TextMap.TextMap (ContractId SvRewardState) -> Script Attempt
+migrate net instructionCid rewardStates = do
+  openMiningRoundTriple <- DsoTestUtils.getOpenMiningRoundTriple net.app
+  (dsoRulesCid, _) <- currentDsoRules net
+  pure Attempt with
+    network = net
+    submittedBy = net.sv1.party
+    command = void $ exerciseCmd dsoRulesCid DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstruction with
+      instructionCid; openMiningRoundTriple; svOperatorRewardStateCids = rewardStates; svOperator = net.sv1.party
+
+removalRequestedFor : Network -> Text -> Script (ContractId RemoveSvRightOwnerInstruction)
+removalRequestedFor net name = do
+  addOwnerNamed net name
+  DsoTestUtils.initiateAndAcceptVote net.app (svParties net) $ ARC_DsoRules with
+    dsoAction = SRARC_RemoveSvRightOwner DsoRules_RemoveSvRightOwner with name
+  [(instructionCid, _)] <- query @RemoveSvRightOwnerInstruction net.app.dso
+  pure instructionCid
+
+remove : Network -> ContractId RemoveSvRightOwnerInstruction -> Text -> Text -> Script Attempt
+remove net instructionCid ownerName rewardStateName = do
+  svRightOwnerCid <- DsoTestUtils.getSvRightOwnerCid net.app ownerName
+  svRewardStateCid <- DsoTestUtils.getSvRewardStateCid net.app rewardStateName
+  (dsoRulesCid, _) <- currentDsoRules net
+  pure Attempt with
+    network = net
+    submittedBy = net.sv1.party
+    command = void $ exerciseCmd dsoRulesCid DsoRules_ExecuteRemoveSvRightOwnerInstruction with
+      instructionCid; svRightOwnerCid; svRewardStateCid; svOperator = net.sv1.party
+
+infoUpdateRequestedFor : Network -> Text -> Script (ContractId UpdateSvRightOwnerInfoInstruction)
+infoUpdateRequestedFor net name = do
+  addOwnerNamed net "sv2"
+  [(_, owner)] <- queryFilter @Amulet.SvRightOwner net.app.dso (\owner -> owner.name == name)
+  DsoTestUtils.initiateAndAcceptVote net.app (svParties net) $ ARC_DsoRules with
+    dsoAction = SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo with
+      name; baseInfo = owner.info; newInfo = owner.info with rewardWeight = tier2RewardWeight
+  [(instructionCid, _)] <- query @UpdateSvRightOwnerInfoInstruction net.app.dso
+  pure instructionCid
+
+updateInfo : Network -> ContractId UpdateSvRightOwnerInfoInstruction -> Text -> Script Attempt
+updateInfo net instructionCid ownerName = do
+  svRightOwnerCid <- DsoTestUtils.getSvRightOwnerCid net.app ownerName
+  (dsoRulesCid, _) <- currentDsoRules net
+  pure Attempt with
+    network = net
+    submittedBy = net.sv1.party
+    command = void $ exerciseCmd dsoRulesCid DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction with
+      instructionCid; svRightOwnerCid; svOperator = net.sv1.party
+
+updateBeneficiaries : Network -> Text -> Text -> Script Attempt
+updateBeneficiaries net name ownerName = do
+  svRightOwnerCid <- DsoTestUtils.getSvRightOwnerCid net.app ownerName
+  (dsoRulesCid, _) <- currentDsoRules net
+  pure Attempt with
+    network = net
+    submittedBy = net.sv2.party
+    command = void $ exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerBeneficiaries with
+      name; svRightOwnerCid; beneficiaries = Map.empty; rightOwner = net.sv2.party
+
+rewardCoupon : Network -> Text -> Text -> Text -> Script Attempt
+rewardCoupon net mapKey ownerName rewardStateName = do
+  (openRoundCid, openRound) <- last <$> AmuletScripts.getOpenRoundsSorted net.app
+  setTime openRound.opensAt
+  [(svRightOwnerCid, owner)] <- queryFilter @Amulet.SvRightOwner net.app.dso (\owner -> owner.name == ownerName)
+  svRewardStateCid <- DsoTestUtils.getSvRewardStateCid net.app rewardStateName
+  (dsoRulesCid, dsoRules) <- currentDsoRules net
+  [svOperator] <- pure [party | (party, info) <- Map.toList dsoRules.svs, info.name == owner.info.rewardNodeOperatorName]
+  pure Attempt with
+    network = net
+    submittedBy = svOperator
+    command = void $ exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCouponV2 with
+      svOperator; openRoundCid
+      svRightOwnerRewardInputs = TextMap.fromList [(mapKey, (svRightOwnerCid, svRewardStateCid))]
+
+addOwnerNamed : Network -> Text -> Script ()
+addOwnerNamed net name =
+  addSvRightOwner net.app (net.sv1.party, net.sv2.party, net.sv3.party, net.sv4.party) name net.sv2.party
