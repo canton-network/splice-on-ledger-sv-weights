@@ -8,12 +8,15 @@ import DA.Time (addRelTime, hours)
 
 import Daml.Script
 
+import Splice.DSO.SvState (RewardState(..))
 import Splice.DsoRules
   ( DsoRules_ActionRequiringConfirmation(..)
   , DsoRules_CloseVoteRequest(..)
   , DsoRules_RemoveSvRightOwner(..)
+  , DsoRules_UpdateSvRightOwnerBeneficiaries(..)
   , RemoveSvRightOwnerInstruction(..)
   )
+import Splice.Types (Round(..))
 
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
@@ -175,6 +178,7 @@ test_shouldRefuseExecutionWithAnotherSvRightOwnersContract = withTwoSvRightOwner
 
   expectActive net instruction
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
+  svRewardStateNames net `shouldReturn` [newcomer.name, net.genesisOwner.name]
 
 test_shouldRefuseExecutionWithAnotherSvRightOwnersRewardState = withTwoSvRightOwners $ \net newcomer -> do
   instruction <- voteToRemove net newcomer.name
@@ -185,6 +189,7 @@ test_shouldRefuseExecutionWithAnotherSvRightOwnersRewardState = withTwoSvRightOw
   executeRemovalIsRefusedFor net rules net.sv1.party instruction newcomerCid genesisState "Contract group identifier mismatch"
 
   expectActive net instruction
+  svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
   svRewardStateNames net `shouldReturn` [newcomer.name, net.genesisOwner.name]
 
 test_shouldArchiveTheSvRightOwnerItsRewardStateAndTheInstructionAndKeepTheSvNodeOperators = withTwoSvRightOwners $ \net newcomer -> do
@@ -222,11 +227,56 @@ test_shouldAllowAddingTheSameNameAgainAfterARemoval = withTwoSvRightOwners $ \ne
   rules <- dsoRules net
   executeRemoval net rules net.sv1 instruction newcomerCid newcomerState
 
+  firstRound <- roundANewSvRightOwnerStartsIn net
   readded <- newSvRightOwner newcomer.name net.sv3
   voteToAdd net readded >>= execute net net.sv1
 
   svRightOwners net `shouldReturn` [readded, net.genesisOwner]
   svRewardStateNames net `shouldReturn` [readded.name, net.genesisOwner.name]
+  rewardStateOf net readded `shouldReturn` RewardState with
+    lastRoundCollected = Round (firstRound.number - 1)
+    numRoundsCollected = 0
+    numRoundsMissed = 0
+    numCouponsIssued = 0
+
+test_shouldCurrentlyLetAStaleInstructionRemoveAnOwnerReAddedUnderTheSameName = withTwoSvRightOwners $ \net newcomer -> do
+  firstInstruction <- voteToRemove net newcomer.name
+  staleInstruction <- voteToRemove net newcomer.name
+  newcomerCid <- svRightOwnerCidFor net newcomer.name
+  newcomerState <- svRewardStateCidFor net newcomer.name
+  rules <- dsoRules net
+  executeRemoval net rules net.sv1 firstInstruction newcomerCid newcomerState
+
+  readded <- newSvRightOwner newcomer.name net.sv3
+  voteToAdd net readded >>= execute net net.sv1
+  readded.hostedBy === net.sv3
+  readdedCid <- svRightOwnerCidFor net readded.name
+  readdedState <- svRewardStateCidFor net readded.name
+  currentRules <- dsoRules net
+
+  executeRemoval net currentRules net.sv4 staleInstruction readdedCid readdedState
+
+  expectArchived net readdedCid
+  expectArchived net readdedState
+  svRightOwners net `shouldReturn` [net.genesisOwner]
+  svRightOwnerNamesInDsoRules net `shouldReturn` [net.genesisOwner.name]
+
+test_shouldRefuseExecutionAfterTheSvRightOwnerContractWasReplacedByABeneficiaryUpdate = withTwoSvRightOwners $ \net newcomer -> do
+  instruction <- voteToRemove net newcomer.name
+  staleCid <- svRightOwnerCidFor net newcomer.name
+  newcomerState <- svRewardStateCidFor net newcomer.name
+  rules <- dsoRules net
+
+  submitAs net newcomer.party $ exerciseCmd rules DsoRules_UpdateSvRightOwnerBeneficiaries with
+    name = newcomer.name
+    svRightOwnerCid = staleCid
+    beneficiaries = newcomer.beneficiaries
+    rightOwner = newcomer.party
+
+  executeRemovalIsRefusedFor net rules net.sv1.party instruction staleCid newcomerState "Could not find contract"
+
+  expectActive net instruction
+  svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
 
 test_shouldRefuseExpiryByAPartyThatRunsNoSvNode = withTwoSvRightOwners $ \net newcomer -> do
   instruction <- voteToRemove net newcomer.name
