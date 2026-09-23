@@ -16,10 +16,10 @@ import Splice.DsoRules
   , DsoRules_UpdateSvRightOwnerBeneficiaries(..)
   , RemoveSvRightOwnerInstruction(..)
   )
-import Splice.Types (Round(..))
 
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
+import Splice.Scripts.Util (getOpenRoundsSorted)
 
 test_shouldRefuseRemovingAnSvRightOwnerWithoutTheDsosAuthority = withOnLedgerWeights $ \net -> do
   outsider <- allocateParty "outsider"
@@ -227,14 +227,14 @@ test_shouldAllowAddingTheSameNameAgainAfterARemoval = withTwoSvRightOwners $ \ne
   rules <- dsoRules net
   executeRemoval net rules net.sv1 instruction newcomerCid newcomerState
 
-  firstRound <- roundANewSvRightOwnerStartsIn net
+  [_, (_, latestUsableRound)] <- getOpenRoundsSorted net.app
   readded <- newSvRightOwner newcomer.name net.sv3
   voteToAdd net readded >>= execute net net.sv1
 
   svRightOwners net `shouldReturn` [readded, net.genesisOwner]
   svRewardStateNames net `shouldReturn` [readded.name, net.genesisOwner.name]
   rewardStateOf net readded `shouldReturn` RewardState with
-    lastRoundCollected = Round (firstRound.number - 1)
+    lastRoundCollected = latestUsableRound.round -- so the first round it can collect is latestUsableRound + 1
     numRoundsCollected = 0
     numRoundsMissed = 0
     numCouponsIssued = 0

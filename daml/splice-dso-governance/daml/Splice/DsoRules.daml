@@ -1962,7 +1962,7 @@ template DsoRules with
       with
         instructionCid : ContractId AddSvRightOwnerInstruction
         openMiningRoundTriple : OpenMiningRoundTriple
-          -- ^ Determines the latest usable round, in which the new SV right owner starts collecting rewards.
+          -- ^ Determines the latest usable round; the new SV right owner starts collecting rewards in the round after it.
         svOperator : Party
       controller svOperator
       do
@@ -1974,7 +1974,7 @@ template DsoRules with
         assertWithinDeadline "addSvRightOwnerInstruction.expiresAt" instruction.expiresAt
         validatedRounds <- validateOpenMiningRoundTriple dso openMiningRoundTriple
         svRightOwner <- create SvRightOwner with dso; name = instruction.name; info = instruction.info
-        svRewardState <- createSvRewardState dso instruction.name validatedRounds.latestUsableRound.round
+        svRewardState <- createSvRewardState dso instruction.name (Round $ validatedRounds.latestUsableRound.round.number + 1)
         newDsoRules <- create this with
           svRightOwners = Set.insert instruction.name <$> svRightOwners
         return DsoRules_ExecuteAddSvRightOwnerInstructionResult with ..

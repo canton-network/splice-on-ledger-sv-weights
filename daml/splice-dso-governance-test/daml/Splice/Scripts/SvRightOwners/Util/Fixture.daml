@@ -5,7 +5,7 @@ module Splice.Scripts.SvRightOwners.Util.Fixture where
 
 import DA.Action (unless)
 import DA.Assert ((===))
-import DA.List (maximumOn, sort, sortOn)
+import DA.List (sort, sortOn)
 import qualified DA.Map as Map
 import DA.Optional (isNone, isSome)
 import qualified DA.Set as Set
@@ -13,10 +13,9 @@ import qualified DA.Set as Set
 import Daml.Script
 
 import qualified Splice.Amulet.SvRightOwner as Amulet
-import Splice.AmuletRules (AmuletRules, miningRoundTripleCids)
+import Splice.AmuletRules (AmuletRules)
 import Splice.DSO.SvState (RewardState, SvRewardState)
 import Splice.DsoRules (DsoRules)
-import Splice.Types (Round)
 
 import qualified Splice.Scripts.DsoTestUtils as DsoTestUtils
 import qualified Splice.Scripts.Util as AmuletScripts
@@ -171,14 +170,3 @@ expectActive : (Template t, HasEnsure t) => Network -> ContractId t -> Script ()
 expectActive net cid = do
   contract <- queryContractId net.app.dso cid
   unless (isSome contract) (fail "expected the contract to still be active")
-
-roundANewSvRightOwnerStartsIn : Network -> Script Round
-roundANewSvRightOwnerStartsIn net = do
-  triple <- DsoTestUtils.getOpenMiningRoundTriple net.app
-  rounds <- forA (miningRoundTripleCids triple) $ \cid -> do
-    Some round <- queryContractId net.app.dso cid
-    pure round
-  now <- getTime
-  case [round | round <- rounds, round.opensAt <= now] of
-    [] -> fail "no open mining round has opened yet"
-    alreadyOpen -> pure (maximumOn (.round.number) alreadyOpen).round
