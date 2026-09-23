@@ -24,20 +24,20 @@ test_shouldStartWithZeroLegacyNodeOperatorWeights = withOnLedgerWeights $ \net -
 test_shouldRefuseAddingAnOwnerWithoutTheDsosAuthority = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
 
-  addDirectly net net.sv1.party newcomer >>= shouldBeRejected "requires authorizers"
+  directly net net.sv1.party (adding newcomer) >>= shouldBeRejected "requires authorizers"
 
 test_shouldRefuseAddingAnOwnerUnderLegacyWeightManagement = withLegacyWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
 
-  addDirectly net net.app.dso newcomer >>= shouldBeRejected "svRightOwners are tracked on-ledger"
+  directly net net.app.dso (adding newcomer) >>= shouldBeRejected "svRightOwners are tracked on-ledger"
 
 test_shouldRefuseAddingAnOwnerWhoseNameIsAlreadyTaken = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
-  voteToAdd net newcomer >>= execute net net.sv1.party >>= shouldSucceed
+  vote net (adding newcomer) >>= execute net net.sv1.party >>= shouldSucceed
   latecomer <- newSvRightOwner "latecomer" net.sv3
 
-  addDirectly net net.app.dso (latecomer with name = "newcomer") >>= shouldBeRejected "SV right owner \"newcomer\" does not exist"
-  addDirectly net net.app.dso (latecomer with name = net.genesisOwner.name) >>= shouldBeRejected "SV right owner \"sv1\" does not exist"
+  directly net net.app.dso (adding (latecomer with name = "newcomer")) >>= shouldBeRejected "SV right owner \"newcomer\" does not exist"
+  directly net net.app.dso (adding (latecomer with name = net.genesisOwner.name)) >>= shouldBeRejected "SV right owner \"sv1\" does not exist"
 
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
 
@@ -45,10 +45,10 @@ test_shouldRefuseAddingAnOwnerHostedByAnUnknownNodeOperator = withOnLedgerWeight
   let unknownOperator = Operator with name = "no-such-operator"; party = net.sv2.party
   newcomer <- newSvRightOwner "newcomer" unknownOperator
 
-  addDirectly net net.app.dso newcomer >>= shouldBeRejected "SV right owner's node operator must exist"
+  directly net net.app.dso (adding newcomer) >>= shouldBeRejected "SV right owner's node operator must exist"
 
 test_shouldOnlyRecordAnInstructionWhenTheVotePasses = withOnLedgerWeights $ \net -> do
-  instruction <- newSvRightOwner "newcomer" net.sv2 >>= voteToAdd net
+  instruction <- newSvRightOwner "newcomer" net.sv2 >>= vote net . adding
 
   expectActive net instruction
   svRightOwners net `shouldReturn` [net.genesisOwner]
@@ -56,7 +56,7 @@ test_shouldOnlyRecordAnInstructionWhenTheVotePasses = withOnLedgerWeights $ \net
 test_shouldSetTheInstructionDeadlineFourHoursAfterTheVote = withOnLedgerWeights $ \net -> do
   votedAt <- getTime
 
-  instruction <- newSvRightOwner "newcomer" net.sv2 >>= voteToAdd net
+  instruction <- newSvRightOwner "newcomer" net.sv2 >>= vote net . adding
 
   instructionExpiresAt net instruction `shouldReturn` addRelTime votedAt (hours 4)
 
@@ -64,7 +64,7 @@ test_shouldAddTheOwnerWhenTheInstructionIsExecuted = withOnLedgerWeights $ \net 
   let host = net.sv2
       someOtherOperator = net.sv3
   newcomer <- newSvRightOwner "newcomer" host
-  instruction <- voteToAdd net newcomer
+  instruction <- vote net (adding newcomer)
   [_, (_, latestUsableRound)] <- getOpenRoundsSorted net.app
 
   execute net someOtherOperator.party instruction >>= shouldSucceed
@@ -80,7 +80,7 @@ test_shouldAddTheOwnerWhenTheInstructionIsExecuted = withOnLedgerWeights $ \net 
   expectArchived net instruction
 
 test_shouldRefuseExecutionByAPartyThatRunsNoSvNode = withOnLedgerWeights $ \net -> do
-  instruction <- newSvRightOwner "newcomer" net.sv2 >>= voteToAdd net
+  instruction <- newSvRightOwner "newcomer" net.sv2 >>= vote net . adding
   stranger <- allocateParty "stranger"
 
   execute net stranger instruction >>= shouldBeRejected "SV party is an actual SV"
@@ -90,7 +90,7 @@ test_shouldRefuseExecutionByAPartyThatRunsNoSvNode = withOnLedgerWeights $ \net 
 
 test_shouldRefuseASecondExecutionOfTheInstruction = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
-  instruction <- voteToAdd net newcomer
+  instruction <- vote net (adding newcomer)
 
   execute net net.sv1.party instruction >>= shouldSucceed
   execute net net.sv2.party instruction >>= shouldBeRejected "Could not find contract"
@@ -100,7 +100,7 @@ test_shouldRefuseASecondExecutionOfTheInstruction = withOnLedgerWeights $ \net -
 test_shouldRefuseExecutionForAnOwnerWhoseInfoIsInvalid = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
 
-  instruction <- voteToAdd net (newcomer with rewardWeight = -1)
+  instruction <- vote net (adding (newcomer with rewardWeight = -1))
 
   execute net net.sv1.party instruction >>= shouldBeRejected "Template precondition violated"
 
@@ -111,8 +111,8 @@ test_shouldAddSeveralOwners = withOnLedgerWeights $ \net -> do
   alpha <- newSvRightOwner "alpha" net.sv2
   beta <- newSvRightOwner "beta" net.sv3
 
-  voteToAdd net alpha >>= execute net net.sv1.party >>= shouldSucceed
-  voteToAdd net beta >>= execute net net.sv1.party >>= shouldSucceed
+  vote net (adding alpha) >>= execute net net.sv1.party >>= shouldSucceed
+  vote net (adding beta) >>= execute net net.sv1.party >>= shouldSucceed
 
   svRightOwners net `shouldReturn` [alpha, beta, net.genesisOwner]
 
@@ -120,21 +120,21 @@ test_shouldAddAnOwnerWithNoRewardWeight = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
   let unpaid = newcomer with rewardWeight = 0
 
-  voteToAdd net unpaid >>= execute net net.sv1.party >>= shouldSucceed
+  vote net (adding unpaid) >>= execute net net.sv1.party >>= shouldSucceed
 
   svRightOwners net `shouldReturn` [unpaid, net.genesisOwner]
 
 test_shouldAddAnOwnerNamedAfterAnSvNodeOperator = withOnLedgerWeights $ \net -> do
   namedAfterSv2 <- newSvRightOwner "sv2" net.sv2
 
-  voteToAdd net namedAfterSv2 >>= execute net net.sv1.party >>= shouldSucceed
+  vote net (adding namedAfterSv2) >>= execute net net.sv1.party >>= shouldSucceed
 
   svRightOwners net `shouldReturn` [net.genesisOwner, namedAfterSv2]
 
 test_shouldOnlyAllowExpiryOfASecondInstructionForTheSameName = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
-  firstInstruction <- voteToAdd net newcomer
-  secondInstruction <- voteToAdd net newcomer
+  firstInstruction <- vote net (adding newcomer)
+  secondInstruction <- vote net (adding newcomer)
 
   execute net net.sv1.party firstInstruction >>= shouldSucceed
   execute net net.sv2.party secondInstruction >>= shouldBeRejected "SV right owner \"newcomer\" does not exist"
@@ -146,14 +146,14 @@ test_shouldOnlyAllowExpiryOfASecondInstructionForTheSameName = withOnLedgerWeigh
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
 
 test_shouldRefuseExpiryBeforeTheDeadline = withOnLedgerWeights $ \net -> do
-  instruction <- newSvRightOwner "newcomer" net.sv2 >>= voteToAdd net
+  instruction <- newSvRightOwner "newcomer" net.sv2 >>= vote net . adding
 
   expire net net.sv1.party instruction >>= shouldBeRejected "Ledger time is strictly before deadline 'addSvRightOwnerInstruction.expiresAt'"
 
   expectActive net instruction
 
 test_shouldRefuseExecutionAtOrPastTheDeadline = withOnLedgerWeights $ \net -> do
-  instruction <- newSvRightOwner "newcomer" net.sv2 >>= voteToAdd net
+  instruction <- newSvRightOwner "newcomer" net.sv2 >>= vote net . adding
   instructionExpiresAt net instruction >>= setTime
 
   execute net net.sv1.party instruction >>= shouldBeRejected "Ledger time is at or past deadline 'addSvRightOwnerInstruction.expiresAt'"
@@ -163,7 +163,7 @@ test_shouldRefuseExecutionAtOrPastTheDeadline = withOnLedgerWeights $ \net -> do
   svRightOwners net `shouldReturn` [net.genesisOwner]
 
 test_shouldRefuseExpiryByAPartyThatRunsNoSvNode = withOnLedgerWeights $ \net -> do
-  instruction <- newSvRightOwner "newcomer" net.sv2 >>= voteToAdd net
+  instruction <- newSvRightOwner "newcomer" net.sv2 >>= vote net . adding
   stranger <- allocateParty "stranger"
   instructionExpiresAt net instruction >>= setTime
 
@@ -174,7 +174,7 @@ test_shouldRefuseExpiryByAPartyThatRunsNoSvNode = withOnLedgerWeights $ \net -> 
 
 test_shouldRefuseExpiryOfAnExecutedInstruction = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
-  instruction <- voteToAdd net newcomer
+  instruction <- vote net (adding newcomer)
   expiresAt <- instructionExpiresAt net instruction
 
   execute net net.sv1.party instruction >>= shouldSucceed

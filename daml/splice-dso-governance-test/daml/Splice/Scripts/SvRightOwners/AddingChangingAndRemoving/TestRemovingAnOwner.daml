@@ -9,11 +9,7 @@ import DA.Time (addRelTime, hours)
 import Daml.Script
 
 import Splice.DSO.SvState (RewardState(..))
-import Splice.DsoRules
-  ( DsoRules_ActionRequiringConfirmation(..)
-  , DsoRules_RemoveSvRightOwner(..)
-  , RemoveSvRightOwnerInstruction(..)
-  )
+import Splice.DsoRules (RemoveSvRightOwnerInstruction(..))
 
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
@@ -22,27 +18,26 @@ import Splice.Scripts.Util (getOpenRoundsSorted)
 test_shouldRefuseRemovingAnSvRightOwnerWithoutTheDsosAuthority = withOnLedgerWeights $ \net -> do
   outsider <- allocateParty "outsider"
 
-  removeDirectly net net.sv1.party net.genesisOwner.name >>= shouldBeRejected "requires authorizers"
-  removeDirectly net outsider net.genesisOwner.name >>= shouldBeRejected "requires authorizers"
+  directly net net.sv1.party (removing net.genesisOwner.name) >>= shouldBeRejected "requires authorizers"
+  directly net outsider (removing net.genesisOwner.name) >>= shouldBeRejected "requires authorizers"
 
 test_shouldRefuseRemovingAnSvRightOwnerUnderLegacyWeightManagement = withLegacyWeights $ \net ->
-  removeDirectly net net.app.dso net.genesisOwner.name >>= shouldBeRejected "svRightOwners are tracked on-ledger"
+  directly net net.app.dso (removing net.genesisOwner.name) >>= shouldBeRejected "svRightOwners are tracked on-ledger"
 
 test_shouldRefuseRemovingAnSvRightOwnerWhoseNameIsUnknownOrDiffersInCase = withOnLedgerWeights $ \net -> do
-  removeDirectly net net.app.dso "no-such-owner" >>= shouldBeRejected "SV right owner \"no-such-owner\" exists"
-  removeDirectly net net.app.dso "SV1" >>= shouldBeRejected "SV right owner \"SV1\" exists"
+  directly net net.app.dso (removing "no-such-owner") >>= shouldBeRejected "SV right owner \"no-such-owner\" exists"
+  directly net net.app.dso (removing "SV1") >>= shouldBeRejected "SV right owner \"SV1\" exists"
 
 test_shouldRefuseRemovingAnSvNodeOperatorThatOwnsNoSvRight = withOnLedgerWeights $ \net ->
-  removeDirectly net net.app.dso net.sv2.name >>= shouldBeRejected "SV right owner \"sv2\" exists"
+  directly net net.app.dso (removing net.sv2.name) >>= shouldBeRejected "SV right owner \"sv2\" exists"
 
 test_shouldRefuseRemovingTheOnlySvRightOwnerLeft = withOnLedgerWeights $ \net ->
-  removeDirectly net net.app.dso net.genesisOwner.name >>= shouldBeRejected "There is more than one SV right owner"
+  directly net net.app.dso (removing net.genesisOwner.name) >>= shouldBeRejected "There is more than one SV right owner"
 
 test_shouldRejectTheWholeVoteCloseWhenTheRemovalIsNoLongerValid = withTwoSvRightOwners $ \net newcomer -> do
-  removal <- voteToRemove net newcomer.name
-  staleRequest <- openVote net $
-    SRARC_RemoveSvRightOwner DsoRules_RemoveSvRightOwner with name = newcomer.name
-  executeRemoval net net.sv1.party removal >>= shouldSucceed
+  removal <- vote net (removing newcomer.name)
+  staleRequest <- openVote net (removing newcomer.name)
+  execute net net.sv1.party removal >>= shouldSucceed
 
   closeVote net net.sv1.party staleRequest >>= shouldBeRejected "SV right owner \"newcomer\" exists"
 
@@ -53,7 +48,7 @@ test_shouldOnlyRecordAnInstructionWhenTheVotePasses = withTwoSvRightOwners $ \ne
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
   votedAt <- getTime
 
-  removal <- voteToRemove net newcomer.name
+  removal <- vote net (removing newcomer.name)
 
   contractPayload net removal.instruction `shouldReturn` RemoveSvRightOwnerInstruction with
     dso = net.app.dso; name = newcomer.name; expiresAt = addRelTime votedAt (hours 4)
@@ -63,93 +58,93 @@ test_shouldOnlyRecordAnInstructionWhenTheVotePasses = withTwoSvRightOwners $ \ne
 test_shouldRecordARemovalOfTheGenesisSvRightOwnerOnceASecondExists = withTwoSvRightOwners $ \net newcomer -> do
   votedAt <- getTime
 
-  removal <- voteToRemove net net.genesisOwner.name
+  removal <- vote net (removing net.genesisOwner.name)
 
   contractPayload net removal.instruction `shouldReturn` RemoveSvRightOwnerInstruction with
     dso = net.app.dso; name = net.genesisOwner.name; expiresAt = addRelTime votedAt (hours 4)
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
 
 test_shouldAllowASecondRemovalInstructionForTheSameSvRightOwner = withTwoSvRightOwners $ \net newcomer -> do
-  firstRemoval <- voteToRemove net newcomer.name
-  secondRemoval <- voteToRemove net newcomer.name
+  firstRemoval <- vote net (removing newcomer.name)
+  secondRemoval <- vote net (removing newcomer.name)
 
   expectActive net firstRemoval.instruction
   expectActive net secondRemoval.instruction
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
 
 test_shouldRefuseExecutionAgainstADsoRulesThatAnotherRemovalAlreadyArchived = withTwoSvRightOwners $ \net newcomer -> do
-  firstRemoval <- voteToRemove net newcomer.name
-  secondRemoval <- voteToRemove net newcomer.name
+  firstRemoval <- vote net (removing newcomer.name)
+  secondRemoval <- vote net (removing newcomer.name)
   staleRules <- dsoRules net
 
-  executeRemoval net net.sv1.party firstRemoval >>= shouldSucceed
-  executeRemovalAgainst staleRules net net.sv1.party secondRemoval >>= shouldBeRejected "Could not find contract"
+  execute net net.sv1.party firstRemoval >>= shouldSucceed
+  executeAgainst staleRules net net.sv1.party secondRemoval >>= shouldBeRejected "Could not find contract"
 
   expectActive net secondRemoval.instruction
   svRightOwners net `shouldReturn` [net.genesisOwner]
 
 test_shouldRefuseExecutionByAPartyThatRunsNoSvNode = withTwoSvRightOwners $ \net newcomer -> do
-  removal <- voteToRemove net newcomer.name
+  removal <- vote net (removing newcomer.name)
   stranger <- allocateParty "stranger"
 
-  executeRemoval net stranger removal >>= shouldBeRejected "SV party is an actual SV"
-  executeRemoval net net.app.dso removal >>= shouldBeRejected "SV party is an actual SV"
+  execute net stranger removal >>= shouldBeRejected "SV party is an actual SV"
+  execute net net.app.dso removal >>= shouldBeRejected "SV party is an actual SV"
 
   expectActive net removal.instruction
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
 
 test_shouldRefuseASecondExecutionOfTheSameInstruction = withTwoSvRightOwners $ \net newcomer -> do
-  removal <- voteToRemove net newcomer.name
+  removal <- vote net (removing newcomer.name)
 
-  executeRemoval net net.sv1.party removal >>= shouldSucceed
-  executeRemoval net net.sv2.party removal >>= shouldBeRejected "Could not find contract"
+  execute net net.sv1.party removal >>= shouldSucceed
+  execute net net.sv2.party removal >>= shouldBeRejected "Could not find contract"
 
   svRightOwners net `shouldReturn` [net.genesisOwner]
 
 test_shouldRefuseExecutingAnInstructionForAnSvRightOwnerThatWasAlreadyRemoved = withTwoSvRightOwners $ \net newcomer -> do
-  firstRemoval <- voteToRemove net newcomer.name
-  secondRemoval <- voteToRemove net newcomer.name
+  firstRemoval <- vote net (removing newcomer.name)
+  secondRemoval <- vote net (removing newcomer.name)
 
-  executeRemoval net net.sv1.party firstRemoval >>= shouldSucceed
-  executeRemoval net net.sv1.party secondRemoval >>= shouldBeRejected "SV right owner \"newcomer\" exists"
+  execute net net.sv1.party firstRemoval >>= shouldSucceed
+  execute net net.sv1.party secondRemoval >>= shouldBeRejected "SV right owner \"newcomer\" exists"
 
   expectActive net secondRemoval.instruction
   svRightOwners net `shouldReturn` [net.genesisOwner]
 
 test_shouldRefuseExecutingAnInstructionWhoseSvRightOwnerBecameTheOnlyOneLeft = withTwoSvRightOwners $ \net newcomer -> do
-  genesisRemoval <- voteToRemove net net.genesisOwner.name
-  newcomerRemoval <- voteToRemove net newcomer.name
+  genesisRemoval <- vote net (removing net.genesisOwner.name)
+  newcomerRemoval <- vote net (removing newcomer.name)
 
-  executeRemoval net net.sv1.party genesisRemoval >>= shouldSucceed
-  executeRemoval net net.sv1.party newcomerRemoval >>= shouldBeRejected "There is more than one SV right owner"
+  execute net net.sv1.party genesisRemoval >>= shouldSucceed
+  execute net net.sv1.party newcomerRemoval >>= shouldBeRejected "There is more than one SV right owner"
 
   expectActive net newcomerRemoval.instruction
   svRightOwners net `shouldReturn` [newcomer]
 
 test_shouldRefuseExecutionAtOrPastTheDeadline = withTwoSvRightOwners $ \net newcomer -> do
-  removal <- voteToRemove net newcomer.name
+  removal <- vote net (removing newcomer.name)
   instructionExpiresAt net removal.instruction >>= setTime
 
-  executeRemoval net net.sv1.party removal >>= shouldBeRejected "Ledger time is at or past deadline 'removeSvRightOwnerInstruction.expiresAt'"
+  execute net net.sv1.party removal >>= shouldBeRejected "Ledger time is at or past deadline 'removeSvRightOwnerInstruction.expiresAt'"
 
   expectActive net removal.instruction
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
 
 test_shouldRefuseExecutionWithAnotherSvRightOwnersContract = withTwoSvRightOwners $ \net newcomer -> do
-  removal <- voteToRemove net newcomer.name
+  removal <- vote net (removing newcomer.name)
   genesisCid <- svRightOwnerCidFor net net.genesisOwner.name
 
-  executeRemoval net net.sv1.party (removal with svRightOwnerCid = genesisCid) >>= shouldBeRejected contractNameMismatch
+  execute net net.sv1.party (removal with svRightOwnerCid = genesisCid) >>= shouldBeRejected contractNameMismatch
 
   expectActive net removal.instruction
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
   svRewardStateNames net `shouldReturn` [newcomer.name, net.genesisOwner.name]
 
 test_shouldRefuseExecutionWithAnotherSvRightOwnersRewardState = withTwoSvRightOwners $ \net newcomer -> do
-  removal <- voteToRemove net newcomer.name
+  removal <- vote net (removing newcomer.name)
   genesisState <- svRewardStateCidFor net net.genesisOwner.name
 
-  executeRemoval net net.sv1.party (removal with svRewardStateCid = genesisState) >>= shouldBeRejected contractNameMismatch
+  execute net net.sv1.party (removal with svRewardStateCid = genesisState) >>= shouldBeRejected contractNameMismatch
 
   expectActive net removal.instruction
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
@@ -157,9 +152,9 @@ test_shouldRefuseExecutionWithAnotherSvRightOwnersRewardState = withTwoSvRightOw
 
 test_shouldArchiveTheSvRightOwnerItsRewardStateAndTheInstructionAndKeepTheSvNodeOperators = withTwoSvRightOwners $ \net newcomer -> do
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
-  removal <- voteToRemove net newcomer.name
+  removal <- vote net (removing newcomer.name)
 
-  executeRemoval net net.sv1.party removal >>= shouldSucceed
+  execute net net.sv1.party removal >>= shouldSucceed
 
   expectArchived net removal.instruction
   expectArchived net removal.svRightOwnerCid
@@ -171,18 +166,18 @@ test_shouldArchiveTheSvRightOwnerItsRewardStateAndTheInstructionAndKeepTheSvNode
 
 test_shouldLetAnSvOperatorOtherThanTheSvRightOwnersHostExecuteTheRemoval = withTwoSvRightOwners $ \net newcomer -> do
   newcomer.hostedBy === net.sv2
-  removal <- voteToRemove net newcomer.name
+  removal <- vote net (removing newcomer.name)
 
-  executeRemoval net net.sv3.party removal >>= shouldSucceed
+  execute net net.sv3.party removal >>= shouldSucceed
 
   svRightOwners net `shouldReturn` [net.genesisOwner]
 
 test_shouldAllowAddingTheSameNameAgainAfterARemoval = withTwoSvRightOwners $ \net newcomer -> do
-  voteToRemove net newcomer.name >>= executeRemoval net net.sv1.party >>= shouldSucceed
+  vote net (removing newcomer.name) >>= execute net net.sv1.party >>= shouldSucceed
 
   [_, (_, latestUsableRound)] <- getOpenRoundsSorted net.app
   readded <- newSvRightOwner newcomer.name net.sv3
-  voteToAdd net readded >>= execute net net.sv1.party >>= shouldSucceed
+  vote net (adding readded) >>= execute net net.sv1.party >>= shouldSucceed
 
   svRightOwners net `shouldReturn` [readded, net.genesisOwner]
   svRewardStateNames net `shouldReturn` [readded.name, net.genesisOwner.name]
@@ -193,17 +188,17 @@ test_shouldAllowAddingTheSameNameAgainAfterARemoval = withTwoSvRightOwners $ \ne
     numCouponsIssued = 0
 
 test_shouldCurrentlyLetAStaleInstructionRemoveAnOwnerReAddedUnderTheSameName = withTwoSvRightOwners $ \net newcomer -> do
-  firstRemoval <- voteToRemove net newcomer.name
-  staleRemoval <- voteToRemove net newcomer.name
-  executeRemoval net net.sv1.party firstRemoval >>= shouldSucceed
+  firstRemoval <- vote net (removing newcomer.name)
+  staleRemoval <- vote net (removing newcomer.name)
+  execute net net.sv1.party firstRemoval >>= shouldSucceed
 
   readded <- newSvRightOwner newcomer.name net.sv3
-  voteToAdd net readded >>= execute net net.sv1.party >>= shouldSucceed
+  vote net (adding readded) >>= execute net net.sv1.party >>= shouldSucceed
   readded.hostedBy === net.sv3
   readdedCid <- svRightOwnerCidFor net readded.name
   readdedState <- svRewardStateCidFor net readded.name
 
-  executeRemoval net net.sv4.party (staleRemoval with svRightOwnerCid = readdedCid; svRewardStateCid = readdedState) >>= shouldSucceed
+  execute net net.sv4.party (staleRemoval with svRightOwnerCid = readdedCid; svRewardStateCid = readdedState) >>= shouldSucceed
 
   expectArchived net readdedCid
   expectArchived net readdedState
@@ -211,47 +206,47 @@ test_shouldCurrentlyLetAStaleInstructionRemoveAnOwnerReAddedUnderTheSameName = w
   svRightOwnerNamesInDsoRules net `shouldReturn` [net.genesisOwner.name]
 
 test_shouldRefuseExecutionAfterTheSvRightOwnerContractWasReplacedByABeneficiaryUpdate = withTwoSvRightOwners $ \net newcomer -> do
-  removal <- voteToRemove net newcomer.name
+  removal <- vote net (removing newcomer.name)
 
   updateOwnBeneficiaries net newcomer >>= shouldSucceed
 
-  executeRemoval net net.sv1.party removal >>= shouldBeRejected "Could not find contract"
+  execute net net.sv1.party removal >>= shouldBeRejected "Could not find contract"
 
   expectActive net removal.instruction
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
 
 test_shouldRefuseExpiryByAPartyThatRunsNoSvNode = withTwoSvRightOwners $ \net newcomer -> do
-  removal <- voteToRemove net newcomer.name
+  removal <- vote net (removing newcomer.name)
   stranger <- allocateParty "stranger"
   instructionExpiresAt net removal.instruction >>= setTime
 
-  expireRemoval net stranger removal >>= shouldBeRejected "SV party is an actual SV"
-  expireRemoval net net.app.dso removal >>= shouldBeRejected "SV party is an actual SV"
+  expire net stranger removal >>= shouldBeRejected "SV party is an actual SV"
+  expire net net.app.dso removal >>= shouldBeRejected "SV party is an actual SV"
 
   expectActive net removal.instruction
 
 test_shouldRefuseExpiryOfAnInstructionThatWasAlreadyExecuted = withTwoSvRightOwners $ \net newcomer -> do
-  removal <- voteToRemove net newcomer.name
+  removal <- vote net (removing newcomer.name)
   expiresAt <- instructionExpiresAt net removal.instruction
 
-  executeRemoval net net.sv1.party removal >>= shouldSucceed
+  execute net net.sv1.party removal >>= shouldSucceed
   setTime expiresAt
-  expireRemoval net net.sv1.party removal >>= shouldBeRejected "Could not find contract"
+  expire net net.sv1.party removal >>= shouldBeRejected "Could not find contract"
 
   svRightOwners net `shouldReturn` [net.genesisOwner]
 
 test_shouldRefuseExpiryBeforeTheDeadline = withTwoSvRightOwners $ \net newcomer -> do
-  removal <- voteToRemove net newcomer.name
+  removal <- vote net (removing newcomer.name)
 
-  expireRemoval net net.sv1.party removal >>= shouldBeRejected "Ledger time is strictly before deadline 'removeSvRightOwnerInstruction.expiresAt'"
+  expire net net.sv1.party removal >>= shouldBeRejected "Ledger time is strictly before deadline 'removeSvRightOwnerInstruction.expiresAt'"
 
   expectActive net removal.instruction
 
 test_shouldExpireAnInstructionNobodyExecutedAndKeepTheSvRightOwner = withTwoSvRightOwners $ \net newcomer -> do
-  removal <- voteToRemove net newcomer.name
+  removal <- vote net (removing newcomer.name)
   instructionExpiresAt net removal.instruction >>= setTime
 
-  expireRemoval net net.sv1.party removal >>= shouldSucceed
+  expire net net.sv1.party removal >>= shouldSucceed
 
   expectArchived net removal.instruction
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
