@@ -55,18 +55,8 @@ contractNameMismatch : Text
 contractNameMismatch = "Contract group identifier mismatch"
 
 shouldBeRejected : Text -> Attempt -> Script ()
-shouldBeRejected expectedReason (Attempt with network; submittedBy; command) =
-  refusedFor network submittedBy expectedReason command
-
-shouldSucceed : Attempt -> Script ()
-shouldSucceed (Attempt with network; submittedBy; command) = submitAs network submittedBy command
-
-submitAs : Network -> Party -> Commands a -> Script a
-submitAs net party command = submit (actAs party <> readAs net.app.dso) command
-
-refusedFor : Network -> Party -> Text -> Commands a -> Script ()
-refusedFor net party refusalReason command = do
-  outcome <- trySubmit (actAs party <> readAs net.app.dso) command
+shouldBeRejected refusalReason (Attempt with network; submittedBy; command) = do
+  outcome <- trySubmit (actAs submittedBy <> readAs network.app.dso) command
   case outcome of
     Right _ -> fail $ "expected a refusal because: " <> refusalReason
     Left failure -> do
@@ -75,6 +65,12 @@ refusedFor net party refusalReason command = do
             other -> show other
       unless (refusalReason `isInfixOf` reported) $
         fail $ "expected a refusal because " <> show refusalReason <> ", not: " <> reported
+
+shouldSucceed : Attempt -> Script ()
+shouldSucceed (Attempt with network; submittedBy; command) = submitAs network submittedBy command
+
+submitAs : Network -> Party -> Commands a -> Script a
+submitAs net party command = submit (actAs party <> readAs net.app.dso) command
 
 withOnLedgerWeights : (Network -> Script ()) -> Script ()
 withOnLedgerWeights = runOn DsoTestUtils.initMainNetWithSvRightOwners

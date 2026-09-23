@@ -26,54 +26,62 @@ addChoiceFor owner = DsoRules_AddSvRightOwner with
 voteToAdd : Network -> SvRightOwner -> Script (ContractId AddSvRightOwnerInstruction)
 voteToAdd net owner = instructionRecordedBy net $ passVote net $ SRARC_AddSvRightOwner (addChoiceFor owner)
 
-execute : Network -> Operator -> ContractId AddSvRightOwnerInstruction -> Script ()
-execute net operator instructionCid = executeAdd net operator.party instructionCid >>= shouldSucceed
+execute : Network -> Party -> ContractId AddSvRightOwnerInstruction -> Script Attempt
+execute net svOperator instructionCid = do
+  openMiningRoundTriple <- DsoTestUtils.getOpenMiningRoundTriple net.app
+  attempt net svOperator (`exerciseCmd` DsoRules_ExecuteAddSvRightOwnerInstruction with instructionCid; openMiningRoundTriple; svOperator)
 
-executeIsRefusedFor : Network -> Party -> ContractId AddSvRightOwnerInstruction -> Text -> Script ()
-executeIsRefusedFor net party instructionCid refusalReason = executeAdd net party instructionCid >>= shouldBeRejected refusalReason
+expire : Network -> Party -> ContractId AddSvRightOwnerInstruction -> Script Attempt
+expire net svOperator instructionCid =
+  attempt net svOperator (`exerciseCmd` DsoRules_ExpireAddSvRightOwnerInstruction with instructionCid; sv = Some svOperator)
 
-expire : Network -> Operator -> ContractId AddSvRightOwnerInstruction -> Script ()
-expire net operator instructionCid = expireAdd net operator.party instructionCid >>= shouldSucceed
-
-expireIsRefusedFor : Network -> Party -> ContractId AddSvRightOwnerInstruction -> Text -> Script ()
-expireIsRefusedFor net party instructionCid refusalReason = expireAdd net party instructionCid >>= shouldBeRejected refusalReason
+addDirectly : Network -> Party -> SvRightOwner -> Script Attempt
+addDirectly net party owner = attempt net party (`exerciseCmd` addChoiceFor owner)
 
 instructionExpiresAt : (Template i, HasEnsure i, HasField "expiresAt" i Time) => Network -> ContractId i -> Script Time
 instructionExpiresAt net instructionCid = do
   Some instruction <- queryContractId net.app.dso instructionCid
   pure instruction.expiresAt
 
-addIsRefusedFor : Network -> Party -> SvRightOwner -> Text -> Script ()
-addIsRefusedFor net party owner refusalReason =
-  attempt net party (`exerciseCmd` addChoiceFor owner) >>= shouldBeRejected refusalReason
+-- | A passed removal vote: its instruction, and the contracts of the owner it names as they were when the vote passed.
+data Removal = Removal with
+    instruction : ContractId RemoveSvRightOwnerInstruction
+    svRightOwnerCid : ContractId Amulet.SvRightOwner
+    svRewardStateCid : ContractId SvRewardState
 
-removeIsRefusedFor : Network -> Party -> Text -> Text -> Script ()
-removeIsRefusedFor net party name refusalReason =
-  attempt net party (`exerciseCmd` DsoRules_RemoveSvRightOwner with name) >>= shouldBeRejected refusalReason
+voteToRemove : Network -> Text -> Script Removal
+voteToRemove net name = do
+  instruction <- instructionRecordedBy net $ passVote net $ SRARC_RemoveSvRightOwner DsoRules_RemoveSvRightOwner with name
+  svRightOwnerCid <- svRightOwnerCidFor net name
+  svRewardStateCid <- svRewardStateCidFor net name
+  pure Removal with instruction; svRightOwnerCid; svRewardStateCid
 
-voteToRemove : Network -> Text -> Script (ContractId RemoveSvRightOwnerInstruction)
-voteToRemove net name = instructionRecordedBy net $ passVote net $
-  SRARC_RemoveSvRightOwner DsoRules_RemoveSvRightOwner with name
+removeDirectly : Network -> Party -> Text -> Script Attempt
+removeDirectly net party name = attempt net party (`exerciseCmd` DsoRules_RemoveSvRightOwner with name)
 
-executeRemoval : Network -> ContractId DsoRules -> Operator -> ContractId RemoveSvRightOwnerInstruction -> ContractId Amulet.SvRightOwner -> ContractId SvRewardState -> Script ()
-executeRemoval net dsoRulesCid operator instructionCid svRightOwnerCid svRewardStateCid =
-  void $ submitAs net operator.party $ exerciseCmd dsoRulesCid DsoRules_ExecuteRemoveSvRightOwnerInstruction with
-    instructionCid; svRightOwnerCid; svRewardStateCid; svOperator = operator.party
+executeRemoval : Network -> Party -> Removal -> Script Attempt
+executeRemoval net svOperator removal = dsoRules net >>= \dsoRulesCid -> executeRemovalAgainst dsoRulesCid net svOperator removal
 
-executeRemovalIsRefusedFor : Network -> ContractId DsoRules -> Party -> ContractId RemoveSvRightOwnerInstruction -> ContractId Amulet.SvRightOwner -> ContractId SvRewardState -> Text -> Script ()
-executeRemovalIsRefusedFor net dsoRulesCid party instructionCid svRightOwnerCid svRewardStateCid refusalReason =
-  refusedFor net party refusalReason $ exerciseCmd dsoRulesCid DsoRules_ExecuteRemoveSvRightOwnerInstruction with
-    instructionCid; svRightOwnerCid; svRewardStateCid; svOperator = party
+-- | 'executeRemoval' against a DsoRules fetched earlier, which may since have been archived.
+executeRemovalAgainst : ContractId DsoRules -> Network -> Party -> Removal -> Script Attempt
+executeRemovalAgainst dsoRulesCid net svOperator (Removal with instruction; svRightOwnerCid; svRewardStateCid) =
+  attemptAgainst dsoRulesCid net svOperator (`exerciseCmd` DsoRules_ExecuteRemoveSvRightOwnerInstruction with
+    instructionCid = instruction; svRightOwnerCid; svRewardStateCid; svOperator)
 
-expireRemoval : Network -> ContractId DsoRules -> Operator -> ContractId RemoveSvRightOwnerInstruction -> Script ()
-expireRemoval net dsoRulesCid operator instructionCid =
-  void $ submitAs net operator.party $ exerciseCmd dsoRulesCid DsoRules_ExpireRemoveSvRightOwnerInstruction with
-    instructionCid; svOperator = operator.party
+expireRemoval : Network -> Party -> Removal -> Script Attempt
+expireRemoval net svOperator removal =
+  attempt net svOperator (`exerciseCmd` DsoRules_ExpireRemoveSvRightOwnerInstruction with instructionCid = removal.instruction; svOperator)
 
-expireRemovalIsRefusedFor : Network -> ContractId DsoRules -> Party -> ContractId RemoveSvRightOwnerInstruction -> Text -> Script ()
-expireRemovalIsRefusedFor net dsoRulesCid party instructionCid refusalReason =
-  refusedFor net party refusalReason $ exerciseCmd dsoRulesCid DsoRules_ExpireRemoveSvRightOwnerInstruction with
-    instructionCid; svOperator = party
+closeVote : Network -> Party -> ContractId VoteRequest -> Script Attempt
+closeVote net sv requestCid = do
+  amuletRulesCid <- amuletRules net
+  attempt net sv (`exerciseCmd` DsoRules_CloseVoteRequest with requestCid; amuletRulesCid = Some amuletRulesCid; sv = Some sv)
+
+updateOwnBeneficiaries : Network -> SvRightOwner -> Script Attempt
+updateOwnBeneficiaries net owner = do
+  svRightOwnerCid <- svRightOwnerCidFor net owner.name
+  attempt net owner.party (`exerciseCmd` DsoRules_UpdateSvRightOwnerBeneficiaries with
+    name = owner.name; svRightOwnerCid; beneficiaries = owner.beneficiaries; rightOwner = owner.party)
 
 passVote : Network -> DsoRules_ActionRequiringConfirmation -> Script ()
 passVote net dsoAction = DsoTestUtils.initiateAndAcceptVote net.app (svParties net) ARC_DsoRules with dsoAction
@@ -84,21 +92,14 @@ openVote net dsoAction = DsoTestUtils.initiateAndCastVote net.app (svParties net
 withTwoSvRightOwners : (Network -> SvRightOwner -> Script ()) -> Script ()
 withTwoSvRightOwners test = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
-  voteToAdd net newcomer >>= execute net net.sv1
+  voteToAdd net newcomer >>= execute net net.sv1.party >>= shouldSucceed
   test net newcomer
 
-executeAdd : Network -> Party -> ContractId AddSvRightOwnerInstruction -> Script Attempt
-executeAdd net svOperator instructionCid = do
-  openMiningRoundTriple <- DsoTestUtils.getOpenMiningRoundTriple net.app
-  attempt net svOperator (`exerciseCmd` DsoRules_ExecuteAddSvRightOwnerInstruction with instructionCid; openMiningRoundTriple; svOperator)
-
-expireAdd : Network -> Party -> ContractId AddSvRightOwnerInstruction -> Script Attempt
-expireAdd net svOperator instructionCid =
-  attempt net svOperator (`exerciseCmd` DsoRules_ExpireAddSvRightOwnerInstruction with instructionCid; sv = Some svOperator)
-
 attempt : Network -> Party -> (ContractId DsoRules -> Commands a) -> Script Attempt
-attempt net submittedBy mkCommand = do
-  dsoRulesCid <- dsoRules net
+attempt net submittedBy mkCommand = dsoRules net >>= \dsoRulesCid -> attemptAgainst dsoRulesCid net submittedBy mkCommand
+
+attemptAgainst : ContractId DsoRules -> Network -> Party -> (ContractId DsoRules -> Commands a) -> Script Attempt
+attemptAgainst dsoRulesCid net submittedBy mkCommand =
   pure Attempt with network = net; submittedBy; command = void (mkCommand dsoRulesCid)
 
 instructionRecordedBy : forall i. (Template i, HasEnsure i) => Network -> Script () -> Script (ContractId i)
@@ -126,14 +127,13 @@ migrate net instructionCid rewardStates = do
 removalRequestedFor : Network -> Text -> Script (ContractId RemoveSvRightOwnerInstruction)
 removalRequestedFor net name = do
   addOwnerNamed net name
-  voteToRemove net name
+  (.instruction) <$> voteToRemove net name
 
 remove : Network -> ContractId RemoveSvRightOwnerInstruction -> Text -> Text -> Script Attempt
-remove net instructionCid ownerName rewardStateName = do
-  svRightOwnerCid <- DsoTestUtils.getSvRightOwnerCid net.app ownerName
-  svRewardStateCid <- DsoTestUtils.getSvRewardStateCid net.app rewardStateName
-  attempt net net.sv1.party (`exerciseCmd` DsoRules_ExecuteRemoveSvRightOwnerInstruction with
-    instructionCid; svRightOwnerCid; svRewardStateCid; svOperator = net.sv1.party)
+remove net instruction ownerName rewardStateName = do
+  svRightOwnerCid <- svRightOwnerCidFor net ownerName
+  svRewardStateCid <- svRewardStateCidFor net rewardStateName
+  executeRemoval net net.sv1.party Removal with instruction; svRightOwnerCid; svRewardStateCid
 
 infoUpdateRequestedFor : Network -> Text -> Script (ContractId UpdateSvRightOwnerInfoInstruction)
 infoUpdateRequestedFor net name = do
@@ -144,13 +144,13 @@ infoUpdateRequestedFor net name = do
 
 updateInfo : Network -> ContractId UpdateSvRightOwnerInfoInstruction -> Text -> Script Attempt
 updateInfo net instructionCid ownerName = do
-  svRightOwnerCid <- DsoTestUtils.getSvRightOwnerCid net.app ownerName
+  svRightOwnerCid <- svRightOwnerCidFor net ownerName
   attempt net net.sv1.party (`exerciseCmd` DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction with
     instructionCid; svRightOwnerCid; svOperator = net.sv1.party)
 
 updateBeneficiaries : Network -> Text -> Text -> Script Attempt
 updateBeneficiaries net name ownerName = do
-  svRightOwnerCid <- DsoTestUtils.getSvRightOwnerCid net.app ownerName
+  svRightOwnerCid <- svRightOwnerCidFor net ownerName
   attempt net net.sv2.party (`exerciseCmd` DsoRules_UpdateSvRightOwnerBeneficiaries with
     name; svRightOwnerCid; beneficiaries = Map.empty; rightOwner = net.sv2.party)
 
@@ -159,12 +159,12 @@ rewardCoupon net mapKey ownerName rewardStateName = do
   (openRoundCid, openRound) <- last <$> AmuletScripts.getOpenRoundsSorted net.app
   setTime openRound.opensAt
   [(svRightOwnerCid, owner)] <- queryFilter @Amulet.SvRightOwner net.app.dso (\owner -> owner.name == ownerName)
-  svRewardStateCid <- DsoTestUtils.getSvRewardStateCid net.app rewardStateName
+  svRewardStateCid <- svRewardStateCidFor net rewardStateName
   (_, dsoRules) <- currentDsoRules net
   [svOperator] <- pure [party | (party, info) <- Map.toList dsoRules.svs, info.name == owner.info.rewardNodeOperatorName]
   attempt net svOperator (`exerciseCmd` DsoRules_ReceiveSvRewardCouponV2 with
     svOperator; openRoundCid; svRightOwnerRewardInputs = TextMap.fromList [(mapKey, (svRightOwnerCid, svRewardStateCid))])
 
 addOwnerNamed : Network -> Text -> Script ()
-addOwnerNamed net name = voteToAdd net owner >>= execute net net.sv1
+addOwnerNamed net name = voteToAdd net owner >>= execute net net.sv1.party >>= shouldSucceed
   where owner = SvRightOwner with name; party = net.sv2.party; hostedBy = net.sv2; rewardWeight = tier2RewardWeight; beneficiaries = Map.empty
