@@ -59,9 +59,10 @@ shouldBeRejected expectedReason (Attempt with network; submittedBy; command) =
   refusedFor network submittedBy expectedReason command
 
 shouldSucceed : Attempt -> Script ()
-shouldSucceed (Attempt with network; submittedBy; command) = do
-  _ <- submit (actAs submittedBy <> readAs network.app.dso) command
-  pure ()
+shouldSucceed (Attempt with network; submittedBy; command) = submitAs network submittedBy command
+
+submitAs : Network -> Party -> Commands a -> Script a
+submitAs net party command = submit (actAs party <> readAs net.app.dso) command
 
 refusedFor : Network -> Party -> Text -> Commands a -> Script ()
 refusedFor net party refusalReason command = do
@@ -120,18 +121,12 @@ svRightOwnerInfo owner = Amulet.SvRightOwnerInfo with
   rewardNodeOperatorName = owner.hostedBy.name
   beneficiaries = owner.beneficiaries
 
-svRightOwnerInfoFor : Party -> Int -> Text -> Amulet.SvRightOwnerInfo
-svRightOwnerInfoFor rightOwner weight operatorName = Amulet.SvRightOwnerInfo with
-  rightOwnerParty = rightOwner
-  rewardWeight = weight
-  rewardNodeOperatorName = operatorName
-  beneficiaries = Map.empty
-
 svRightOwnerInfosFromOperators : AmuletScripts.AmuletApp -> Script (TextMap.TextMap Amulet.SvRightOwnerInfo)
 svRightOwnerInfosFromOperators app = do
   [(_, dsoRules)] <- query @DsoRules app.dso
   pure $ TextMap.fromList
-    [ (info.name, svRightOwnerInfoFor party info.svRewardWeight info.name)
+    [ (info.name, Amulet.SvRightOwnerInfo with
+        rightOwnerParty = party; rewardWeight = info.svRewardWeight; rewardNodeOperatorName = info.name; beneficiaries = Map.empty)
     | (party, info) <- Map.toList dsoRules.svs
     ]
 
@@ -182,11 +177,9 @@ svNodeOperators net = do
 
 svLegacyNodeOperatorWeights : Network -> Script [(Operator, Int)]
 svLegacyNodeOperatorWeights net = do
-  operators <- svNodeOperators net
   (_, dsoRules) <- currentDsoRules net
-  forA operators $ \operator -> case Map.lookup operator.party dsoRules.svs of
-    Some svInfo -> pure (operator, svInfo.svRewardWeight)
-    None -> fail $ "no SV node operator is named " <> operator.name
+  pure $ sortOn ((.name) . fst)
+    [((Operator with name = svInfo.name; party), svInfo.svRewardWeight) | (party, svInfo) <- Map.toList dsoRules.svs]
 
 svRightOwners : Network -> Script [SvRightOwner]
 svRightOwners net = do
