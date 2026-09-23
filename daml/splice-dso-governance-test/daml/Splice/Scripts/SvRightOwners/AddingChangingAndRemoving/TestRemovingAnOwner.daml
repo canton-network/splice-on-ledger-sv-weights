@@ -18,21 +18,21 @@ import Splice.Scripts.Util (getOpenRoundsSorted)
 test_shouldRefuseRemovingAnSvRightOwnerWithoutTheDsosAuthority = withOnLedgerWeights $ \net -> do
   outsider <- allocateParty "outsider"
 
-  directly net net.sv1.party (removing net.genesisOwner.name) >>= shouldBeRejected "requires authorizers"
-  directly net outsider (removing net.genesisOwner.name) >>= shouldBeRejected "requires authorizers"
+  exerciseDsoChoice net net.sv1.party (removing net.genesisOwner.name) >>= shouldBeRejected "requires authorizers"
+  exerciseDsoChoice net outsider (removing net.genesisOwner.name) >>= shouldBeRejected "requires authorizers"
 
 test_shouldRefuseRemovingAnSvRightOwnerUnderLegacyWeightManagement = withLegacyWeights $ \net ->
-  directly net net.app.dso (removing net.genesisOwner.name) >>= shouldBeRejected "svRightOwners are tracked on-ledger"
+  exerciseDsoChoice net net.app.dso (removing net.genesisOwner.name) >>= shouldBeRejected "svRightOwners are tracked on-ledger"
 
 test_shouldRefuseRemovingAnSvRightOwnerWhoseNameIsUnknownOrDiffersInCase = withOnLedgerWeights $ \net -> do
-  directly net net.app.dso (removing "no-such-owner") >>= shouldBeRejected "SV right owner \"no-such-owner\" exists"
-  directly net net.app.dso (removing "SV1") >>= shouldBeRejected "SV right owner \"SV1\" exists"
+  exerciseDsoChoice net net.app.dso (removing "no-such-owner") >>= shouldBeRejected "SV right owner \"no-such-owner\" exists"
+  exerciseDsoChoice net net.app.dso (removing "SV1") >>= shouldBeRejected "SV right owner \"SV1\" exists"
 
 test_shouldRefuseRemovingAnSvNodeOperatorThatOwnsNoSvRight = withOnLedgerWeights $ \net ->
-  directly net net.app.dso (removing net.sv2.name) >>= shouldBeRejected "SV right owner \"sv2\" exists"
+  exerciseDsoChoice net net.app.dso (removing net.sv2.name) >>= shouldBeRejected "SV right owner \"sv2\" exists"
 
 test_shouldRefuseRemovingTheOnlySvRightOwnerLeft = withOnLedgerWeights $ \net ->
-  directly net net.app.dso (removing net.genesisOwner.name) >>= shouldBeRejected "There is more than one SV right owner"
+  exerciseDsoChoice net net.app.dso (removing net.genesisOwner.name) >>= shouldBeRejected "There is more than one SV right owner"
 
 test_shouldRejectTheWholeVoteCloseWhenTheRemovalIsNoLongerValid = withTwoSvRightOwners $ \net newcomer -> do
   removal <- vote net (removing newcomer.name)

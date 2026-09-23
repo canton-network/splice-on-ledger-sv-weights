@@ -26,11 +26,14 @@ test_shouldRejectMigrationWithAnArchivedRewardState = withLegacyWeights $ \net -
   migrate net instruction rewardStates >>= shouldSucceed
 
 test_shouldRejectRemovingAnOwnerWithContractsNamedForDifferentOwners = withOnLedgerWeights $ \net -> do
-  instruction <- removalRequestedFor net "sv2"
+  addOwnerNamed net "sv2"
+  removal <- vote net (removing "sv2")
+  sv1Cid <- svRightOwnerCidFor net "sv1"
+  sv1State <- svRewardStateCidFor net "sv1"
 
-  remove net instruction "sv1" "sv2" >>= shouldBeRejected contractNameMismatch
-  remove net instruction "sv2" "sv1" >>= shouldBeRejected contractNameMismatch
-  remove net instruction "sv2" "sv2" >>= shouldSucceed
+  execute net net.sv1.party (removal with svRightOwnerCid = sv1Cid) >>= shouldBeRejected contractNameMismatch
+  execute net net.sv1.party (removal with svRewardStateCid = sv1State) >>= shouldBeRejected contractNameMismatch
+  execute net net.sv1.party removal >>= shouldSucceed
 
 test_shouldRejectUpdatingOwnerInfoWithAContractNamedForAnotherOwner = withOnLedgerWeights $ \net -> do
   instruction <- infoUpdateRequestedFor net "sv1"

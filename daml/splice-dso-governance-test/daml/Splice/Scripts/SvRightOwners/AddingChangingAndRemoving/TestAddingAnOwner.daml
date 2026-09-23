@@ -24,20 +24,20 @@ test_shouldStartWithZeroLegacyNodeOperatorWeights = withOnLedgerWeights $ \net -
 test_shouldRefuseAddingAnOwnerWithoutTheDsosAuthority = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
 
-  directly net net.sv1.party (adding newcomer) >>= shouldBeRejected "requires authorizers"
+  exerciseDsoChoice net net.sv1.party (adding newcomer) >>= shouldBeRejected "requires authorizers"
 
 test_shouldRefuseAddingAnOwnerUnderLegacyWeightManagement = withLegacyWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
 
-  directly net net.app.dso (adding newcomer) >>= shouldBeRejected "svRightOwners are tracked on-ledger"
+  exerciseDsoChoice net net.app.dso (adding newcomer) >>= shouldBeRejected "svRightOwners are tracked on-ledger"
 
 test_shouldRefuseAddingAnOwnerWhoseNameIsAlreadyTaken = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
   vote net (adding newcomer) >>= execute net net.sv1.party >>= shouldSucceed
   latecomer <- newSvRightOwner "latecomer" net.sv3
 
-  directly net net.app.dso (adding (latecomer with name = "newcomer")) >>= shouldBeRejected "SV right owner \"newcomer\" does not exist"
-  directly net net.app.dso (adding (latecomer with name = net.genesisOwner.name)) >>= shouldBeRejected "SV right owner \"sv1\" does not exist"
+  exerciseDsoChoice net net.app.dso (adding (latecomer with name = "newcomer")) >>= shouldBeRejected "SV right owner \"newcomer\" does not exist"
+  exerciseDsoChoice net net.app.dso (adding (latecomer with name = net.genesisOwner.name)) >>= shouldBeRejected "SV right owner \"sv1\" does not exist"
 
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
 
@@ -45,7 +45,7 @@ test_shouldRefuseAddingAnOwnerHostedByAnUnknownNodeOperator = withOnLedgerWeight
   let unknownOperator = Operator with name = "no-such-operator"; party = net.sv2.party
   newcomer <- newSvRightOwner "newcomer" unknownOperator
 
-  directly net net.app.dso (adding newcomer) >>= shouldBeRejected "SV right owner's node operator must exist"
+  exerciseDsoChoice net net.app.dso (adding newcomer) >>= shouldBeRejected "SV right owner's node operator must exist"
 
 test_shouldOnlyRecordAnInstructionWhenTheVotePasses = withOnLedgerWeights $ \net -> do
   instruction <- newSvRightOwner "newcomer" net.sv2 >>= vote net . adding
