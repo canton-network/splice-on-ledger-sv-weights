@@ -66,6 +66,16 @@ instance Instruction (ContractId AddSvRightOwnerInstruction) where
   expireChoice svOperator instructionCid =
     void . (`exerciseCmd` DsoRules_ExpireAddSvRightOwnerInstruction with instructionCid; sv = Some svOperator)
 
+instance Instruction (ContractId UpdateSvRightOwnerInfoInstruction) where
+  recordedByVote = instructionRecordedBy
+  executeChoice net svOperator instructionCid = do
+    instruction <- contractPayload net instructionCid
+    svRightOwnerCid <- svRightOwnerCidFor net instruction.name
+    pure $ void . (`exerciseCmd` DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction with
+      instructionCid; svRightOwnerCid; svOperator)
+  expireChoice svOperator instructionCid =
+    void . (`exerciseCmd` DsoRules_ExpireUpdateSvRightOwnerInfoInstruction with instructionCid; svOperator)
+
 instance Instruction Removal where
   recordedByVote net passingVote = do
     instruction <- instructionRecordedBy net passingVote
@@ -124,6 +134,19 @@ exerciseDsoChoice net party proposal = attempt net party proposal.dsoChoice
 
 -- * Migration and info updates
 
+updatingInfo : Text -> Amulet.SvRightOwnerInfo -> Amulet.SvRightOwnerInfo -> Proposal (ContractId UpdateSvRightOwnerInfoInstruction)
+updatingInfo name baseInfo newInfo =
+  let choice = DsoRules_UpdateSvRightOwnerInfo with name; baseInfo; newInfo
+  in Proposal with
+    action = SRARC_UpdateSvRightOwnerInfo choice
+    dsoChoice = void . (`exerciseCmd` choice)
+
+requestInfoUpdate
+  : Network -> Text -> (Amulet.SvRightOwnerInfo -> Amulet.SvRightOwnerInfo) -> Script (ContractId UpdateSvRightOwnerInfoInstruction)
+requestInfoUpdate net name update = do
+  [(_, owner)] <- queryFilter @Amulet.SvRightOwner net.app.dso (\owner -> owner.name == name)
+  vote net $ updatingInfo name owner.info (update owner.info)
+
 migrationRequestedFor
   : Network -> TextMap.TextMap Amulet.SvRightOwnerInfo -> Script (ContractId MigrateToOnLedgerSvRightOwnersInstruction)
 migrationRequestedFor net owners = instructionRecordedBy net $ passVote net $
@@ -139,9 +162,7 @@ migrate net instructionCid rewardStates = do
 infoUpdateRequestedFor : Network -> Text -> Script (ContractId UpdateSvRightOwnerInfoInstruction)
 infoUpdateRequestedFor net name = do
   addOwnerNamed net "sv2"
-  [(_, owner)] <- queryFilter @Amulet.SvRightOwner net.app.dso (\owner -> owner.name == name)
-  instructionRecordedBy net $ passVote net $ SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo with
-    name; baseInfo = owner.info; newInfo = owner.info with rewardWeight = tier2RewardWeight
+  requestInfoUpdate net name (\info -> info with rewardWeight = tier2RewardWeight)
 
 updateInfo : Network -> ContractId UpdateSvRightOwnerInfoInstruction -> Text -> Script Attempt
 updateInfo net instructionCid ownerName = do
@@ -185,6 +206,9 @@ withTwoSvRightOwners test = withOnLedgerWeights $ \net -> do
 addOwnerNamed : Network -> Text -> Script ()
 addOwnerNamed net name = vote net (adding owner) >>= execute net net.sv1.party >>= shouldSucceed
   where owner = SvRightOwner with name; party = net.sv2.party; hostedBy = net.sv2; rewardWeight = tier2RewardWeight; beneficiaries = Map.empty
+
+offboard : Network -> Operator -> Script ()
+offboard net operator = passVote net $ SRARC_OffboardSv DsoRules_OffboardSv with sv = operator.party
 
 -- * Building attempts
 

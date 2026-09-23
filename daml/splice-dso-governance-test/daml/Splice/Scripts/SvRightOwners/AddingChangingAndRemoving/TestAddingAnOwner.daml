@@ -99,16 +99,6 @@ test_shouldRefuseASecondExecutionOfTheInstruction = withOnLedgerWeights $ \net -
 
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
 
-test_shouldRefuseExecutionForAnOwnerWhoseInfoIsInvalid = withOnLedgerWeights $ \net -> do
-  newcomer <- newSvRightOwner "newcomer" net.sv2
-
-  instruction <- vote net (adding (newcomer with rewardWeight = -1))
-
-  execute net net.sv1.party instruction >>= shouldBeRejected "Template precondition violated"
-
-  expectActive net instruction
-  svRightOwners net `shouldReturn` [net.genesisOwner]
-
 test_shouldAddSeveralOwners = withOnLedgerWeights $ \net -> do
   alpha <- newSvRightOwner "alpha" net.sv2
   beta <- newSvRightOwner "beta" net.sv3

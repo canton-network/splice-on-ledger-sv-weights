@@ -1,0 +1,74 @@
+-- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+module Splice.Scripts.SvRightOwners.ModelInvariants.TestInfoValidation where
+
+import qualified DA.Map as Map
+import Splice.Amulet.SvRightOwner (BeneficiaryInfo(..))
+import Splice.Scripts.SvRightOwners.Util.Expect
+import Splice.Scripts.SvRightOwners.Util.Governance
+import Splice.Scripts.SvRightOwners.Util.Network
+
+test_shouldRejectAddingAnOwnerWhoseInfoIsInvalid = withOnLedgerWeights $ \net -> do
+  owner <- newSvRightOwner "invalid-owner" net.sv2
+
+  exerciseDsoChoice net net.app.dso (adding $ owner with rewardWeight = -1)
+    >>= shouldBeRejected "Valid SvRightOwnerInfo"
+  exerciseDsoChoice net net.app.dso (adding $ owner with beneficiaries = Map.fromList [(net.sv3.party, BeneficiaryInfo 1.1)])
+    >>= shouldBeRejected "Valid SvRightOwnerInfo"
+  exerciseDsoChoice net net.app.dso (adding $ owner with beneficiaries = Map.fromList [(owner.party, BeneficiaryInfo 0.25)])
+    >>= shouldBeRejected "Valid SvRightOwnerInfo"
+
+test_shouldRejectAddingAnOwnerHostedByAnUnknownOperator = withOnLedgerWeights $ \net -> do
+  owner <- newSvRightOwner "invalid-owner" net.sv2
+
+  exerciseDsoChoice net net.app.dso (adding $ owner with hostedBy = net.sv2 with name = "unknown-operator")
+    >>= shouldBeRejected "SV right owner's node operator must exist"
+
+test_shouldRejectAnInfoUpdateWhoseInfoIsInvalid = withOnLedgerWeights $ \net -> do
+  let info = svRightOwnerInfo net.genesisOwner
+  openVote net (updatingInfo "sv1" info $ info with rewardWeight = -1)
+    >>= closeVote net net.sv1.party
+    >>= shouldBeRejected "Valid SvRightOwnerInfo"
+  openVote net (updatingInfo "sv1" info $ info with
+    beneficiaries = Map.fromList [(net.sv2.party, BeneficiaryInfo 1.1)])
+    >>= closeVote net net.sv1.party
+    >>= shouldBeRejected "Valid SvRightOwnerInfo"
+  openVote net (updatingInfo "sv1" info $ info with
+    beneficiaries = Map.fromList [(net.sv1.party, BeneficiaryInfo 0.25)])
+    >>= closeVote net net.sv1.party
+    >>= shouldBeRejected "Valid SvRightOwnerInfo"
+
+test_shouldRejectAnInfoUpdateHostedByAnUnknownOperator = withOnLedgerWeights $ \net -> do
+  let info = svRightOwnerInfo net.genesisOwner
+  openVote net (updatingInfo "sv1" info $ info with rewardNodeOperatorName = "unknown-operator")
+    >>= closeVote net net.sv1.party
+    >>= shouldBeRejected "SV right owner's node operator must exist"
+
+test_shouldRejectAddingAnOwnerHostedByAnOffboardedOperator = withOnLedgerWeights $ \net -> do
+  owner <- newSvRightOwner "hosted-sv" net.sv2
+  instruction <- vote net (adding owner)
+
+  offboard net net.sv2
+  execute net net.sv1.party instruction >>= shouldBeRejected "SV right owner's node operator must exist"
+
+test_shouldRejectAnInfoUpdateWhoseMergedBeneficiaryRatiosExceedOne = withOnLedgerWeights $ \net -> do
+  let proposed = Map.fromList [(net.sv2.party, BeneficiaryInfo 0.6)]
+      current = Map.fromList [(net.sv3.party, BeneficiaryInfo 0.6)]
+  instruction <- requestInfoUpdate net "sv1" $ \info -> info with beneficiaries = proposed
+
+  updateOwnBeneficiaries net (net.genesisOwner with beneficiaries = current) >>= shouldSucceed
+  updateInfo net instruction "sv1" >>= shouldBeRejected "Valid SvRightOwnerInfo"
+
+test_shouldRejectAnInfoUpdateWhoseMergedBeneficiariesIncludeItsNewRightOwner = withOnLedgerWeights $ \net -> do
+  let current = Map.fromList [(net.sv2.party, BeneficiaryInfo 0.25)]
+  instruction <- requestInfoUpdate net "sv1" $ \info -> info with rightOwnerParty = net.sv2.party
+
+  updateOwnBeneficiaries net (net.genesisOwner with beneficiaries = current) >>= shouldSucceed
+  updateInfo net instruction "sv1" >>= shouldBeRejected "Valid SvRightOwnerInfo"
+
+test_shouldRejectUpdatingAnOwnersHostingOperatorToAnOffboardedOperator = withOnLedgerWeights $ \net -> do
+  instruction <- requestInfoUpdate net "sv1" $ \info -> info with rewardNodeOperatorName = net.sv2.name
+
+  offboard net net.sv2
+  updateInfo net instruction "sv1" >>= shouldBeRejected "SV right owner's node operator must exist"
