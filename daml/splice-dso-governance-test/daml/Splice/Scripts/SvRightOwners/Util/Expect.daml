@@ -1,0 +1,59 @@
+-- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+-- | Submitting an attempt and asserting its outcome, and assertions on ledger state.
+module Splice.Scripts.SvRightOwners.Util.Expect where
+
+import DA.Action (unless)
+import DA.Assert ((===))
+import DA.Optional (isNone, isSome)
+import DA.Text (isInfixOf)
+
+import Daml.Script
+
+import Splice.Scripts.SvRightOwners.Util.Network
+
+-- * Attempts
+
+-- | A command not yet submitted, and who submits it.
+data Attempt = Attempt with
+    network : Network
+    submittedBy : Party
+    command : Commands ()
+
+shouldSucceed : Attempt -> Script ()
+shouldSucceed (Attempt with network; submittedBy; command) = submitAs network submittedBy command
+
+shouldBeRejected : Text -> Attempt -> Script ()
+shouldBeRejected refusalReason (Attempt with network; submittedBy; command) = do
+  outcome <- trySubmit (actAs submittedBy <> readAs network.app.dso) command
+  case outcome of
+    Right _ -> fail $ "expected a refusal because: " <> refusalReason
+    Left failure -> do
+      let reported = case failure of
+            FailureStatusError status -> status.message
+            other -> show other
+      unless (refusalReason `isInfixOf` reported) $
+        fail $ "expected a refusal because " <> show refusalReason <> ", not: " <> reported
+
+submitAs : Network -> Party -> Commands a -> Script a
+submitAs net party command = submit (actAs party <> readAs net.app.dso) command
+
+contractNameMismatch : Text
+contractNameMismatch = "Contract group identifier mismatch"
+
+-- * Ledger state
+
+shouldReturn : (Eq a, Show a) => Script a -> a -> Script ()
+shouldReturn action expected = action >>= (=== expected)
+infix 4 `shouldReturn`
+
+expectArchived : (Template t, HasEnsure t) => Network -> ContractId t -> Script ()
+expectArchived net cid = do
+  contract <- queryContractId net.app.dso cid
+  unless (isNone contract) (fail "expected the contract to be archived")
+
+expectActive : (Template t, HasEnsure t) => Network -> ContractId t -> Script ()
+expectActive net cid = do
+  contract <- queryContractId net.app.dso cid
+  unless (isSome contract) (fail "expected the contract to still be active")

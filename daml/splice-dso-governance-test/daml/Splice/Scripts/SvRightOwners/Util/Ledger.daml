@@ -1,0 +1,118 @@
+-- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+-- | Reading the ledger state a test acts on or asserts against.
+module Splice.Scripts.SvRightOwners.Util.Ledger where
+
+import DA.List (sort, sortOn)
+import qualified DA.Map as Map
+import qualified DA.Set as Set
+import qualified DA.TextMap as TextMap
+
+import Daml.Script
+
+import qualified Splice.Amulet.SvRightOwner as Amulet
+import Splice.AmuletRules (AmuletRules)
+import Splice.DSO.SvState (RewardState, SvRewardState)
+import Splice.DsoRules (DsoRules)
+
+import qualified Splice.Scripts.DsoTestUtils as DsoTestUtils
+import qualified Splice.Scripts.Util as AmuletScripts
+import Splice.Scripts.SvRightOwners.Util.Network
+
+-- * Contracts
+
+currentDsoRules : Network -> Script (ContractId DsoRules, DsoRules)
+currentDsoRules net = do
+  [dsoRules] <- query @DsoRules net.app.dso
+  pure dsoRules
+
+dsoRules : Network -> Script (ContractId DsoRules)
+dsoRules net = fst <$> currentDsoRules net
+
+amuletRules : Network -> Script (ContractId AmuletRules)
+amuletRules net = do
+  [(amuletRulesCid, _)] <- query @AmuletRules net.app.dso
+  pure amuletRulesCid
+
+svRightOwnerCidFor : Network -> Text -> Script (ContractId Amulet.SvRightOwner)
+svRightOwnerCidFor net name = DsoTestUtils.getSvRightOwnerCid net.app name
+
+svRewardStateCidFor : Network -> Text -> Script (ContractId SvRewardState)
+svRewardStateCidFor net name = DsoTestUtils.getSvRewardStateCid net.app name
+
+contractPayload : (Template t, HasEnsure t) => Network -> ContractId t -> Script t
+contractPayload net cid = do
+  Some contract <- queryContractId net.app.dso cid
+  pure contract
+
+instructionExpiresAt : (Template i, HasEnsure i, HasField "expiresAt" i Time) => Network -> ContractId i -> Script Time
+instructionExpiresAt net instructionCid = (.expiresAt) <$> contractPayload net instructionCid
+
+-- * SV node operators and SV right owners
+
+svNodeOperators : Network -> Script [Operator]
+svNodeOperators net = do
+  (_, dsoRules) <- currentDsoRules net
+  pure $ sortOn (.name)
+    [(Operator with name = svInfo.name; party) | (party, svInfo) <- Map.toList dsoRules.svs]
+
+svLegacyNodeOperatorWeights : Network -> Script [(Operator, Int)]
+svLegacyNodeOperatorWeights net = do
+  (_, dsoRules) <- currentDsoRules net
+  pure $ sortOn ((.name) . fst)
+    [((Operator with name = svInfo.name; party), svInfo.svRewardWeight) | (party, svInfo) <- Map.toList dsoRules.svs]
+
+svRightOwners : Network -> Script [SvRightOwner]
+svRightOwners net = do
+  operators <- svNodeOperators net
+  contracts <- query @Amulet.SvRightOwner net.app.dso
+  forA (sortOn (\(_, contract) -> contract.name) contracts) $ \(_, contract) -> do
+    let hostName = contract.info.rewardNodeOperatorName
+    hostedBy <- case [operator | operator <- operators, operator.name == hostName] of
+      [operator] -> pure operator
+      _ -> fail $ "no SV node operator is named " <> hostName
+    pure SvRightOwner with
+      name = contract.name
+      party = contract.info.rightOwnerParty
+      hostedBy
+      rewardWeight = contract.info.rewardWeight
+      beneficiaries = contract.info.beneficiaries
+
+svRightOwnerNamesInDsoRules : Network -> Script [Text]
+svRightOwnerNamesInDsoRules net = do
+  (_, dsoRules) <- currentDsoRules net
+  case dsoRules.svRightOwners of
+    Some names -> pure (Set.toList names)
+    None -> fail "this network does not track SV right owners on-ledger"
+
+svRightOwnerInfosFromOperators : AmuletScripts.AmuletApp -> Script (TextMap.TextMap Amulet.SvRightOwnerInfo)
+svRightOwnerInfosFromOperators app = do
+  [(_, dsoRules)] <- query @DsoRules app.dso
+  pure $ TextMap.fromList
+    [ (info.name, Amulet.SvRightOwnerInfo with
+        rightOwnerParty = party; rewardWeight = info.svRewardWeight; rewardNodeOperatorName = info.name; beneficiaries = Map.empty)
+    | (party, info) <- Map.toList dsoRules.svs
+    ]
+
+-- * Reward states
+
+svRewardStateNames : Network -> Script [Text]
+svRewardStateNames net = do
+  contracts <- query @SvRewardState net.app.dso
+  pure $ sort [state.svName | (_, state) <- contracts]
+
+rewardStateOf : Network -> SvRightOwner -> Script RewardState
+rewardStateOf net owner = do
+  [(_, contract)] <- queryFilter @SvRewardState net.app.dso (\c -> c.svName == owner.name)
+  pure contract.state
+
+rewardStatesForSvOperators : Network -> Script (TextMap.TextMap (ContractId SvRewardState))
+rewardStatesForSvOperators = DsoTestUtils.getSvOperatorRewardStateCids . (.app)
+
+swapRewardStateNames
+  : Network -> TextMap.TextMap (ContractId SvRewardState) -> Script (TextMap.TextMap (ContractId SvRewardState))
+swapRewardStateNames net rewardStates = do
+  sv1RewardStateCid <- svRewardStateCidFor net "sv1"
+  sv2RewardStateCid <- svRewardStateCidFor net "sv2"
+  pure $ TextMap.insert "sv1" sv2RewardStateCid $ TextMap.insert "sv2" sv1RewardStateCid rewardStates

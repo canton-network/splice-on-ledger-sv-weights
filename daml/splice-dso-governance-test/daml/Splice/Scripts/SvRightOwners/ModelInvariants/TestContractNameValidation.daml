@@ -5,8 +5,10 @@
 module Splice.Scripts.SvRightOwners.ModelInvariants.TestContractNameValidation where
 
 import qualified DA.TextMap as TextMap
-import Splice.Scripts.SvRightOwners.Util.Fixture
+import Splice.Scripts.SvRightOwners.Util.Expect
 import Splice.Scripts.SvRightOwners.Util.Governance
+import Splice.Scripts.SvRightOwners.Util.Ledger
+import Splice.Scripts.SvRightOwners.Util.Network
 import Splice.Scripts.Util (runNextIssuance)
 
 test_shouldRejectMigrationWithAReusedRewardState = withLegacyWeights $ \net -> do

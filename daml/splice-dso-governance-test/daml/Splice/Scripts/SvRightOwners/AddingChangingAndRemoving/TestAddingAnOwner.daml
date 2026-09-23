@@ -9,8 +9,10 @@ import Daml.Script
 
 import Splice.DSO.SvState (RewardState(..))
 
-import Splice.Scripts.SvRightOwners.Util.Fixture
+import Splice.Scripts.SvRightOwners.Util.Expect
 import Splice.Scripts.SvRightOwners.Util.Governance
+import Splice.Scripts.SvRightOwners.Util.Ledger
+import Splice.Scripts.SvRightOwners.Util.Network
 import Splice.Scripts.Util (getOpenRoundsSorted)
 
 test_shouldStartWithFourSvNodeOperatorsAndOneSvRightOwner = withOnLedgerWeights $ \net -> do
