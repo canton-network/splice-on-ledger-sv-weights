@@ -1950,6 +1950,9 @@ template DsoRules with
         requireOnLedgerSvRightOwners this
         requireSvRightOwnerDoesNotExist this name
         requireRewardNodeOperatorExists this info
+        requireValidSvRightOwnerName this.config name
+        requireValidSvRightOwnerInfo info
+        requireRightOwnerPartyIsNotTheDso dso info
         now <- getTime
         instruction <- create AddSvRightOwnerInstruction with
           dso
@@ -2054,6 +2057,7 @@ template DsoRules with
         requireSvRightOwnerExists this name
         requireRewardNodeOperatorExists this newInfo
         requireValidSvRightOwnerInfo newInfo
+        requireRightOwnerPartyIsNotTheDso dso newInfo
         now <- getTime
         instruction <- create UpdateSvRightOwnerInfoInstruction with
           dso
@@ -2079,6 +2083,7 @@ template DsoRules with
         let info = patch instruction.newInfo instruction.baseInfo currentSvRightOwner.info
         requireRewardNodeOperatorExists this info
         requireValidSvRightOwnerInfo info
+        requireRightOwnerPartyIsNotTheDso dso info
         svRightOwner <- create currentSvRightOwner with info
         return DsoRules_ExecuteUpdateSvRightOwnerInfoInstructionResult with svRightOwner
 
@@ -2159,6 +2164,15 @@ requireValidSvRightOwnerInfo : SvRightOwnerInfo -> Update ()
 requireValidSvRightOwnerInfo info =
   require "Valid SvRightOwnerInfo" $ validSvRightOwnerInfo info
 
+requireValidSvRightOwnerName : DsoRulesConfig -> Text -> Update ()
+requireValidSvRightOwnerName config name = do
+  require "SV right owner name is not empty" (name /= "")
+  require "SV right owner name is not too long" (T.length name <= config.maxTextLength)
+
+requireRightOwnerPartyIsNotTheDso : Party -> SvRightOwnerInfo -> Update ()
+requireRightOwnerPartyIsNotTheDso dso info =
+  require "SV right owner party is not the DSO party" (info.rightOwnerParty /= dso)
+
 requireRewardNodeOperatorExists : DsoRules -> SvRightOwnerInfo -> Update ()
 requireRewardNodeOperatorExists this info =
   require "SV right owner's node operator must exist" $
@@ -2168,7 +2182,9 @@ requireMigratableToOnLedgerSvRightOwners : DsoRules -> TextMap SvRightOwnerInfo 
 requireMigratableToOnLedgerSvRightOwners this svRightOwners = do
   requireNoOnLedgerSvRightOwners this
   require "There is at least one SV right owner" (not $ TextMap.null svRightOwners)
+  forA_ (map fst $ TextMap.toList svRightOwners) $ requireValidSvRightOwnerName this.config
   forA_ svRightOwners requireValidSvRightOwnerInfo
+  forA_ svRightOwners $ requireRightOwnerPartyIsNotTheDso this.dso
   require "The total SV reward weight is preserved" $
     sum (fmap (.svRewardWeight) this.svs) == sum (fmap (.rewardWeight) svRightOwners)
   forA_ svRightOwners $ requireRewardNodeOperatorExists this
