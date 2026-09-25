@@ -7,6 +7,7 @@ module Splice.Scripts.SvRightOwners.ModelInvariants.TestContractNameValidation w
 import qualified DA.TextMap as TextMap
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
+import Splice.Scripts.Util (runNextIssuance)
 
 test_shouldRejectMigrationWithAReusedRewardState = withLegacyWeights $ \net -> do
   instruction <- migrationRequestedFor net =<< svRightOwnerInfosFromOperators net.app
@@ -45,6 +46,7 @@ test_shouldRejectUpdatingBeneficiariesUnderAnotherOwnersName = withOnLedgerWeigh
 
 test_shouldRejectRewardCouponWithAnOwnerNamedForAnotherKey = withOnLedgerWeights $ \net -> do
   addOwnerNamed net "sv2"
+  runNextIssuance net.app -- an added owner first collects in latestUsableRound + 1
 
   rewardCoupon net "sv1" "sv2" "sv1" >>= shouldBeRejected contractNameMismatch
   rewardCoupon net "sv2" "sv2" "sv2" >>= shouldSucceed
@@ -57,6 +59,7 @@ test_shouldRejectRewardCouponWithARewardStateNamedForAnotherKey = withOnLedgerWe
 
 test_shouldRejectRewardCouponWithTheWrongMapKey = withOnLedgerWeights $ \net -> do
   addOwnerNamed net "sv2"
+  runNextIssuance net.app -- an added owner first collects in latestUsableRound + 1
 
   rewardCoupon net "sv1" "sv2" "sv2" >>= shouldBeRejected contractNameMismatch
   rewardCoupon net "sv2" "sv2" "sv2" >>= shouldSucceed

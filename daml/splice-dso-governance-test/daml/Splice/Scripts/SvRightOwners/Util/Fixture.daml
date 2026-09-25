@@ -5,7 +5,7 @@ module Splice.Scripts.SvRightOwners.Util.Fixture where
 
 import DA.Action (unless)
 import DA.Assert ((===))
-import DA.List (maximumOn, sortOn)
+import DA.List (sort, sortOn)
 import qualified DA.Map as Map
 import DA.Optional (isNone, isSome)
 import qualified DA.Set as Set
@@ -15,10 +15,9 @@ import qualified DA.TextMap as TextMap
 import Daml.Script
 
 import qualified Splice.Amulet.SvRightOwner as Amulet
-import Splice.AmuletRules (miningRoundTripleCids)
+import Splice.AmuletRules (AmuletRules)
 import Splice.DSO.SvState (RewardState, SvRewardState)
 import Splice.DsoRules (DsoRules)
-import Splice.Types (Round)
 
 import qualified Splice.Scripts.DsoTestUtils as DsoTestUtils
 import qualified Splice.Scripts.Util as AmuletScripts
@@ -64,17 +63,17 @@ shouldSucceed (Attempt with network; submittedBy; command) = do
   _ <- submit (actAs submittedBy <> readAs network.app.dso) command
   pure ()
 
-refusedFor : Network -> Party -> Text -> Commands () -> Script ()
-refusedFor net party expectedReason command = do
+refusedFor : Network -> Party -> Text -> Commands a -> Script ()
+refusedFor net party refusalReason command = do
   outcome <- trySubmit (actAs party <> readAs net.app.dso) command
   case outcome of
-    Right _ -> fail $ "expected a rejection because " <> show expectedReason
+    Right _ -> fail $ "expected a refusal because: " <> refusalReason
     Left failure -> do
-      let reportedReason = case failure of
+      let reported = case failure of
             FailureStatusError status -> status.message
             other -> show other
-      unless (expectedReason `isInfixOf` reportedReason) $
-        fail $ "expected a rejection because " <> show expectedReason <> ", not: " <> reportedReason
+      unless (refusalReason `isInfixOf` reported) $
+        fail $ "expected a refusal because " <> show refusalReason <> ", not: " <> reported
 
 withOnLedgerWeights : (Network -> Script ()) -> Script ()
 withOnLedgerWeights = runOn DsoTestUtils.initMainNetWithSvRightOwners
@@ -151,6 +150,30 @@ currentDsoRules net = do
   [dsoRules] <- query @DsoRules net.app.dso
   pure dsoRules
 
+dsoRules : Network -> Script (ContractId DsoRules)
+dsoRules net = fst <$> currentDsoRules net
+
+amuletRules : Network -> Script (ContractId AmuletRules)
+amuletRules net = do
+  [(amuletRulesCid, _)] <- query @AmuletRules net.app.dso
+  pure amuletRulesCid
+
+svRightOwnerCidFor : Network -> Text -> Script (ContractId Amulet.SvRightOwner)
+svRightOwnerCidFor net name = DsoTestUtils.getSvRightOwnerCid net.app name
+
+svRewardStateCidFor : Network -> Text -> Script (ContractId SvRewardState)
+svRewardStateCidFor net name = DsoTestUtils.getSvRewardStateCid net.app name
+
+svRewardStateNames : Network -> Script [Text]
+svRewardStateNames net = do
+  contracts <- query @SvRewardState net.app.dso
+  pure $ sort [state.svName | (_, state) <- contracts]
+
+contractPayload : (Template t, HasEnsure t) => Network -> ContractId t -> Script t
+contractPayload net cid = do
+  Some contract <- queryContractId net.app.dso cid
+  pure contract
+
 svNodeOperators : Network -> Script [Operator]
 svNodeOperators net = do
   (_, dsoRules) <- currentDsoRules net
@@ -206,14 +229,3 @@ expectActive : (Template t, HasEnsure t) => Network -> ContractId t -> Script ()
 expectActive net cid = do
   contract <- queryContractId net.app.dso cid
   unless (isSome contract) (fail "expected the contract to still be active")
-
-roundANewSvRightOwnerStartsIn : Network -> Script Round
-roundANewSvRightOwnerStartsIn net = do
-  triple <- DsoTestUtils.getOpenMiningRoundTriple net.app
-  rounds <- forA (miningRoundTripleCids triple) $ \cid -> do
-    Some round <- queryContractId net.app.dso cid
-    pure round
-  now <- getTime
-  case [round | round <- rounds, round.opensAt <= now] of
-    [] -> fail "no open mining round has opened yet"
-    alreadyOpen -> pure (maximumOn (.round.number) alreadyOpen).round

@@ -8,10 +8,10 @@ import DA.Time (addRelTime, hours)
 import Daml.Script
 
 import Splice.DSO.SvState (RewardState(..))
-import Splice.Types (Round(..))
 
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
+import Splice.Scripts.Util (getOpenRoundsSorted)
 
 test_shouldStartWithFourSvNodeOperatorsAndOneSvRightOwner = withOnLedgerWeights $ \net -> do
   svNodeOperators net `shouldReturn` [net.sv1, net.sv2, net.sv3, net.sv4]
@@ -65,14 +65,14 @@ test_shouldAddTheOwnerWhenTheInstructionIsExecuted = withOnLedgerWeights $ \net 
       someOtherOperator = net.sv3
   newcomer <- newSvRightOwner "newcomer" host
   instruction <- voteToAdd net newcomer
-  firstRound <- roundANewSvRightOwnerStartsIn net
+  [_, (_, latestUsableRound)] <- getOpenRoundsSorted net.app
 
   execute net someOtherOperator instruction
 
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
 
   rewardStateOf net newcomer `shouldReturn` RewardState with
-    lastRoundCollected = Round (firstRound.number - 1)
+    lastRoundCollected = latestUsableRound.round -- so the first round it can collect is latestUsableRound + 1
     numRoundsCollected = 0
     numRoundsMissed = 0
     numCouponsIssued = 0
