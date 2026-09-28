@@ -371,6 +371,8 @@ data DsoRules_MergeMemberTrafficContractsResult = DsoRules_MergeMemberTrafficCon
 data DsoRules_MergeSvRewardStateResult = DsoRules_MergeSvRewardStateResult with
     svRewardState : ContractId SvRewardState
 
+data DsoRules_PurgeStaleSvRewardStatesResult = DsoRules_PurgeStaleSvRewardStatesResult
+
 data DsoRules_PruneAmuletConfigScheduleResult = DsoRules_PruneAmuletConfigScheduleResult with
     amuletRulesCid : ContractId AmuletRules
 
@@ -1733,6 +1735,22 @@ template DsoRules with
          -- taking the max is the correct merge.
          cid <- create $ maximumOn (\state -> state.state.lastRoundCollected) rewardStates
          pure $ DsoRules_MergeSvRewardStateResult cid
+
+    nonconsuming choice DsoRules_PurgeStaleSvRewardStates : DsoRules_PurgeStaleSvRewardStatesResult
+      -- ^ Archive legacy reward states left behind by SV node operators offboarded before
+      -- migration to on-ledger SV right owners.
+      with
+        offboardedSvRewardStateCids : TextMap (ContractId SvRewardState)
+        sv : Optional Party
+      controller sv
+      do
+        requireOnLedgerSvRightOwners this
+        _ <- getAndValidateSvParty this sv
+        forA_ (TextMap.toList offboardedSvRewardStateCids) $ \(svName, rewardStateCid) -> do
+          require "SvRewardState must belong to an offboarded SV" $
+            any (\info -> info.name == svName) (Map.values offboardedSvs)
+          void $ fetchAndArchive (ForSv with dso; svName) rewardStateCid
+        pure DsoRules_PurgeStaleSvRewardStatesResult
 
     -- __Deprecated__ AmuletConfigSchedule futureValues is not used anymore.
     nonconsuming choice DsoRules_PruneAmuletConfigSchedule : DsoRules_PruneAmuletConfigScheduleResult
