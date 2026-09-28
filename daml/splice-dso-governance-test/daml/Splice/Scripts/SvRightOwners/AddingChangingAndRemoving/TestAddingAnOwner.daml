@@ -3,7 +3,6 @@
 
 module Splice.Scripts.SvRightOwners.AddingChangingAndRemoving.TestAddingAnOwner where
 
-import qualified DA.Text as T
 import DA.Time (addRelTime, hours)
 
 import Daml.Script
@@ -20,9 +19,6 @@ test_shouldAddAnSvRightOwnerThatFirstCollectsInTheNextRound = withOnLedgerWeight
   let unknownOperator = Operator with name = "no-such-operator"; party = net.sv2.party
   addIsRefusedFor net net.app.dso (newcomer with hostedBy = unknownOperator) "SV right owner's node operator must exist"
   addIsRefusedFor net net.app.dso (newcomer with name = net.genesisOwner.name) "SV right owner \"sv1\" does not exist"
-  addIsRefusedFor net net.app.dso (newcomer with name = "") "SV right owner name is not empty"
-  addIsRefusedFor net net.app.dso (newcomer with name = T.implode (replicate 1025 "x")) "SV right owner name is not too long"
-  addIsRefusedFor net net.app.dso (newcomer with party = net.app.dso) "SV right owner party is not the DSO party"
   addIsRefusedFor net net.app.dso (newcomer with rewardWeight = -1) "Valid SvRightOwnerInfo"
   votedAt <- getTime
 

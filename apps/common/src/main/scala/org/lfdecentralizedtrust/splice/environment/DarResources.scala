@@ -4367,7 +4367,7 @@ object DarResources {
   )
   val dsoGovernance_0_1_29 = DarResource(
     "splice-dso-governance-0.1.29.dar",
-    "0c373d853d0377caa650b52b46cb0c583f3cdec20c3fdc20ef36b0521f2764d3",
+    "37117397362313379eda863a0786f4dbad4d14f6dfdc9c3974c9f56dbe0975d8",
     PackageMetadata(
       PackageName.assertFromString("splice-dso-governance"),
       PackageVersion.assertFromString("0.1.29"),
@@ -4431,7 +4431,7 @@ object DarResources {
   )
   val dsoGovernance_current = DarResource(
     "splice-dso-governance-current.dar",
-    "0c373d853d0377caa650b52b46cb0c583f3cdec20c3fdc20ef36b0521f2764d3",
+    "37117397362313379eda863a0786f4dbad4d14f6dfdc9c3974c9f56dbe0975d8",
     PackageMetadata(
       PackageName.assertFromString("splice-dso-governance"),
       PackageVersion.assertFromString("0.1.29"),

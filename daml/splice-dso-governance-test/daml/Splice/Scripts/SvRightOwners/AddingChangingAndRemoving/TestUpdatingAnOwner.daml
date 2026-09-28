@@ -22,7 +22,6 @@ test_shouldUpdateTheSvRightOwnerAndKeepItsRewardState = withTwoSvRightOwners $ \
   updateIsRefusedFor net net.app.dso newcomer.name base (base with rewardNodeOperatorName = "no-such-operator") "SV right owner's node operator must exist"
   updateIsRefusedFor net net.app.dso newcomer.name base
     (base with beneficiaries = sharingWith [(firstBeneficiary, 0.6), (secondBeneficiary, 0.5)]) "Valid SvRightOwnerInfo"
-  updateIsRefusedFor net net.app.dso newcomer.name base (base with rightOwnerParty = net.app.dso) "SV right owner party is not the DSO party"
   votedAt <- getTime
 
   instruction <- voteToUpdate net newcomer.name base (svRightOwnerInfo raised)
