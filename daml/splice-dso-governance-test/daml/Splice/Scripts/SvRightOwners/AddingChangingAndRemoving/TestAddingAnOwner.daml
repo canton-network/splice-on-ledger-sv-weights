@@ -52,9 +52,11 @@ test_shouldExecuteOnlyOneAdditionPerNameAndOnlyBeforeTheDeadline = withOnLedgerW
   firstInstruction <- voteToAdd net newcomer
   secondInstruction <- voteToAdd net newcomer
   latecomerInstruction <- newSvRightOwner "latecomer" net.sv3 >>= voteToAdd net
+  stranger <- allocateParty "stranger"
 
   execute net net.sv1.party firstInstruction >>= shouldSucceed
   execute net net.sv2.party secondInstruction >>= shouldBeRejected "SV right owner \"newcomer\" does not exist"
+  expire net stranger secondInstruction >>= shouldBeRejected "SV party is an actual SV"
   expire net net.sv1.party secondInstruction >>= shouldBeRejected "Ledger time is strictly before deadline 'addSvRightOwnerInstruction.expiresAt'"
 
   instructionExpiresAt net latecomerInstruction >>= setTime

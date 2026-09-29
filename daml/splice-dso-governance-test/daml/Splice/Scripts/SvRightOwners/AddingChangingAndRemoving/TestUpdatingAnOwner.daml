@@ -105,6 +105,52 @@ test_shouldLetAVoteOverrideTheBeneficiariesTheSvRightOwnerSet = withTwoSvRightOw
 
   svRightOwners net `shouldReturn` [votedSplit, net.genesisOwner]
 
+test_shouldLetAnUpdateThatCanNoLongerSucceedOnlyExpireFromTheDeadline = withTwoSvRightOwners $ \net newcomer -> do
+  let genesisBase = svRightOwnerInfo net.genesisOwner
+  raise <- voteToUpdate net newcomer.name (svRightOwnerInfo newcomer) (svRightOwnerInfo (newcomer with rewardWeight = tier1RewardWeight))
+  genesisUpdate <- voteToUpdate net net.genesisOwner.name genesisBase (genesisBase with rewardWeight = tier2RewardWeight)
+  removal <- voteToRemove net newcomer.name
+  removedCid <- svRightOwnerCidFor net newcomer.name
+  stranger <- allocateParty "stranger"
+
+  executeRemoval net net.sv1.party removal >>= shouldSucceed
+  executeUpdateWith net net.sv1.party raise removedCid >>= shouldBeRejected "SV right owner \"newcomer\" exists"
+  expireUpdate net stranger raise >>= shouldBeRejected "SV party is an actual SV"
+  expireUpdate net net.sv1.party raise >>= shouldBeRejected "Ledger time is strictly before deadline 'updateSvRightOwnerInfoInstruction.expiresAt'"
+  instructionExpiresAt net genesisUpdate >>= setTime
+  executeUpdate net net.sv1.party genesisUpdate >>= shouldBeRejected "Ledger time is at or past deadline 'updateSvRightOwnerInfoInstruction.expiresAt'"
+  expireUpdate net net.sv1.party raise >>= shouldSucceed
+  expireUpdate net net.sv1.party genesisUpdate >>= shouldSucceed
+
+  expectArchived net raise
+  expectArchived net genesisUpdate
+  svRightOwners net `shouldReturn` [net.genesisOwner]
+
+test_shouldGovernSvRightOwnersOfTheSameSvNodeOperatorIndependently = withTwoSvRightOwners $ \net newcomer -> do
+  cotenant <- newSvRightOwner "cotenant" net.sv2
+  addSvRightOwner net cotenant
+  successor <- allocateParty "successor"
+  let raised = newcomer with rewardWeight = tier1RewardWeight
+      rotated = cotenant with party = successor
+  raise <- voteToUpdate net newcomer.name (svRightOwnerInfo newcomer) (svRightOwnerInfo raised)
+  rotation <- voteToUpdate net cotenant.name (svRightOwnerInfo cotenant) (svRightOwnerInfo rotated)
+  removal <- voteToRemove net cotenant.name
+
+  executeUpdate net net.sv3.party raise >>= shouldSucceed
+  executeUpdate net net.sv4.party rotation >>= shouldSucceed
+
+  svRightOwners net `shouldReturn` [rotated, raised, net.genesisOwner]
+  newcomerCid <- svRightOwnerCidFor net newcomer.name
+  newcomerState <- svRewardStateCidFor net newcomer.name
+  stateBefore <- rewardStateOf net raised
+  executeRemoval net net.sv1.party removal >>= shouldSucceed
+
+  expectActive net newcomerCid
+  expectActive net newcomerState
+  rewardStateOf net raised `shouldReturn` stateBefore
+  svRightOwners net `shouldReturn` [raised, net.genesisOwner]
+  svRewardStateNames net `shouldReturn` [newcomer.name, net.genesisOwner.name]
+
 test_shouldRefuseUpdatingAnSvRightOwnerUnderLegacyWeightManagement = withLegacyWeights $ \net -> do
   let base = svRightOwnerInfo net.genesisOwner
 
