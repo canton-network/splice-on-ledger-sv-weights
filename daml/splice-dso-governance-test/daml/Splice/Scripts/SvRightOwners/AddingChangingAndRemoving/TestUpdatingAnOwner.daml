@@ -13,7 +13,7 @@ import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
 import Splice.Scripts.Util (runNextIssuance)
 
-test_shouldUpdateTheSvRightOwnerAndKeepItsRewardState = withTwoSvRightOwners $ \net newcomer -> do
+test_shouldUpdateTheSvRightOwnerWeightAndKeepItsRewardState = withTwoSvRightOwners $ \net newcomer -> do
   firstBeneficiary <- allocateParty "first-beneficiary"
   secondBeneficiary <- allocateParty "second-beneficiary"
   let base = svRightOwnerInfo newcomer
