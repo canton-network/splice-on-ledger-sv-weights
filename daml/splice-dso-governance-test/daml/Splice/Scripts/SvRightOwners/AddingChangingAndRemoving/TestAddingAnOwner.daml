@@ -17,9 +17,9 @@ import Splice.Scripts.Util (getOpenRoundsSorted, runNextIssuance)
 test_shouldAddAnSvRightOwnerThatFirstCollectsInTheNextRound = withOnLedgerWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
   let unknownOperator = Operator with name = "no-such-operator"; party = net.sv2.party
-  addIsRefusedFor net net.app.dso (newcomer with hostedBy = unknownOperator) "SV right owner's node operator must exist"
-  addIsRefusedFor net net.app.dso (newcomer with name = net.genesisOwner.name) "SV right owner \"sv1\" does not exist"
-  addIsRefusedFor net net.app.dso (newcomer with rewardWeight = -1) "Valid SvRightOwnerInfo"
+  addAs net net.app.dso (newcomer with hostedBy = unknownOperator) >>= shouldBeRejected "SV right owner's node operator must exist"
+  addAs net net.app.dso (newcomer with name = net.genesisOwner.name) >>= shouldBeRejected "SV right owner \"sv1\" does not exist"
+  addAs net net.app.dso (newcomer with rewardWeight = -1) >>= shouldBeRejected "Valid SvRightOwnerInfo"
   votedAt <- getTime
 
   instruction <- voteToAdd net newcomer
@@ -29,9 +29,9 @@ test_shouldAddAnSvRightOwnerThatFirstCollectsInTheNextRound = withOnLedgerWeight
   svRightOwners net `shouldReturn` [net.genesisOwner]
 
   stranger <- allocateParty "stranger"
-  executeIsRefusedFor net stranger instruction "SV party is an actual SV"
+  execute net stranger instruction >>= shouldBeRejected "SV party is an actual SV"
   [_, (_, latestUsableRound)] <- getOpenRoundsSorted net.app
-  execute net net.sv3 instruction
+  execute net net.sv3.party instruction >>= shouldSucceed
 
   expectArchived net instruction
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
@@ -39,12 +39,12 @@ test_shouldAddAnSvRightOwnerThatFirstCollectsInTheNextRound = withOnLedgerWeight
   rewardStateOf net newcomer `shouldReturn` RewardState with
     lastRoundCollected = latestUsableRound.round; numRoundsCollected = 0; numRoundsMissed = 0; numCouponsIssued = 0
 
-  rewardCoupon net newcomer.name newcomer.name newcomer.name >>= shouldBeRejected "is greater than the last round a reward has been received for"
+  mintThrough net net.sv2 newcomer.name >>= shouldBeRejected "is greater than the last round a reward has been received for"
   runNextIssuance net.app
-  rewardCoupon net newcomer.name newcomer.name newcomer.name >>= shouldSucceed
+  mintThrough net net.sv2 newcomer.name >>= shouldSucceed
 
   unpaid <- (\owner -> owner with rewardWeight = 0) <$> newSvRightOwner "unpaid" net.sv3
-  voteToAdd net unpaid >>= execute net net.sv1
+  addSvRightOwner net unpaid
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner, unpaid]
 
 test_shouldExecuteOnlyOneAdditionPerNameAndOnlyBeforeTheDeadline = withOnLedgerWeights $ \net -> do
@@ -53,13 +53,13 @@ test_shouldExecuteOnlyOneAdditionPerNameAndOnlyBeforeTheDeadline = withOnLedgerW
   secondInstruction <- voteToAdd net newcomer
   latecomerInstruction <- newSvRightOwner "latecomer" net.sv3 >>= voteToAdd net
 
-  execute net net.sv1 firstInstruction
-  executeIsRefusedFor net net.sv2.party secondInstruction "SV right owner \"newcomer\" does not exist"
-  expireIsRefusedFor net net.sv1.party secondInstruction "Ledger time is strictly before deadline 'addSvRightOwnerInstruction.expiresAt'"
+  execute net net.sv1.party firstInstruction >>= shouldSucceed
+  execute net net.sv2.party secondInstruction >>= shouldBeRejected "SV right owner \"newcomer\" does not exist"
+  expire net net.sv1.party secondInstruction >>= shouldBeRejected "Ledger time is strictly before deadline 'addSvRightOwnerInstruction.expiresAt'"
 
   instructionExpiresAt net latecomerInstruction >>= setTime
-  executeIsRefusedFor net net.sv1.party latecomerInstruction "Ledger time is at or past deadline 'addSvRightOwnerInstruction.expiresAt'"
-  expire net net.sv1 secondInstruction
+  execute net net.sv1.party latecomerInstruction >>= shouldBeRejected "Ledger time is at or past deadline 'addSvRightOwnerInstruction.expiresAt'"
+  expire net net.sv1.party secondInstruction >>= shouldSucceed
 
   expectArchived net secondInstruction
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
@@ -67,4 +67,4 @@ test_shouldExecuteOnlyOneAdditionPerNameAndOnlyBeforeTheDeadline = withOnLedgerW
 test_shouldRefuseAddingAnSvRightOwnerUnderLegacyWeightManagement = withLegacyWeights $ \net -> do
   newcomer <- newSvRightOwner "newcomer" net.sv2
 
-  addIsRefusedFor net net.app.dso newcomer "svRightOwners are tracked on-ledger"
+  addAs net net.app.dso newcomer >>= shouldBeRejected "svRightOwners are tracked on-ledger"

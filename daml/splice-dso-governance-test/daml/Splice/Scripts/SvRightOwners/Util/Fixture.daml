@@ -5,6 +5,7 @@ module Splice.Scripts.SvRightOwners.Util.Fixture where
 
 import DA.Action (unless)
 import DA.Assert ((===))
+import DA.Functor (void)
 import DA.List (sort, sortOn)
 import qualified DA.Map as Map
 import DA.Optional (isNone, isSome)
@@ -53,6 +54,11 @@ svParties net = [net.sv1.party, net.sv2.party, net.sv3.party, net.sv4.party]
 
 contractNameMismatch : Text
 contractNameMismatch = "Contract group identifier mismatch"
+
+attempt : Network -> Party -> (ContractId DsoRules -> Commands a) -> Script Attempt
+attempt net submittedBy mkCommand = do
+  dsoRulesCid <- dsoRules net
+  pure Attempt with network = net; submittedBy; command = void (mkCommand dsoRulesCid)
 
 shouldBeRejected : Text -> Attempt -> Script ()
 shouldBeRejected expectedReason (Attempt with network; submittedBy; command) =
