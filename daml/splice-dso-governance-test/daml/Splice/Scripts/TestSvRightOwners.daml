@@ -48,6 +48,68 @@ test_MigrateToOnLedgerSvRightOwners = do
   owners <- query @SvRightOwner dso
   TextMap.fromList [(owner.name, owner.info) | (_, owner) <- owners] === svRightOwners
 
+test_PurgeStaleSvRewardStates : Script ()
+test_PurgeStaleSvRewardStates = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNet
+
+  initiateAndAcceptVote app [sv1, sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_OffboardSv DsoRules_OffboardSv with sv = sv1
+  [(staleSvRewardStateCid, _)] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv1")
+
+  svRightOwners <- svRightOwnerInfosFromOperators app
+  initiateAndAcceptVote app [sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_MigrateToOnLedgerSvRightOwners DsoRules_MigrateToOnLedgerSvRightOwners with
+      svRightOwners
+
+  [(instructionCid, _)] <- query @MigrateToOnLedgerSvRightOwnersInstruction dso
+  openMiningRoundTriple <- getOpenMiningRoundTriple app
+  svOperatorRewardStateCids <- getSvOperatorRewardStateCids app
+  svSubmits app sv2 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstruction with
+      instructionCid
+      openMiningRoundTriple
+      svOperatorRewardStateCids
+      svOperator = sv2
+
+  svSubmits app sv2 $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_PurgeStaleSvRewardStates with
+      offboardedSvRewardStateCids = TextMap.fromList [("sv1", staleSvRewardStateCid)]
+      sv = Some sv2
+
+  [] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv1")
+  checkSvContractInvariants app
+
+test_PurgeStaleSvRewardStatesBeforeMigration : Script ()
+test_PurgeStaleSvRewardStatesBeforeMigration = do
+  (app, dso, (sv1, sv2, sv3, sv4)) <- initMainNet
+
+  initiateAndAcceptVote app [sv2, sv3, sv4] $ ARC_DsoRules with
+    dsoAction = SRARC_OffboardSv DsoRules_OffboardSv with sv = sv1
+  [(staleSvRewardStateCid, _)] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv1")
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+
+  submitMustFail (actAs sv2 <> readAs dso) $
+    exerciseCmd dsoRulesCid DsoRules_PurgeStaleSvRewardStates with
+      offboardedSvRewardStateCids = TextMap.fromList [("sv1", staleSvRewardStateCid)]
+      sv = Some sv2
+
+  [_] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv1")
+  pure()
+
+test_PurgeStaleSvRewardStatesRejectsActiveSv : Script ()
+test_PurgeStaleSvRewardStatesRejectsActiveSv = do
+  (_, dso, (sv1, _, _, _)) <- initMainNetWithSvRightOwners
+  [(activeSvRewardStateCid, _)] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv1")
+  [(dsoRulesCid, _)] <- query @DsoRules dso
+
+  submitMustFail (actAs sv1 <> readAs dso) $
+    exerciseCmd dsoRulesCid DsoRules_PurgeStaleSvRewardStates with
+      offboardedSvRewardStateCids = TextMap.fromList [("sv1", activeSvRewardStateCid)]
+      sv = Some sv1
+
+  [_] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv1")
+  pure()
+
 test_MigrateNonOneToOneSvRightOwners : Script ()
 test_MigrateNonOneToOneSvRightOwners = do
   (app, dso, (sv1, sv2, sv3, sv4)) <-
