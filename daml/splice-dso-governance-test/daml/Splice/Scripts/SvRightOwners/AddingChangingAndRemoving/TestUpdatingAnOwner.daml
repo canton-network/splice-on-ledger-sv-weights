@@ -95,6 +95,7 @@ test_shouldLetAVoteRotateTheSvRightOwnerPartyAndKeepItsRewardState = withTwoSvRi
   svRightOwners net `shouldReturn` [rotated, net.genesisOwner]
   rewardStateOf net rotated `shouldReturn` stateBefore
 
+-- TODO(#61): a vote must not change the beneficiaries the owner set.
 test_shouldLetAVoteOverrideTheBeneficiariesTheSvRightOwnerSet = withTwoSvRightOwners $ \net newcomer -> do
   ownChoice <- allocateParty "own-choice-beneficiary"
   votedIn <- allocateParty "voted-in-beneficiary"
