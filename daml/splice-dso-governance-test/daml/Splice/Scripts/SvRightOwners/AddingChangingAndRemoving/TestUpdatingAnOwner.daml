@@ -18,10 +18,10 @@ test_shouldUpdateTheSvRightOwnerWeightAndKeepItsRewardState = withTwoSvRightOwne
   secondBeneficiary <- allocateParty "second-beneficiary"
   let base = svRightOwnerInfo newcomer
       raised = newcomer with rewardWeight = tier1RewardWeight
-  updateIsRefusedFor net net.app.dso "no-such-owner" base base "SV right owner \"no-such-owner\" exists"
-  updateIsRefusedFor net net.app.dso newcomer.name base (base with rewardNodeOperatorName = "no-such-operator") "SV right owner's node operator must exist"
-  updateIsRefusedFor net net.app.dso newcomer.name base
-    (base with beneficiaries = sharingWith [(firstBeneficiary, 0.6), (secondBeneficiary, 0.5)]) "Valid SvRightOwnerInfo"
+  updateAs net net.app.dso "no-such-owner" base base >>= shouldBeRejected "SV right owner \"no-such-owner\" exists"
+  updateAs net net.app.dso newcomer.name base (base with rewardNodeOperatorName = "no-such-operator") >>= shouldBeRejected "SV right owner's node operator must exist"
+  updateAs net net.app.dso newcomer.name base (base with beneficiaries = sharingWith [(firstBeneficiary, 0.6), (secondBeneficiary, 0.5)])
+    >>= shouldBeRejected "Valid SvRightOwnerInfo"
   votedAt <- getTime
 
   instruction <- voteToUpdate net newcomer.name base (svRightOwnerInfo raised)
@@ -108,4 +108,4 @@ test_shouldLetAVoteOverrideTheBeneficiariesTheSvRightOwnerSet = withTwoSvRightOw
 test_shouldRefuseUpdatingAnSvRightOwnerUnderLegacyWeightManagement = withLegacyWeights $ \net -> do
   let base = svRightOwnerInfo net.genesisOwner
 
-  updateIsRefusedFor net net.app.dso net.genesisOwner.name base base "svRightOwners are tracked on-ledger"
+  updateAs net net.app.dso net.genesisOwner.name base base >>= shouldBeRejected "svRightOwners are tracked on-ledger"

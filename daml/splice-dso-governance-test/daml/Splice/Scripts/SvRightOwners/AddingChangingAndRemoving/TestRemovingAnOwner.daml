@@ -21,13 +21,13 @@ import Splice.Scripts.SvRightOwners.Util.Governance
 import Splice.Scripts.Util (getOpenRoundsSorted)
 
 test_shouldRemoveTheSvRightOwnerButNeverTheLastOne = withOnLedgerWeights $ \net -> do
-  removeIsRefusedFor net net.app.dso net.genesisOwner.name "There is more than one SV right owner"
+  removeAs net net.app.dso net.genesisOwner.name >>= shouldBeRejected "There is more than one SV right owner"
 
   newcomer <- newSvRightOwner "newcomer" net.sv2
   addSvRightOwner net newcomer
-  removeIsRefusedFor net net.app.dso "no-such-owner" "SV right owner \"no-such-owner\" exists"
-  removeIsRefusedFor net net.app.dso "SV1" "SV right owner \"SV1\" exists"
-  removeIsRefusedFor net net.app.dso net.sv2.name "SV right owner \"sv2\" exists"
+  removeAs net net.app.dso "no-such-owner" >>= shouldBeRejected "SV right owner \"no-such-owner\" exists"
+  removeAs net net.app.dso "SV1" >>= shouldBeRejected "SV right owner \"SV1\" exists"
+  removeAs net net.app.dso net.sv2.name >>= shouldBeRejected "SV right owner \"sv2\" exists"
   votedAt <- getTime
 
   genesisRemoval <- voteToRemove net net.genesisOwner.name
@@ -129,4 +129,4 @@ test_shouldExpireAnUnexecutedInstructionOnlyFromTheDeadline = withTwoSvRightOwne
   svRewardStateNames net `shouldReturn` [newcomer.name, net.genesisOwner.name]
 
 test_shouldRefuseRemovingAnSvRightOwnerUnderLegacyWeightManagement = withLegacyWeights $ \net ->
-  removeIsRefusedFor net net.app.dso net.genesisOwner.name "svRightOwners are tracked on-ledger"
+  removeAs net net.app.dso net.genesisOwner.name >>= shouldBeRejected "svRightOwners are tracked on-ledger"

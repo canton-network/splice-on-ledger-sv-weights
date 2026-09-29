@@ -40,13 +40,11 @@ instructionExpiresAt net instructionCid = do
   Some instruction <- queryContractId net.app.dso instructionCid
   pure instruction.expiresAt
 
-addIsRefusedFor : Network -> Party -> SvRightOwner -> Text -> Script ()
-addIsRefusedFor net party owner refusalReason =
-  attempt net party (\dsoRulesCid -> exerciseCmd dsoRulesCid (addChoiceFor owner)) >>= shouldBeRejected refusalReason
+addAs : Network -> Party -> SvRightOwner -> Script Attempt
+addAs net party owner = attempt net party $ \dsoRulesCid -> exerciseCmd dsoRulesCid (addChoiceFor owner)
 
-removeIsRefusedFor : Network -> Party -> Text -> Text -> Script ()
-removeIsRefusedFor net party name refusalReason =
-  attempt net party (\dsoRulesCid -> exerciseCmd dsoRulesCid DsoRules_RemoveSvRightOwner with name) >>= shouldBeRejected refusalReason
+removeAs : Network -> Party -> Text -> Script Attempt
+removeAs net party name = attempt net party $ \dsoRulesCid -> exerciseCmd dsoRulesCid DsoRules_RemoveSvRightOwner with name
 
 voteToRemove : Network -> Text -> Script (ContractId RemoveSvRightOwnerInstruction)
 voteToRemove net name = instructionRecordedBy net $ passVote net $
@@ -71,10 +69,9 @@ voteToUpdate : Network -> Text -> Amulet.SvRightOwnerInfo -> Amulet.SvRightOwner
 voteToUpdate net name baseInfo newInfo = instructionRecordedBy net $ passVote net $
   SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo with name; baseInfo; newInfo
 
-updateIsRefusedFor : Network -> Party -> Text -> Amulet.SvRightOwnerInfo -> Amulet.SvRightOwnerInfo -> Text -> Script ()
-updateIsRefusedFor net party name baseInfo newInfo refusalReason =
-  attempt net party (\dsoRulesCid -> exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerInfo with name; baseInfo; newInfo)
-    >>= shouldBeRejected refusalReason
+updateAs : Network -> Party -> Text -> Amulet.SvRightOwnerInfo -> Amulet.SvRightOwnerInfo -> Script Attempt
+updateAs net party name baseInfo newInfo = attempt net party $ \dsoRulesCid ->
+  exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerInfo with name; baseInfo; newInfo
 
 executeUpdate : Network -> Party -> ContractId UpdateSvRightOwnerInfoInstruction -> Script Attempt
 executeUpdate net svOperator instructionCid = do
