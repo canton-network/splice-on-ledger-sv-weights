@@ -8,6 +8,7 @@ import DA.Assert ((===))
 import DA.Functor (void)
 import DA.List (sort, sortOn)
 import qualified DA.Map as Map
+import qualified DA.NonEmpty as NonEmpty
 import DA.Optional (isNone, isSome)
 import qualified DA.Set as Set
 import DA.Text (isInfixOf)
@@ -69,9 +70,34 @@ shouldSucceed (Attempt with network; submittedBy; command) = do
   _ <- submit (actAs submittedBy <> readAs network.app.dso) command
   pure ()
 
+shouldSucceedDisclosing : [Disclosure] -> Attempt -> Script ()
+shouldSucceedDisclosing disclosures (Attempt with submittedBy; command) = submit (actAs submittedBy <> discloseMany disclosures) command
+
+shouldBeRejectedDisclosing : [Disclosure] -> Text -> Attempt -> Script ()
+shouldBeRejectedDisclosing disclosures expectedReason (Attempt with submittedBy; command) =
+  refusedWith (actAs submittedBy <> discloseMany disclosures) expectedReason command
+
+shouldNotFindDisclosing : [Disclosure] -> ContractId t -> Attempt -> Script ()
+shouldNotFindDisclosing disclosures cid (Attempt with submittedBy; command) =
+  notFoundWith (actAs submittedBy <> discloseMany disclosures) cid command
+
+disclosureOf : (Template t, HasEnsure t) => Network -> ContractId t -> Script Disclosure
+disclosureOf net cid = do
+  Some disclosure <- queryDisclosure net.app.dso cid
+  pure disclosure
+
+servedByScan : Network -> Text -> Script [Disclosure]
+servedByScan net name = do
+  dsoRulesDisclosure <- dsoRules net >>= disclosureOf net
+  ownerDisclosure <- svRightOwnerCidFor net name >>= disclosureOf net
+  pure [dsoRulesDisclosure, ownerDisclosure]
+
 refusedFor : Network -> Party -> Text -> Commands a -> Script ()
-refusedFor net party refusalReason command = do
-  outcome <- trySubmit (actAs party <> readAs net.app.dso) command
+refusedFor net party = refusedWith (actAs party <> readAs net.app.dso)
+
+refusedWith : SubmitOptions -> Text -> Commands a -> Script ()
+refusedWith options refusalReason command = do
+  outcome <- trySubmit options command
   case outcome of
     Right _ -> fail $ "expected a refusal because: " <> refusalReason
     Left failure -> do
@@ -80,6 +106,14 @@ refusedFor net party refusalReason command = do
             other -> show other
       unless (refusalReason `isInfixOf` reported) $
         fail $ "expected a refusal because " <> show refusalReason <> ", not: " <> reported
+
+notFoundWith : SubmitOptions -> ContractId t -> Commands a -> Script ()
+notFoundWith options cid command = do
+  outcome <- trySubmit options command
+  case outcome of
+    Left (ContractNotFound with unknownContractIds) | show cid `elem` NonEmpty.toList unknownContractIds -> pure ()
+    Left failure -> fail $ "expected the ledger not to find " <> show cid <> ", not: " <> show failure
+    Right _ -> fail $ "expected the ledger not to find " <> show cid
 
 withOnLedgerWeights : (Network -> Script ()) -> Script ()
 withOnLedgerWeights = runOn DsoTestUtils.initMainNetWithSvRightOwners

@@ -16,6 +16,7 @@ import Splice.DsoRules
 import qualified Splice.Scripts.DsoTestUtils as DsoTestUtils
 import qualified Splice.Scripts.Util as AmuletScripts
 import Splice.Scripts.SvRightOwners.Util.Fixture
+import Splice.Scripts.SvRightOwners.Util.Rewards (mint, mintWith)
 
 addChoiceFor : SvRightOwner -> DsoRules_AddSvRightOwner
 addChoiceFor owner = DsoRules_AddSvRightOwner with
@@ -87,22 +88,22 @@ expireUpdate net svOperator instructionCid = attempt net svOperator $ \dsoRulesC
   exerciseCmd dsoRulesCid DsoRules_ExpireUpdateSvRightOwnerInfoInstruction with instructionCid; svOperator
 
 setBeneficiaries : Network -> SvRightOwner -> Map.Map Party Amulet.BeneficiaryInfo -> Script ()
-setBeneficiaries net owner beneficiaries = do
-  svRightOwnerCid <- svRightOwnerCidFor net owner.name
-  attempt net owner.party (\dsoRulesCid -> exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerBeneficiaries with
-    name = owner.name; svRightOwnerCid; beneficiaries; rightOwner = owner.party) >>= shouldSucceed
+setBeneficiaries net owner beneficiaries = setBeneficiariesAs net owner.party owner beneficiaries >>= shouldSucceed
+
+setBeneficiariesAs : Network -> Party -> SvRightOwner -> Map.Map Party Amulet.BeneficiaryInfo -> Script Attempt
+setBeneficiariesAs net submitter owner beneficiaries = svRightOwnerCidFor net owner.name >>= setBeneficiariesWith net submitter owner.name beneficiaries
+
+setBeneficiariesWith : Network -> Party -> Text -> Map.Map Party Amulet.BeneficiaryInfo -> ContractId Amulet.SvRightOwner -> Script Attempt
+setBeneficiariesWith net submitter name beneficiaries svRightOwnerCid = attempt net submitter $ \dsoRulesCid ->
+  exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerBeneficiaries with name; svRightOwnerCid; beneficiaries; rightOwner = submitter
 
 offboardSvNodeOperator : Network -> Operator -> Script ()
 offboardSvNodeOperator net operator = passVote net $ SRARC_OffboardSv DsoRules_OffboardSv with sv = operator.party
 
 mintThrough : Network -> Operator -> Text -> Script Attempt
 mintThrough net operator name = do
-  (openRoundCid, openRound) <- last <$> AmuletScripts.getOpenRoundsSorted net.app
-  setTime openRound.opensAt
-  svRightOwnerCid <- svRightOwnerCidFor net name
-  svRewardStateCid <- svRewardStateCidFor net name
-  attempt net operator.party $ \dsoRulesCid -> exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCouponV2 with
-    svOperator = operator.party; openRoundCid; svRightOwnerRewardInputs = TextMap.fromList [(name, (svRightOwnerCid, svRewardStateCid))]
+  (openRoundCid, _) <- last <$> AmuletScripts.getOpenRoundsSorted net.app
+  mint net operator.party openRoundCid [name]
 
 passVote : Network -> DsoRules_ActionRequiringConfirmation -> Script ()
 passVote net dsoAction = DsoTestUtils.initiateAndAcceptVote net.app (svParties net) ARC_DsoRules with dsoAction
@@ -160,21 +161,16 @@ updateInfo : Network -> ContractId UpdateSvRightOwnerInfoInstruction -> Text -> 
 updateInfo net instructionCid ownerName = svRightOwnerCidFor net ownerName >>= executeUpdateWith net net.sv1.party instructionCid
 
 updateBeneficiaries : Network -> Text -> Text -> Script Attempt
-updateBeneficiaries net name ownerName = do
-  svRightOwnerCid <- svRightOwnerCidFor net ownerName
-  attempt net net.sv2.party $ \dsoRulesCid -> exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerBeneficiaries with
-    name; svRightOwnerCid; beneficiaries = Map.empty; rightOwner = net.sv2.party
+updateBeneficiaries net name ownerName = svRightOwnerCidFor net ownerName >>= setBeneficiariesWith net net.sv2.party name Map.empty
 
 rewardCoupon : Network -> Text -> Text -> Text -> Script Attempt
 rewardCoupon net mapKey ownerName rewardStateName = do
-  (openRoundCid, openRound) <- last <$> AmuletScripts.getOpenRoundsSorted net.app
-  setTime openRound.opensAt
+  (openRoundCid, _) <- last <$> AmuletScripts.getOpenRoundsSorted net.app
   [(svRightOwnerCid, owner)] <- queryFilter @Amulet.SvRightOwner net.app.dso (\owner -> owner.name == ownerName)
   svRewardStateCid <- svRewardStateCidFor net rewardStateName
   (_, dsoRules) <- currentDsoRules net
   [svOperator] <- pure [party | (party, info) <- Map.toList dsoRules.svs, info.name == owner.info.rewardNodeOperatorName]
-  attempt net svOperator $ \dsoRulesCid -> exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCouponV2 with
-    svOperator; openRoundCid; svRightOwnerRewardInputs = TextMap.fromList [(mapKey, (svRightOwnerCid, svRewardStateCid))]
+  mintWith net svOperator openRoundCid $ TextMap.fromList [(mapKey, (svRightOwnerCid, svRewardStateCid))]
 
 addOwnerNamed : Network -> Text -> Script ()
 addOwnerNamed net name = addSvRightOwner net SvRightOwner with
