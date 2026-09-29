@@ -113,6 +113,9 @@ newSvRightOwner name hostedBy = do
   pure SvRightOwner with
     name; party; hostedBy; rewardWeight = tier2RewardWeight; beneficiaries = Map.empty
 
+sharingWith : [(Party, Decimal)] -> Map.Map Party Amulet.BeneficiaryInfo
+sharingWith shares = Map.fromList [(party, Amulet.BeneficiaryInfo with rewardRatio) | (party, rewardRatio) <- shares]
+
 svRightOwnerInfo : SvRightOwner -> Amulet.SvRightOwnerInfo
 svRightOwnerInfo owner = Amulet.SvRightOwnerInfo with
   rightOwnerParty = owner.party
@@ -179,14 +182,6 @@ svNodeOperators net = do
   (_, dsoRules) <- currentDsoRules net
   pure $ sortOn (.name)
     [(Operator with name = svInfo.name; party) | (party, svInfo) <- Map.toList dsoRules.svs]
-
-svLegacyNodeOperatorWeights : Network -> Script [(Operator, Int)]
-svLegacyNodeOperatorWeights net = do
-  operators <- svNodeOperators net
-  (_, dsoRules) <- currentDsoRules net
-  forA operators $ \operator -> case Map.lookup operator.party dsoRules.svs of
-    Some svInfo -> pure (operator, svInfo.svRewardWeight)
-    None -> fail $ "no SV node operator is named " <> operator.name
 
 svRightOwners : Network -> Script [SvRightOwner]
 svRightOwners net = do

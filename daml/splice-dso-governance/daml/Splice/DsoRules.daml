@@ -1968,6 +1968,7 @@ template DsoRules with
         requireOnLedgerSvRightOwners this
         requireSvRightOwnerDoesNotExist this name
         requireRewardNodeOperatorExists this info
+        requireValidSvRightOwnerInfo info
         now <- getTime
         instruction <- create AddSvRightOwnerInstruction with
           dso
