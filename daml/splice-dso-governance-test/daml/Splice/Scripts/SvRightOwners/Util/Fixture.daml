@@ -157,8 +157,8 @@ newSvRightOwner name hostedBy = do
   pure SvRightOwner with
     name; party; hostedBy; rewardWeight = tier2RewardWeight; beneficiaries = Map.empty
 
-newSvNodeOperator : Network -> Text -> Script Operator
-newSvNodeOperator _ name = do
+newSvNodeOperator : Text -> Script Operator
+newSvNodeOperator name = do
   party <- allocateParty (name <> "-party")
   pure Operator with name; party
 

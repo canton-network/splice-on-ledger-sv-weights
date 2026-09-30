@@ -7,15 +7,15 @@ import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
 
 test_shouldRejectAddingAnSvNodeOperatorWhoseNameIsAlreadyTaken = withOnLedgerWeights $ \net -> do
-  duplicate <- newSvNodeOperator net net.sv2.name
-  newcomer <- newSvNodeOperator net "new-operator"
+  duplicate <- newSvNodeOperator net.sv2.name
+  newcomer <- newSvNodeOperator "new-operator"
 
   onboard net duplicate >>= shouldBeRejected "SV is not currently onboarded"
   onboard net newcomer >>= shouldSucceed
 
 test_shouldPreserveTheRightOwnersRewardStateWhenAddingAnSvNodeOperatorWithItsName = withOnLedgerWeights $ \net -> do
   owner <- newSvRightOwner "hosted-sv" net.sv1
-  operator <- newSvNodeOperator net owner.name
+  operator <- newSvNodeOperator owner.name
   instruction <- voteToAdd net owner
 
   execute net net.sv1.party instruction >>= shouldSucceed
