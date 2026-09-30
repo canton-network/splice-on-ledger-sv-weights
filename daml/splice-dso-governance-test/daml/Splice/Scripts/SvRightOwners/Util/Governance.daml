@@ -83,6 +83,13 @@ executeUpdateWith : Network -> Party -> ContractId UpdateSvRightOwnerInfoInstruc
 executeUpdateWith net svOperator instructionCid svRightOwnerCid = attempt net svOperator $ \dsoRulesCid ->
   exerciseCmd dsoRulesCid DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction with instructionCid; svRightOwnerCid; svOperator
 
+updateRightOwnerWeight : Network -> SvRightOwner -> Int -> Script ()
+updateRightOwnerWeight net owner weight = do
+  ownerCid <- svRightOwnerCidFor net owner.name
+  current <- contractPayload net ownerCid
+  instruction <- voteToUpdate net owner.name current.info (current.info with rewardWeight = weight)
+  executeUpdate net net.sv1.party instruction >>= shouldSucceed
+
 expireUpdate : Network -> Party -> ContractId UpdateSvRightOwnerInfoInstruction -> Script Attempt
 expireUpdate net svOperator instructionCid = attempt net svOperator $ \dsoRulesCid ->
   exerciseCmd dsoRulesCid DsoRules_ExpireUpdateSvRightOwnerInfoInstruction with instructionCid; svOperator

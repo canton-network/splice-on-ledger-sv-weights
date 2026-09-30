@@ -19,7 +19,8 @@ import Daml.Script
 import qualified Splice.Amulet.SvRightOwner as Amulet
 import Splice.AmuletRules (AmuletRules)
 import Splice.DSO.SvState (RewardState, SvRewardState)
-import Splice.DsoRules (DsoRules)
+import Splice.DsoRules (DsoRules, DsoRules_AddSv(..))
+import Splice.Types (Round(..))
 
 import qualified Splice.Scripts.DsoTestUtils as DsoTestUtils
 import qualified Splice.Scripts.Util as AmuletScripts
@@ -156,6 +157,20 @@ newSvRightOwner name hostedBy = do
   pure SvRightOwner with
     name; party; hostedBy; rewardWeight = tier2RewardWeight; beneficiaries = Map.empty
 
+newSvNodeOperator : Network -> Text -> Script Operator
+newSvNodeOperator _ name = do
+  party <- allocateParty (name <> "-party")
+  pure Operator with name; party
+
+onboard : Network -> Operator -> Script Attempt
+onboard net operator = attempt net net.app.dso $ \dsoRulesCid ->
+  exerciseCmd dsoRulesCid DsoRules_AddSv with
+    newSvParty = operator.party
+    newSvName = operator.name
+    newSvRewardWeight = 0
+    newSvParticipantId = operator.name <> "-participant-id"
+    joinedAsOfRound = Round 0
+
 sharingWith : [(Party, Decimal)] -> Map.Map Party Amulet.BeneficiaryInfo
 sharingWith shares = Map.fromList [(party, Amulet.BeneficiaryInfo with rewardRatio) | (party, rewardRatio) <- shares]
 
@@ -241,6 +256,9 @@ svRightOwners net = do
       hostedBy
       rewardWeight = contract.info.rewardWeight
       beneficiaries = contract.info.beneficiaries
+
+totalSvRightOwnerWeight : Network -> Script Int
+totalSvRightOwnerWeight net = sum . map (.rewardWeight) <$> svRightOwners net
 
 svRightOwnerNamesInDsoRules : Network -> Script [Text]
 svRightOwnerNamesInDsoRules net = do
