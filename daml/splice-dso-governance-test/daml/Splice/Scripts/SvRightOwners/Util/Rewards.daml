@@ -3,18 +3,22 @@
 
 module Splice.Scripts.SvRightOwners.Util.Rewards where
 
+import DA.Functor (void)
 import DA.List (sort)
+import qualified DA.Map as Map
 import qualified DA.TextMap as TextMap
 
 import Daml.Script
 
 import Splice.Amulet (SvRewardCoupon(..))
 import qualified Splice.Amulet.SvRightOwner as Amulet
+import Splice.AmuletRules
 import Splice.DSO.SvState (SvRewardState)
 import Splice.DsoRules
-import Splice.Round (OpenMiningRound)
+import Splice.Round (IssuingMiningRound(..), OpenMiningRound)
 import Splice.Types (Round)
 
+import qualified Splice.Scripts.Util as AmuletScripts
 import Splice.Scripts.SvRightOwners.Util.Fixture
 
 mint : Network -> Party -> ContractId OpenMiningRound -> [Text] -> Script Attempt
@@ -30,7 +34,58 @@ mintWith : Network -> Party -> ContractId OpenMiningRound -> TextMap.TextMap (Co
 mintWith net svOperator openRoundCid svRightOwnerRewardInputs = attempt net svOperator $ \dsoRulesCid ->
   exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCouponV2 with svOperator; openRoundCid; svRightOwnerRewardInputs
 
+mintLegacy : Network -> Party -> ContractId OpenMiningRound -> Text -> Script Attempt
+mintLegacy net sv openRoundCid name = do
+  rewardStateCid <- svRewardStateCidFor net name
+  attempt net sv $ \dsoRulesCid -> exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCoupon with
+    sv; openRoundCid; rewardStateCid; beneficiaries = []
+
+mergeRewardStates : Network -> Party -> Text -> [ContractId SvRewardState] -> Script Attempt
+mergeRewardStates net sv svName rewardStateCids = attempt net sv $ \dsoRulesCid ->
+  exerciseCmd dsoRulesCid DsoRules_MergeSvRewardState with svName; rewardStateCids; sv = Some sv
+
 couponsMintedFor : Network -> SvRightOwner -> Round -> Script [(Party, Int)]
 couponsMintedFor net owner round = do
   coupons <- queryFilter @SvRewardCoupon net.app.dso (\coupon -> coupon.sv == owner.party && coupon.round == round)
   pure $ sort [(coupon.beneficiary, coupon.weight) | (_, coupon) <- coupons]
+
+couponOf : Network -> SvRightOwner -> Party -> Round -> Script (ContractId SvRewardCoupon)
+couponOf net owner beneficiary round = do
+  [(couponCid, _)] <- queryFilter @SvRewardCoupon net.app.dso
+    (\coupon -> coupon.sv == owner.party && coupon.beneficiary == beneficiary && coupon.round == round)
+  pure couponCid
+
+issuancePerSvRewardCoupon : Network -> Round -> Script Decimal
+issuancePerSvRewardCoupon net round = do
+  [(_, issuingRound)] <- queryFilter @IssuingMiningRound net.app.dso (\issuing -> issuing.round == round)
+  pure issuingRound.issuancePerSvRewardCoupon
+
+claim : Network -> Party -> ContractId SvRewardCoupon -> Script Attempt
+claim net claimer couponCid = do
+  context <- claimContext net claimer
+  pure Attempt with network = net; submittedBy = claimer; command = void (claimWith net claimer context couponCid)
+
+claimedAmount : Network -> Party -> ContractId SvRewardCoupon -> Script Decimal
+claimedAmount net claimer couponCid = do
+  context <- claimContext net claimer
+  disclosures <- sequence $
+    disclosureOf net context.amuletRules :: disclosureOf net context.context.openMiningRound ::
+    map (disclosureOf net) (Map.values context.context.issuingMiningRounds)
+  result <- submit (actAs claimer <> discloseMany disclosures) (claimWith net claimer context couponCid)
+  pure result.summary.inputSvRewardAmount
+
+claimContext : Network -> Party -> Script PaymentTransferContext
+claimContext net claimer = do
+  userId <- validateUserId "sv-reward-claimer"
+  AmuletScripts.getPaymentTransferContext net.app (AmuletScripts.AmuletUser with userId; primaryParty = claimer)
+
+claimWith : Network -> Party -> PaymentTransferContext -> ContractId SvRewardCoupon -> Commands TransferResult
+claimWith net claimer context couponCid = exerciseCmd context.amuletRules AmuletRules_Transfer with
+  transfer = Transfer with
+    sender = claimer
+    provider = claimer
+    inputs = [InputSvRewardCoupon couponCid]
+    outputs = []
+    beneficiaries = None
+  context = context.context
+  expectedDso = Some net.app.dso

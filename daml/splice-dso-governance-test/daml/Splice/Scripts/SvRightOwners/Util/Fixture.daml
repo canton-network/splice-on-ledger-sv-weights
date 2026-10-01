@@ -77,6 +77,9 @@ shouldBeRejectedDisclosing : [Disclosure] -> Text -> Attempt -> Script ()
 shouldBeRejectedDisclosing disclosures expectedReason (Attempt with submittedBy; command) =
   refusedWith (actAs submittedBy <> discloseMany disclosures) expectedReason command
 
+shouldNotFind : ContractId t -> Attempt -> Script ()
+shouldNotFind cid (Attempt with network; submittedBy; command) = notFoundWith (actAs submittedBy <> readAs network.app.dso) cid command
+
 shouldNotFindDisclosing : [Disclosure] -> ContractId t -> Attempt -> Script ()
 shouldNotFindDisclosing disclosures cid (Attempt with submittedBy; command) =
   notFoundWith (actAs submittedBy <> discloseMany disclosures) cid command
