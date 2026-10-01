@@ -1,0 +1,36 @@
+-- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+module Splice.Scripts.SvRightOwners.Migration.TestRewardStateCarryover where
+
+import qualified DA.TextMap as TextMap
+
+import Splice.Scripts.SvRightOwners.Util.Fixture
+import Splice.Scripts.SvRightOwners.Util.Governance
+
+test_shouldReuseTheLegacyRewardStateForAnOwnerWithTheSameName = withLegacyWeights $ \net -> do
+  rewardState <- svRewardStateCidFor net "sv1"
+  migrateDefault net
+
+  svRewardStateCidFor net "sv1" `shouldReturn` rewardState
+
+test_shouldArchiveTheLegacyRewardStateForAnOperatorThatDoesNotContinue = withLegacyWeights $ \net -> do
+  owners <- svRightOwnerInfosFromOperators net.app
+  sv2RewardState <- svRewardStateCidFor net "sv2"
+  Some sv2 <- pure $ TextMap.lookup "sv2" owners
+  instruction <- migrationRequestedFor net $ TextMap.insert "sv2-owner" sv2 $ TextMap.delete "sv2" owners
+  rewardStates <- rewardStatesForSvOperators net
+
+  migrate net instruction rewardStates >>= shouldSucceed
+
+  expectArchived net sv2RewardState
+
+test_shouldLeaveNoOrphanedRewardStateAfterMigration = withLegacyWeights $ \net -> do
+  owners <- svRightOwnerInfosFromOperators net.app
+  Some sv2 <- pure $ TextMap.lookup "sv2" owners
+  instruction <- migrationRequestedFor net $ TextMap.insert "sv2-owner" sv2 $ TextMap.delete "sv2" owners
+  rewardStates <- rewardStatesForSvOperators net
+
+  migrate net instruction rewardStates >>= shouldSucceed
+
+  svRewardStateNames net `shouldReturn` ["sv1", "sv2-owner", "sv3", "sv4"]
