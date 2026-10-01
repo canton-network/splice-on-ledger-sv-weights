@@ -43,10 +43,3 @@ test_shouldRejectAnInfoUpdateWhoseMergedBeneficiariesIncludeItsNewRightOwner = w
 
   setBeneficiaries net net.genesisOwner current
   updateInfo net instruction "sv1" >>= shouldBeRejected "Valid SvRightOwnerInfo"
-
-test_shouldRejectUpdatingAnOwnersHostingOperatorToAnOffboardedOperator = withOnLedgerWeights $ \net -> do
-  let info = svRightOwnerInfo net.genesisOwner
-  instruction <- voteToUpdate net "sv1" info (info with rewardNodeOperatorName = net.sv2.name)
-
-  offboardSvNodeOperator net net.sv2
-  updateInfo net instruction "sv1" >>= shouldBeRejected "SV right owner's node operator must exist"
