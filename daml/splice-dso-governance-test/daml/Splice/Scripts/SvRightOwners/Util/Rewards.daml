@@ -1,0 +1,36 @@
+-- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+module Splice.Scripts.SvRightOwners.Util.Rewards where
+
+import DA.List (sort)
+import qualified DA.TextMap as TextMap
+
+import Daml.Script
+
+import Splice.Amulet (SvRewardCoupon(..))
+import qualified Splice.Amulet.SvRightOwner as Amulet
+import Splice.DSO.SvState (SvRewardState)
+import Splice.DsoRules
+import Splice.Round (OpenMiningRound)
+import Splice.Types (Round)
+
+import Splice.Scripts.SvRightOwners.Util.Fixture
+
+mint : Network -> Party -> ContractId OpenMiningRound -> [Text] -> Script Attempt
+mint net svOperator openRoundCid names = rewardInputsFor net names >>= mintWith net svOperator openRoundCid
+
+rewardInputsFor : Network -> [Text] -> Script (TextMap.TextMap (ContractId Amulet.SvRightOwner, ContractId SvRewardState))
+rewardInputsFor net names = TextMap.fromList <$> forA names (\name -> do
+  svRightOwnerCid <- svRightOwnerCidFor net name
+  svRewardStateCid <- svRewardStateCidFor net name
+  pure (name, (svRightOwnerCid, svRewardStateCid)))
+
+mintWith : Network -> Party -> ContractId OpenMiningRound -> TextMap.TextMap (ContractId Amulet.SvRightOwner, ContractId SvRewardState) -> Script Attempt
+mintWith net svOperator openRoundCid svRightOwnerRewardInputs = attempt net svOperator $ \dsoRulesCid ->
+  exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCouponV2 with svOperator; openRoundCid; svRightOwnerRewardInputs
+
+couponsMintedFor : Network -> SvRightOwner -> Round -> Script [(Party, Int)]
+couponsMintedFor net owner round = do
+  coupons <- queryFilter @SvRewardCoupon net.app.dso (\coupon -> coupon.sv == owner.party && coupon.round == round)
+  pure $ sort [(coupon.beneficiary, coupon.weight) | (_, coupon) <- coupons]
