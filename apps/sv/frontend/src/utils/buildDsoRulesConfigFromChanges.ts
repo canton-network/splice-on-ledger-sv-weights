@@ -53,6 +53,7 @@ export function buildDsoRulesConfigFromChanges(dsoConfigChanges: ConfigChange[])
     true
   );
   const voteCooldownTime = getValue('voteCooldownTime', true);
+  const svRightOwnerInstructionTimeout = getValue('svRightOwnerInstructionTimeout', true);
 
   const dsoConfig: DsoRulesConfig = {
     numUnclaimedRewardsThreshold: getValue('numUnclaimedRewardsThreshold', false),
@@ -120,6 +121,10 @@ export function buildDsoRulesConfigFromChanges(dsoConfigChanges: ConfigChange[])
             ),
           },
     voteCooldownTime: voteCooldownTime === null ? null : { microseconds: voteCooldownTime },
+    svRightOwnerInstructionTimeout:
+      svRightOwnerInstructionTimeout === null
+        ? null
+        : { microseconds: svRightOwnerInstructionTimeout },
   };
 
   return dsoConfig;

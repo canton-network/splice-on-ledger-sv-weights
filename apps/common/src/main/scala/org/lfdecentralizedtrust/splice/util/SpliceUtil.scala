@@ -347,6 +347,7 @@ object SpliceUtil {
     Optional.empty(), // nextScheduledSynchronizerUpgrade
     Optional.empty(), // voteCooldownTime
     Optional.empty(), // nextScheduledLogicalSynchronizerUpgrade
+    Optional.empty(), // svRightOwnerInstructionTimeout
   )
 
   def defaultAmuletConfig(

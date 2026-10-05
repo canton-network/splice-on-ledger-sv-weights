@@ -213,6 +213,12 @@ export function buildDsoConfigChanges(
       currentValue: before?.voteCooldownTime?.microseconds || '',
       newValue: after?.voteCooldownTime?.microseconds || '',
     },
+    {
+      fieldName: 'svRightOwnerInstructionTimeout',
+      label: 'Time-To-Live for contracts representing an SV right owner instruction',
+      currentValue: before?.svRightOwnerInstructionTimeout?.microseconds || '',
+      newValue: after?.svRightOwnerInstructionTimeout?.microseconds || '',
+    },
   ] as ConfigChange[];
 
   return showAllFields ? changes : changes.filter(c => c.currentValue !== c.newValue);

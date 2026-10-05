@@ -99,6 +99,7 @@ initDecentralizedSynchronizerWithAmuletPrice isDevNet initialRound amuletPrice o
         nextScheduledSynchronizerUpgrade = None
         voteCooldownTime = None -- use default value of 1 minute
         nextScheduledLogicalSynchronizerUpgrade = None
+        svRightOwnerInstructionTimeout = None -- use default value of 4 hours
   let amuletConfig = fromOptional defaultAmuletConfig optAmuletConfig
   let ansRulesConfig = defaultAnsRulesConfig
 
