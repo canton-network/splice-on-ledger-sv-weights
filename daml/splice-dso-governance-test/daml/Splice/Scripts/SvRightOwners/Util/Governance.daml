@@ -114,6 +114,17 @@ mintThrough net operator name = do
   (openRoundCid, _) <- last <$> AmuletScripts.getOpenRoundsSorted net.app
   mint net operator.party openRoundCid [name]
 
+mintWithLegacyChoice : Network -> Operator -> Int -> Script Attempt
+mintWithLegacyChoice net operator rewardWeight = do
+  [_, (openRoundCid, openRound)] <- AmuletScripts.getOpenRoundsSorted net.app
+  setTime openRound.opensAt
+  rewardStateCid <- svRewardStateCidFor net operator.name
+  attempt net operator.party $ \dsoRulesCid -> exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCoupon with
+    sv = operator.party
+    openRoundCid
+    rewardStateCid
+    beneficiaries = [(operator.party, rewardWeight)]
+
 passVote : Network -> DsoRules_ActionRequiringConfirmation -> Script ()
 passVote net dsoAction = DsoTestUtils.initiateAndAcceptVote net.app (svParties net) ARC_DsoRules with dsoAction
 

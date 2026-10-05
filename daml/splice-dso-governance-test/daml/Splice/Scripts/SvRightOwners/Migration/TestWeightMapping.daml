@@ -19,6 +19,7 @@ test_shouldMigrateOneLegacyOperatorToOneRightOwner = withLegacyWeights $ \net ->
 
   svRightOwnerNamesInDsoRules net `shouldReturn` ["sv1", "sv2", "sv3", "sv4"]
   svRewardStateNames net `shouldReturn` ["sv1", "sv2", "sv3", "sv4"]
+  svNodeOperatorWeights net `shouldReturn` [0, 0, 0, 0]
 
 test_shouldMigrateOneLegacyOperatorToSeveralRightOwners = withLegacyWeights $ \net -> do
   owners <- svRightOwnerInfosFromOperators net.app
@@ -36,6 +37,7 @@ test_shouldMigrateOneLegacyOperatorToSeveralRightOwners = withLegacyWeights $ \n
 
   svRightOwnerNamesInDsoRules net `shouldReturn` ["sv1", "sv2-a", "sv2-b", "sv3", "sv4"]
   svRewardStateNames net `shouldReturn` ["sv1", "sv2-a", "sv2-b", "sv3", "sv4"]
+  svNodeOperatorWeights net `shouldReturn` [0, 0, 0, 0]
 
 test_shouldRejectMigrationWithAnIncompleteWeightMapping = withLegacyWeights $ \net -> do
   owners <- svRightOwnerInfosFromOperators net.app

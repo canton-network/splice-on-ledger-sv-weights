@@ -11,7 +11,7 @@ import Splice.DSO.SvState (RewardState(..))
 
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
-import Splice.Scripts.Util (getOpenRoundsSorted)
+import Splice.Scripts.Util (getOpenRoundsSorted, runNextIssuance)
 
 test_shouldKeepTheLastCollectedRoundForAnOwnerNamedAfterItsLegacyOperator = withLegacyWeights $ \net -> do
   before <- rewardStateOf net net.genesisOwner
@@ -38,3 +38,22 @@ test_shouldNotMintTheMigrationRoundTwice = withLegacyWeights $ \net -> do
 
   mintThrough net net.sv1 "sv1" >>= shouldSucceed
   mintThrough net net.sv1 "sv1" >>= shouldBeRejected "is greater than the last round a reward has been received for"
+
+test_shouldContinueAfterMigratingOwnersThatMintedTheLatestUsableLegacyRound = withLegacyWeights $ \net -> do
+  mintWithLegacyChoice net net.sv1 tier1RewardWeight >>= shouldSucceed
+  mintWithLegacyChoice net net.sv2 tier2RewardWeight >>= shouldSucceed
+
+  owners <- svRightOwnerInfosFromOperators net.app
+  Some sv2 <- pure $ TextMap.lookup "sv2" owners
+  newSv2Owner <- allocateParty "new-sv2-owner"
+  let migratedOwners = TextMap.insert "new-sv2-owner" (sv2 with rightOwnerParty = newSv2Owner) $ TextMap.delete "sv2" owners
+  instruction <- migrationRequestedFor net migratedOwners
+  rewardStates <- rewardStatesForSvOperators net
+  migrate net instruction rewardStates >>= shouldSucceed
+
+  mintThrough net net.sv1 "sv1" >>= shouldBeRejected "is greater than the last round a reward has been received for"
+  mintThrough net net.sv2 "new-sv2-owner" >>= shouldBeRejected "is greater than the last round a reward has been received for"
+
+  runNextIssuance net.app
+  mintThrough net net.sv1 "sv1" >>= shouldSucceed
+  mintThrough net net.sv2 "new-sv2-owner" >>= shouldSucceed
