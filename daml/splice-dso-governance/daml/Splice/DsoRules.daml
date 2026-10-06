@@ -272,6 +272,9 @@ data DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult = DsoRules_ExpireUpd
 data DsoRules_UpdateSvRightOwnerBeneficiariesResult = DsoRules_UpdateSvRightOwnerBeneficiariesResult with
     svRightOwner : ContractId SvRightOwner
 
+data DsoRules_UpdateSvRightOwnerPartyResult = DsoRules_UpdateSvRightOwnerPartyResult with
+    svRightOwner : ContractId SvRightOwner
+
 data DsoRules_OnboardValidatorResult = DsoRules_OnboardValidatorResult with
     validatorLicense : ContractId ValidatorLicense
 
@@ -2119,8 +2122,6 @@ template DsoRules with
       --
       -- In contrast to `DsoRules_UpdateSvRightOwnerInfo`, this does not require a vote, as
       -- right owners are free to share their own rewards as they see fit.
-      -- TODO(canton-network/splice#7117): add a matching `DsoRules_UpdateSvRightOwnerParty` choice controlled by the
-      -- current right owner party, so that the party can be rotated without losing the right.
       with
         name : Text -- ^ The name of the SV right owner whose beneficiaries are set.
         svRightOwnerCid : ContractId SvRightOwner
@@ -2138,6 +2139,25 @@ template DsoRules with
         requireValidSvRightOwnerInfo info
         svRightOwner <- create currentSvRightOwner with info
         return DsoRules_UpdateSvRightOwnerBeneficiariesResult with svRightOwner
+
+    nonconsuming choice DsoRules_UpdateSvRightOwnerParty : DsoRules_UpdateSvRightOwnerPartyResult
+      -- ^ Rotate the party of an SV right owner, e.g., to move it to a new key.
+      with
+        name : Text -- ^ The name of the SV right owner whose party is rotated.
+        svRightOwnerCid : ContractId SvRightOwner
+        newRightOwnerParty : Party -- ^ The new party; must not be one of the beneficiaries.
+        rightOwner : Party -- ^ The current party of the SV right owner; must own `svRightOwnerCid`.
+      controller rightOwner
+      do
+        requireOnLedgerSvRightOwners this
+        requireSvRightOwnerExists this name
+        currentSvRightOwner <- fetchAndArchive (ForSv with dso; svName = name) svRightOwnerCid
+        require "The party is rotated by the SV right owner itself" $
+          currentSvRightOwner.info.rightOwnerParty == rightOwner
+        let info = currentSvRightOwner.info with rightOwnerParty = newRightOwnerParty
+        requireValidSvRightOwnerInfo info
+        svRightOwner <- create currentSvRightOwner with info
+        return DsoRules_UpdateSvRightOwnerPartyResult with svRightOwner
 
 
 getSvOperatorNames : DsoRules -> Set Text
