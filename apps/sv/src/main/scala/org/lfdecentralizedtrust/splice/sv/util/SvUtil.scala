@@ -258,7 +258,6 @@ object SvUtil {
     Optional.empty(), // nextScheduledSynchronizerUpgrade
     voteCooldownTime.map(t => new RelTime(t.duration.toMicros)).toJava,
     Optional.empty(), // nextScheduledLogicalSynchronizerUpgrade
-    Optional.empty(), // svRightOwnerInstructionTimeout
   )
 
   def keyPairMatches(
