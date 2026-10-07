@@ -11,6 +11,7 @@ import Splice.DSO.SvState (RewardState(..))
 
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
+import Splice.Scripts.SvRightOwners.Util.Rewards (mintThrough, mintWithLegacyChoice)
 import Splice.Scripts.Util (getOpenRoundsSorted, runNextIssuance)
 
 test_shouldKeepTheLastCollectedRoundForAnOwnerNamedAfterItsLegacyOperator = withLegacyWeights $ \net -> do
@@ -33,7 +34,7 @@ test_shouldStartAnOwnerWithoutALegacyPredecessorAfterTheLatestUsableRound = with
   rewardStateOf net (SvRightOwner with name = "new-owner"; party = newcomer; hostedBy = net.sv2; rewardWeight = sv2.rewardWeight; beneficiaries = sv2.beneficiaries)
     `shouldReturn` RewardState with lastRoundCollected = latestUsableRound.round; numRoundsCollected = 0; numRoundsMissed = 0; numCouponsIssued = 0
 
-test_shouldNotMintTheMigrationRoundTwice = withLegacyWeights $ \net -> do
+test_shouldAllowMigratedSvToMintAfterMigration = withLegacyWeights $ \net -> do
   migrateDefault net
 
   mintThrough net net.sv1 "sv1" >>= shouldSucceed

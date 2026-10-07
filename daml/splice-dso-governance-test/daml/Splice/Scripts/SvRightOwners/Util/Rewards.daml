@@ -4,7 +4,7 @@
 module Splice.Scripts.SvRightOwners.Util.Rewards where
 
 import DA.Functor (void)
-import DA.List (sort)
+import DA.List (last, sort)
 import qualified DA.Map as Map
 import qualified DA.TextMap as TextMap
 
@@ -20,6 +20,7 @@ import Splice.Types (Round)
 
 import qualified Splice.Scripts.Util as AmuletScripts
 import Splice.Scripts.SvRightOwners.Util.Fixture
+import Splice.Testing.Registries.AmuletRegistry (getActiveOpenRoundsSorted)
 
 mint : Network -> Party -> ContractId OpenMiningRound -> [Text] -> Script Attempt
 mint net svOperator openRoundCid names = rewardInputsFor net names >>= mintWith net svOperator openRoundCid
@@ -35,10 +36,24 @@ mintWith net svOperator openRoundCid svRightOwnerRewardInputs = attempt net svOp
   exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCouponV2 with svOperator; openRoundCid; svRightOwnerRewardInputs
 
 mintLegacy : Network -> Party -> ContractId OpenMiningRound -> Text -> Script Attempt
-mintLegacy net sv openRoundCid name = do
+mintLegacy net sv openRoundCid name = mintLegacyWith net sv openRoundCid name []
+
+mintLegacyWith : Network -> Party -> ContractId OpenMiningRound -> Text -> [(Party, Int)] -> Script Attempt
+mintLegacyWith net sv openRoundCid name beneficiaries = do
   rewardStateCid <- svRewardStateCidFor net name
   attempt net sv $ \dsoRulesCid -> exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCoupon with
-    sv; openRoundCid; rewardStateCid; beneficiaries = []
+    sv; openRoundCid; rewardStateCid; beneficiaries
+
+mintThrough : Network -> Operator -> Text -> Script Attempt
+mintThrough net operator name = do
+  (openRoundCid, _) <- last <$> AmuletScripts.getOpenRoundsSorted net.app
+  mint net operator.party openRoundCid [name]
+
+mintWithLegacyChoice : Network -> Operator -> Int -> Script Attempt
+mintWithLegacyChoice net operator rewardWeight = do
+  [_, (openRoundCid, openRound), _] <- getActiveOpenRoundsSorted net.app.dso
+  setTime openRound.opensAt
+  mintLegacyWith net operator.party openRoundCid operator.name [(operator.party, rewardWeight)]
 
 mergeRewardStates : Network -> Party -> Text -> [ContractId SvRewardState] -> Script Attempt
 mergeRewardStates net sv svName rewardStateCids = attempt net sv $ \dsoRulesCid ->

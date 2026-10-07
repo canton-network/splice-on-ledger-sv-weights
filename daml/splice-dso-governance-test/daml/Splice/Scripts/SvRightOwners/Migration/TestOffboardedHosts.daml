@@ -5,6 +5,7 @@ module Splice.Scripts.SvRightOwners.Migration.TestOffboardedHosts where
 
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
+import Splice.Scripts.SvRightOwners.Util.Rewards (mintThrough)
 
 test_shouldPreventAnOffboardedHostFromMintingForItsOwners = withLegacyWeights $ \net -> do
   migrateDefault net

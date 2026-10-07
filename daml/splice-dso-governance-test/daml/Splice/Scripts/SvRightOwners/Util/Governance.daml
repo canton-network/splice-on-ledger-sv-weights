@@ -17,7 +17,7 @@ import Splice.SvOnboarding (SvOnboardingConfirmed)
 import qualified Splice.Scripts.DsoTestUtils as DsoTestUtils
 import qualified Splice.Scripts.Util as AmuletScripts
 import Splice.Scripts.SvRightOwners.Util.Fixture
-import Splice.Scripts.SvRightOwners.Util.Rewards (mint, mintWith)
+import Splice.Scripts.SvRightOwners.Util.Rewards (mintWith)
 import Splice.Testing.Registries.AmuletRegistry (getActiveOpenRoundsSorted)
 
 addChoiceFor : SvRightOwner -> DsoRules_AddSvRightOwner
@@ -108,22 +108,6 @@ rotatePartyWith net submitter name newRightOwnerParty svRightOwnerCid = attempt 
 
 offboardSvNodeOperator : Network -> Operator -> Script ()
 offboardSvNodeOperator net operator = passVote net $ SRARC_OffboardSv DsoRules_OffboardSv with sv = operator.party
-
-mintThrough : Network -> Operator -> Text -> Script Attempt
-mintThrough net operator name = do
-  (openRoundCid, _) <- last <$> AmuletScripts.getOpenRoundsSorted net.app
-  mint net operator.party openRoundCid [name]
-
-mintWithLegacyChoice : Network -> Operator -> Int -> Script Attempt
-mintWithLegacyChoice net operator rewardWeight = do
-  [_, (openRoundCid, openRound)] <- AmuletScripts.getOpenRoundsSorted net.app
-  setTime openRound.opensAt
-  rewardStateCid <- svRewardStateCidFor net operator.name
-  attempt net operator.party $ \dsoRulesCid -> exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCoupon with
-    sv = operator.party
-    openRoundCid
-    rewardStateCid
-    beneficiaries = [(operator.party, rewardWeight)]
 
 passVote : Network -> DsoRules_ActionRequiringConfirmation -> Script ()
 passVote net dsoAction = DsoTestUtils.initiateAndAcceptVote net.app (svParties net) ARC_DsoRules with dsoAction

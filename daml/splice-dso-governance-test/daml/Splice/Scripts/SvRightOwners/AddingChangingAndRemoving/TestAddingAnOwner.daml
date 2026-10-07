@@ -12,6 +12,7 @@ import Splice.DsoRules (AddSvRightOwnerInstruction(..))
 
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
+import Splice.Scripts.SvRightOwners.Util.Rewards (mintThrough)
 import Splice.Scripts.Util (getOpenRoundsSorted, runNextIssuance)
 
 test_shouldAddAnSvRightOwnerThatFirstCollectsInTheNextRound = withOnLedgerWeights $ \net -> do
