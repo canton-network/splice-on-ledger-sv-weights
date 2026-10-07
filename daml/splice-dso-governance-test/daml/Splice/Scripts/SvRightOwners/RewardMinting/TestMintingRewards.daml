@@ -80,7 +80,7 @@ test_shouldMoveAnSvRightOwnersRewardStateOnlyByMinting = withTwoSvRightOwners $ 
       moved = newcomer with party = successor; rewardWeight = tier1RewardWeight; hostedBy = net.sv3; beneficiaries = split
 
   setBeneficiaries net newcomer split
-  voteToUpdate net newcomer.name (svRightOwnerInfo (newcomer with beneficiaries = split)) (svRightOwnerInfo moved)
+  voteToUpdate net newcomer.name (svRightOwnerInfo (newcomer with beneficiaries = split)) (Some successor) (Some tier1RewardWeight) (Some net.sv3.name)
     >>= executeUpdate net net.sv1.party >>= shouldSucceed
   svRightOwners net `shouldReturn` [moved, net.genesisOwner]
   mintLegacy net net.sv1.party round1Cid net.genesisOwner.name >>= shouldBeRejected "svRightOwners are not tracked on-ledger"

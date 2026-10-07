@@ -68,13 +68,14 @@ expireRemoval : Network -> Party -> ContractId RemoveSvRightOwnerInstruction -> 
 expireRemoval net svOperator instructionCid = attempt net svOperator $ \dsoRulesCid ->
   exerciseCmd dsoRulesCid DsoRules_ExpireRemoveSvRightOwnerInstruction with instructionCid; svOperator
 
-voteToUpdate : Network -> Text -> Amulet.SvRightOwnerInfo -> Amulet.SvRightOwnerInfo -> Script (ContractId UpdateSvRightOwnerInfoInstruction)
-voteToUpdate net name baseInfo newInfo = instructionRecordedBy net $ passVote net $
-  SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo with name; baseInfo; newInfo
+voteToUpdate
+  : Network -> Text -> Amulet.SvRightOwnerInfo -> Optional Party -> Optional Int -> Optional Text -> Script (ContractId UpdateSvRightOwnerInfoInstruction)
+voteToUpdate net name baseInfo rightOwnerParty rewardWeight rewardNodeOperatorName = instructionRecordedBy net $ passVote net $
+  SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo with name; baseInfo; rightOwnerParty; rewardWeight; rewardNodeOperatorName
 
-updateAs : Network -> Party -> Text -> Amulet.SvRightOwnerInfo -> Amulet.SvRightOwnerInfo -> Script Attempt
-updateAs net party name baseInfo newInfo = attempt net party $ \dsoRulesCid ->
-  exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerInfo with name; baseInfo; newInfo
+updateAs : Network -> Party -> Text -> Amulet.SvRightOwnerInfo -> Optional Party -> Optional Int -> Optional Text -> Script Attempt
+updateAs net party name baseInfo rightOwnerParty rewardWeight rewardNodeOperatorName = attempt net party $ \dsoRulesCid ->
+  exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerInfo with name; baseInfo; rightOwnerParty; rewardWeight; rewardNodeOperatorName
 
 executeUpdate : Network -> Party -> ContractId UpdateSvRightOwnerInfoInstruction -> Script Attempt
 executeUpdate net svOperator instructionCid = do
@@ -201,7 +202,7 @@ infoUpdateRequestedFor : Network -> Text -> Script (ContractId UpdateSvRightOwne
 infoUpdateRequestedFor net name = do
   addOwnerNamed net "sv2"
   [(_, owner)] <- queryFilter @Amulet.SvRightOwner net.app.dso (\owner -> owner.name == name)
-  voteToUpdate net name owner.info (owner.info with rewardWeight = tier2RewardWeight)
+  voteToUpdate net name owner.info None (Some tier2RewardWeight) None
 
 updateInfo : Network -> ContractId UpdateSvRightOwnerInfoInstruction -> Text -> Script Attempt
 updateInfo net instructionCid ownerName = svRightOwnerCidFor net ownerName >>= executeUpdateWith net net.sv1.party instructionCid
