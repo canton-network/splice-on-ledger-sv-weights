@@ -1964,12 +1964,13 @@ template DsoRules with
 
     nonconsuming choice DsoRules_AddSvRightOwner : DsoRules_AddSvRightOwnerResult
       with
-        name : Text -- ^ The name of the SV right owner to add; must not be in use.
+        name : Text -- ^ The name of the SV right owner to add; must not be in use or in `offboardedSvs`.
         info : SvRightOwnerInfo
       controller dso
       do
         requireOnLedgerSvRightOwners this
         requireSvRightOwnerDoesNotExist this name
+        requireNotOffboardedSvName this name
         requireRewardNodeOperatorExists this info
         requireValidSvRightOwnerInfo info
         now <- getTime
@@ -1992,6 +1993,7 @@ template DsoRules with
         _ <- getAndValidateSvParty this (Some svOperator)
         instruction <- fetchAndArchive (ForDso with dso) instructionCid
         requireSvRightOwnerDoesNotExist this instruction.name
+        requireNotOffboardedSvName this instruction.name
         requireRewardNodeOperatorExists this instruction.info
         assertWithinDeadline "addSvRightOwnerInstruction.expiresAt" instruction.expiresAt
         validatedRounds <- validateOpenMiningRoundTriple dso openMiningRoundTriple
@@ -2187,6 +2189,11 @@ requireSvRightOwnerDoesNotExist this name =
   require ("SV right owner " <> show name <> " does not exist") $
     name `Set.notMember` getSvRightOwners this
 
+requireNotOffboardedSvName : DsoRules -> Text -> Update ()
+requireNotOffboardedSvName this name =
+  require ("SV right owner " <> show name <> " is not named like an offboarded SV") $
+    all (\info -> info.name /= name) (Map.values this.offboardedSvs)
+
 -- | Check that the SV right owner with the given name can be removed, i.e., it exists and
 -- it is not the last remaining SV right owner.
 requireRemovableSvRightOwner : DsoRules -> Text -> Update ()
@@ -2212,6 +2219,9 @@ requireMigratableToOnLedgerSvRightOwners this svRightOwners = do
   require "The total SV reward weight is preserved" $
     sum (fmap (.svRewardWeight) this.svs) == sum (fmap (.rewardWeight) svRightOwners)
   forA_ svRightOwners $ requireRewardNodeOperatorExists this
+  forA_ (TextMap.toList svRightOwners) $ \(name, _) ->
+    unless (name `Set.member` getSvOperatorNames this) $
+      requireNotOffboardedSvName this name
 
 template MigrateToOnLedgerSvRightOwnersInstruction with
     dso : Party

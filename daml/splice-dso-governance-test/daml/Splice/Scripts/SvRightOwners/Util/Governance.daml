@@ -13,6 +13,7 @@ import qualified Splice.Amulet.SvRightOwner as Amulet
 import Splice.DSO.SvState (SvRewardState)
 import Splice.DsoRules
 import Splice.SvOnboarding (SvOnboardingConfirmed)
+import Splice.Types (Round(..))
 
 import qualified Splice.Scripts.DsoTestUtils as DsoTestUtils
 import qualified Splice.Scripts.Util as AmuletScripts
@@ -221,3 +222,11 @@ rewardCoupon net mapKey ownerName rewardStateName = do
 addOwnerNamed : Network -> Text -> Script ()
 addOwnerNamed net name = addSvRightOwner net SvRightOwner with
   name; party = net.sv2.party; hostedBy = (net.sv2 with name); rewardWeight = tier2RewardWeight; beneficiaries = Map.empty
+
+onboardNamed : Network -> Text -> Party -> Script Attempt
+onboardNamed net name party = attempt net net.app.dso $ \dsoRulesCid -> exerciseCmd dsoRulesCid DsoRules_AddSv with
+  newSvParty = party; newSvName = name; newSvRewardWeight = 0; newSvParticipantId = name <> "-successor-participant-id"; joinedAsOfRound = Round 0
+
+requestMigrationTo : Network -> TextMap.TextMap Amulet.SvRightOwnerInfo -> Script Attempt
+requestMigrationTo net owners = attempt net net.app.dso $ \dsoRulesCid ->
+  exerciseCmd dsoRulesCid (DsoRules_MigrateToOnLedgerSvRightOwners owners)

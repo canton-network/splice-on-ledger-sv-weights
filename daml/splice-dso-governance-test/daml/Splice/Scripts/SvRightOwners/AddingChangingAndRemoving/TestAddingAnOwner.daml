@@ -3,12 +3,15 @@
 
 module Splice.Scripts.SvRightOwners.AddingChangingAndRemoving.TestAddingAnOwner where
 
-import DA.Time (addRelTime)
+import qualified DA.TextMap as TextMap
+import DA.Time (addRelTime, hours)
 
 import Daml.Script
 
+import qualified Splice.Amulet.SvRightOwner as Amulet
 import Splice.DSO.SvState (RewardState(..))
-import Splice.DsoRules (AddSvRightOwnerInstruction(..))
+import Splice.DsoRules (AddSvRightOwnerInstruction(..), DsoRules_AddSv(..), DsoRules_MigrateToOnLedgerSvRightOwners(DsoRules_MigrateToOnLedgerSvRightOwners))
+import Splice.Types (Round(..))
 
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
@@ -72,3 +75,26 @@ test_shouldRefuseAddingAnSvRightOwnerUnderLegacyWeightManagement = withLegacyWei
   newcomer <- newSvRightOwner "newcomer" net.sv2
 
   addAs net net.app.dso newcomer >>= shouldBeRejected "svRightOwners are tracked on-ledger"
+
+test_shouldRefuseAddingAnSvRightOwnerNamedLikeAnOffboardedSv = withOnLedgerWeights $ \net -> do
+  owner <- newSvRightOwner net.sv4.name net.sv3
+  instruction <- voteToAdd net owner
+  offboardSvNodeOperator net net.sv4
+
+  allocateParty "sv4-successor" >>= onboardNamed net net.sv4.name >>= shouldSucceed
+
+  execute net net.sv1.party instruction >>= shouldBeRejected "SV right owner \"sv4\" is not named like an offboarded SV"
+  addAs net net.app.dso owner >>= shouldBeRejected "SV right owner \"sv4\" is not named like an offboarded SV"
+  addAs net net.app.dso (owner with name = "newcomer") >>= shouldSucceed
+
+test_shouldRefuseMigratingAnSvRightOwnerNamedLikeAnOffboardedSvUnlessAnSvNodeOperatorHasThatName = withLegacyWeights $ \net -> do
+  offboardSvNodeOperator net net.sv2
+  owners <- svRightOwnerInfosFromOperators net.app
+  let unpaid = svRightOwnerInfoFor net.sv3.party 0 net.sv3.name
+  requestMigrationTo net (TextMap.insert net.sv2.name unpaid owners) >>= shouldBeRejected "SV right owner \"sv2\" is not named like an offboarded SV"
+
+  rewardState <- svRewardStateCidFor net net.sv2.name
+  allocateParty "sv2-successor" >>= onboardNamed net net.sv2.name >>= shouldSucceed
+  instruction <- instructionRecordedBy net $ svRightOwnerInfosFromOperators net.app >>= requestMigrationTo net >>= shouldSucceed
+  rewardStatesForSvOperators net >>= migrate net instruction >>= shouldSucceed
+  svRewardStateCidFor net net.sv2.name `shouldReturn` rewardState
