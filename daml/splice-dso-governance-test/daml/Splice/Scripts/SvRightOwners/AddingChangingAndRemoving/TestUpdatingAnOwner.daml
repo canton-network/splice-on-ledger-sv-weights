@@ -93,6 +93,40 @@ test_shouldLetAVoteRotateTheSvRightOwnerPartyAndKeepItsRewardState = withTwoSvRi
   svRightOwners net `shouldReturn` [rotated, net.genesisOwner]
   rewardStateOf net rotated `shouldReturn` stateBefore
 
+test_shouldLetTheSvRightOwnerRotateItsPartyAndThenOnlyTheNewPartyActForIt = withTwoSvRightOwners $ \net newcomer -> do
+  beneficiary <- allocateParty "beneficiary"
+  successor <- allocateParty "successor"
+  stranger <- allocateParty "stranger"
+  cotenant <- newSvRightOwner "cotenant" net.sv2
+  addSvRightOwner net cotenant
+  setBeneficiaries net newcomer (sharingWith [(beneficiary, 0.2)])
+  runNextIssuance net.app
+  mintThrough net net.sv2 newcomer.name >>= shouldSucceed
+  let rotated = newcomer with party = successor; beneficiaries = sharingWith [(beneficiary, 0.2)]
+      split = sharingWith [(beneficiary, 0.5)]
+      notOwner = "The party is rotated by the SV right owner itself"
+  genesisCid <- svRightOwnerCidFor net net.genesisOwner.name
+  newcomerState <- svRewardStateCidFor net newcomer.name
+  stateBefore <- rewardStateOf net newcomer
+
+  servedByScan net newcomer.name >>= \disclosures -> rotatePartyAs net newcomer.party newcomer successor >>= shouldSucceedDisclosing disclosures
+
+  svRightOwners net `shouldReturn` [cotenant, rotated, net.genesisOwner]
+  expectActive net newcomerState
+  rewardStateOf net rotated `shouldReturn` stateBefore
+
+  rotatePartyAs net newcomer.party rotated newcomer.party >>= shouldBeRejected notOwner
+  rotatePartyAs net net.sv2.party rotated stranger >>= shouldBeRejected notOwner
+  rotatePartyAs net net.app.dso rotated stranger >>= shouldBeRejected notOwner
+  rotatePartyAs net cotenant.party rotated stranger >>= shouldBeRejected notOwner
+  rotatePartyAs net stranger rotated stranger >>= shouldBeRejected notOwner
+  setBeneficiariesAs net newcomer.party rotated split >>= shouldBeRejected "Beneficiaries are set by the SV right owner itself"
+  rotatePartyWith net successor newcomer.name stranger genesisCid >>= shouldBeRejected contractNameMismatch
+  rotatePartyAs net successor rotated beneficiary >>= shouldBeRejected "Valid SvRightOwnerInfo"
+  setBeneficiariesAs net successor rotated split >>= shouldSucceed
+
+  svRightOwners net `shouldReturn` [cotenant, (rotated with beneficiaries = split), net.genesisOwner]
+
 -- TODO(#61): a vote must not change the beneficiaries the owner set.
 test_shouldLetAVoteOverrideTheBeneficiariesTheSvRightOwnerSet = withTwoSvRightOwners $ \net newcomer -> do
   ownChoice <- allocateParty "own-choice-beneficiary"
@@ -156,3 +190,7 @@ test_shouldRefuseUpdatingAnSvRightOwnerUnderLegacyWeightManagement = withLegacyW
   let base = svRightOwnerInfo net.genesisOwner
 
   updateAs net net.app.dso net.genesisOwner.name base base >>= shouldBeRejected "svRightOwners are tracked on-ledger"
+
+test_shouldRefuseRotatingTheSvRightOwnerPartyUnderLegacyWeightManagement = withLegacyWeights $ \net -> do
+  noSvRightOwner <- coerceContractId <$> dsoRules net
+  rotatePartyWith net net.genesisOwner.party net.genesisOwner.name net.genesisOwner.party noSvRightOwner >>= shouldBeRejected "svRightOwners are tracked on-ledger"
