@@ -102,7 +102,7 @@ rotatePartyAs net submitter owner newRightOwnerParty = svRightOwnerCidFor net ow
 
 rotatePartyWith : Network -> Party -> Text -> Party -> ContractId Amulet.SvRightOwner -> Script Attempt
 rotatePartyWith net submitter name newRightOwnerParty svRightOwnerCid = attempt net submitter $ \dsoRulesCid ->
-  exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerParty with name; svRightOwnerCid; newRightOwnerParty; rightOwner = submitter
+  exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerParty with name; svRightOwnerCid; newRightOwnerParty; currentRightOwnerParty = submitter
 
 offboardSvNodeOperator : Network -> Operator -> Script ()
 offboardSvNodeOperator net operator = passVote net $ SRARC_OffboardSv DsoRules_OffboardSv with sv = operator.party

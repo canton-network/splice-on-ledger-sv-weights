@@ -2146,14 +2146,14 @@ template DsoRules with
         name : Text -- ^ The name of the SV right owner whose party is rotated.
         svRightOwnerCid : ContractId SvRightOwner
         newRightOwnerParty : Party -- ^ The new party; must not be one of the beneficiaries.
-        rightOwner : Party -- ^ The current party of the SV right owner; must own `svRightOwnerCid`.
-      controller rightOwner
+        currentRightOwnerParty : Party -- ^ The current party of the SV right owner; must own `svRightOwnerCid`.
+      controller currentRightOwnerParty
       do
         requireOnLedgerSvRightOwners this
         requireSvRightOwnerExists this name
         currentSvRightOwner <- fetchAndArchive (ForSv with dso; svName = name) svRightOwnerCid
         require "The party is rotated by the SV right owner itself" $
-          currentSvRightOwner.info.rightOwnerParty == rightOwner
+          currentSvRightOwner.info.rightOwnerParty == currentRightOwnerParty
         let info = currentSvRightOwner.info with rightOwnerParty = newRightOwnerParty
         requireValidSvRightOwnerInfo info
         svRightOwner <- create currentSvRightOwner with info
