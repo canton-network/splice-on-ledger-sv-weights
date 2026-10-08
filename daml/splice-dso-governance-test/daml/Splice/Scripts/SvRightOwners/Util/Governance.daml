@@ -12,11 +12,13 @@ import Daml.Script
 import qualified Splice.Amulet.SvRightOwner as Amulet
 import Splice.DSO.SvState (SvRewardState)
 import Splice.DsoRules
+import Splice.SvOnboarding (SvOnboardingConfirmed)
 
 import qualified Splice.Scripts.DsoTestUtils as DsoTestUtils
 import qualified Splice.Scripts.Util as AmuletScripts
 import Splice.Scripts.SvRightOwners.Util.Fixture
-import Splice.Scripts.SvRightOwners.Util.Rewards (mint, mintWith)
+import Splice.Scripts.SvRightOwners.Util.Rewards (mintWith)
+import Splice.Testing.Registries.AmuletRegistry (getActiveOpenRoundsSorted)
 
 addChoiceFor : SvRightOwner -> DsoRules_AddSvRightOwner
 addChoiceFor owner = DsoRules_AddSvRightOwner with
@@ -107,16 +109,34 @@ rotatePartyWith net submitter name newRightOwnerParty svRightOwnerCid = attempt 
 offboardSvNodeOperator : Network -> Operator -> Script ()
 offboardSvNodeOperator net operator = passVote net $ SRARC_OffboardSv DsoRules_OffboardSv with sv = operator.party
 
-mintThrough : Network -> Operator -> Text -> Script Attempt
-mintThrough net operator name = do
-  (openRoundCid, _) <- last <$> AmuletScripts.getOpenRoundsSorted net.app
-  mint net operator.party openRoundCid [name]
-
 passVote : Network -> DsoRules_ActionRequiringConfirmation -> Script ()
 passVote net dsoAction = DsoTestUtils.initiateAndAcceptVote net.app (svParties net) ARC_DsoRules with dsoAction
 
 openVote : Network -> DsoRules_ActionRequiringConfirmation -> Script (ContractId VoteRequest)
 openVote net dsoAction = DsoTestUtils.initiateAndCastVote net.app (svParties net) None ARC_DsoRules with dsoAction
+
+confirmOnboarding : Network -> Party -> Text -> Int -> Script (ContractId SvOnboardingConfirmed)
+confirmOnboarding net candidate name rewardWeight = do
+  passVote net $ SRARC_ConfirmSvOnboarding DsoRules_ConfirmSvOnboarding with
+    newSvParty = candidate
+    newSvName = name
+    newParticipantId = name <> "-participant-id"
+    newSvRewardWeight = rewardWeight
+    reason = "migration test"
+  [(confirmation, _)] <- query @SvOnboardingConfirmed net.app.dso
+  pure confirmation
+
+completeOnboarding : Network -> Party -> ContractId SvOnboardingConfirmed -> Script Attempt
+completeOnboarding net candidate confirmation = do
+  [(earliestRoundCid, _), (middleRoundCid, _), (latestRoundCid, _)] <- getActiveOpenRoundsSorted net.app.dso
+  amuletRulesCid <- amuletRules net
+  attempt net candidate $ \dsoRulesCid -> exerciseCmd dsoRulesCid DsoRules_AddConfirmedSv with
+    sv = candidate
+    svOnboardingConfirmedCid = confirmation
+    earliestRoundCid
+    middleRoundCid
+    latestRoundCid
+    amuletRulesCid
 
 withTwoSvRightOwners : (Network -> SvRightOwner -> Script ()) -> Script ()
 withTwoSvRightOwners test = withOnLedgerWeights $ \net -> do
@@ -142,12 +162,31 @@ migrationRequestedFor
 migrationRequestedFor net owners = instructionRecordedBy net $ passVote net $
   SRARC_MigrateToOnLedgerSvRightOwners DsoRules_MigrateToOnLedgerSvRightOwners with svRightOwners = owners
 
+requestMigration : Network -> TextMap.TextMap Amulet.SvRightOwnerInfo -> Script Attempt
+requestMigration net owners = attempt net net.app.dso $ \dsoRulesCid ->
+  exerciseCmd dsoRulesCid DsoRules_MigrateToOnLedgerSvRightOwners with svRightOwners = owners
+
+updateLegacyWeight : Network -> Party -> Int -> Script Attempt
+updateLegacyWeight net svParty newRewardWeight = attempt net net.app.dso $ \dsoRulesCid ->
+  exerciseCmd dsoRulesCid DsoRules_UpdateSvRewardWeight with svParty; newRewardWeight
+
 migrate
   : Network -> ContractId MigrateToOnLedgerSvRightOwnersInstruction -> TextMap.TextMap (ContractId SvRewardState) -> Script Attempt
 migrate net instructionCid rewardStates = do
   openMiningRoundTriple <- DsoTestUtils.getOpenMiningRoundTriple net.app
   attempt net net.sv1.party $ \dsoRulesCid -> exerciseCmd dsoRulesCid DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstruction with
     instructionCid; openMiningRoundTriple; svOperatorRewardStateCids = rewardStates; svOperator = net.sv1.party
+
+migrateDefault : Network -> Script ()
+migrateDefault net = do
+  owners <- svRightOwnerInfosFromOperators net.app
+  instruction <- migrationRequestedFor net owners
+  rewardStates <- rewardStatesForSvOperators net
+  migrate net instruction rewardStates >>= shouldSucceed
+
+expireMigration : Network -> Party -> ContractId MigrateToOnLedgerSvRightOwnersInstruction -> Script Attempt
+expireMigration net svOperator instructionCid = attempt net svOperator $ \dsoRulesCid ->
+  exerciseCmd dsoRulesCid DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstruction with instructionCid; svOperator
 
 removalRequestedFor : Network -> Text -> Script (ContractId RemoveSvRightOwnerInstruction)
 removalRequestedFor net name = addOwnerNamed net name >> voteToRemove net name

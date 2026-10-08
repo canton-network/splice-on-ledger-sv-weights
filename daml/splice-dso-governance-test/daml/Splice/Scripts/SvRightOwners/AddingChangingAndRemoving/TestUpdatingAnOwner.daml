@@ -11,6 +11,7 @@ import Splice.DsoRules (UpdateSvRightOwnerInfoInstruction(..))
 
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
+import Splice.Scripts.SvRightOwners.Util.Rewards (mintThrough)
 import Splice.Scripts.Util (runNextIssuance)
 
 test_shouldUpdateTheSvRightOwnerWeightAndKeepItsRewardState = withTwoSvRightOwners $ \net newcomer -> do

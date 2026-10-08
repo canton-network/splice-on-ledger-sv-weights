@@ -226,6 +226,11 @@ svNodeOperators net = do
   pure $ sortOn (.name)
     [(Operator with name = svInfo.name; party) | (party, svInfo) <- Map.toList dsoRules.svs]
 
+svNodeOperatorWeights : Network -> Script [Int]
+svNodeOperatorWeights net = do
+  (_, dsoRules) <- currentDsoRules net
+  pure [svInfo.svRewardWeight | svInfo <- Map.values dsoRules.svs]
+
 svRightOwners : Network -> Script [SvRightOwner]
 svRightOwners net = do
   operators <- svNodeOperators net
