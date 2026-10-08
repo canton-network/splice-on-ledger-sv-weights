@@ -3,7 +3,7 @@
 
 module Splice.Scripts.SvRightOwners.AddingChangingAndRemoving.TestUpdatingAnOwner where
 
-import DA.Time (addRelTime, hours)
+import DA.Time (addRelTime)
 
 import Daml.Script
 
@@ -23,11 +23,12 @@ test_shouldUpdateTheSvRightOwnerWeightAndKeepItsRewardState = withTwoSvRightOwne
   updateAs net net.app.dso newcomer.name base (base with beneficiaries = sharingWith [(firstBeneficiary, 0.6), (secondBeneficiary, 0.5)])
     >>= shouldBeRejected "Valid SvRightOwnerInfo"
   votedAt <- getTime
+  (_, rules) <- currentDsoRules net
 
   instruction <- voteToUpdate net newcomer.name base (svRightOwnerInfo raised)
 
   contractPayload net instruction `shouldReturn` UpdateSvRightOwnerInfoInstruction with
-    dso = net.app.dso; name = newcomer.name; baseInfo = base; newInfo = svRightOwnerInfo raised; expiresAt = addRelTime votedAt (hours 4)
+    dso = net.app.dso; name = newcomer.name; baseInfo = base; newInfo = svRightOwnerInfo raised; expiresAt = addRelTime votedAt rules.config.actionConfirmationTimeout
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
 
   genesisCid <- svRightOwnerCidFor net net.genesisOwner.name

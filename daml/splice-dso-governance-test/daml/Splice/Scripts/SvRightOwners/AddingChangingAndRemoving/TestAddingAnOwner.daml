@@ -3,7 +3,7 @@
 
 module Splice.Scripts.SvRightOwners.AddingChangingAndRemoving.TestAddingAnOwner where
 
-import DA.Time (addRelTime, hours)
+import DA.Time (addRelTime)
 
 import Daml.Script
 
@@ -21,11 +21,12 @@ test_shouldAddAnSvRightOwnerThatFirstCollectsInTheNextRound = withOnLedgerWeight
   addAs net net.app.dso (newcomer with name = net.genesisOwner.name) >>= shouldBeRejected "SV right owner \"sv1\" does not exist"
   addAs net net.app.dso (newcomer with rewardWeight = -1) >>= shouldBeRejected "Valid SvRightOwnerInfo"
   votedAt <- getTime
+  (_, rules) <- currentDsoRules net
 
   instruction <- voteToAdd net newcomer
 
   contractPayload net instruction `shouldReturn` AddSvRightOwnerInstruction with
-    dso = net.app.dso; name = newcomer.name; info = svRightOwnerInfo newcomer; expiresAt = addRelTime votedAt (hours 4)
+    dso = net.app.dso; name = newcomer.name; info = svRightOwnerInfo newcomer; expiresAt = addRelTime votedAt rules.config.actionConfirmationTimeout
   svRightOwners net `shouldReturn` [net.genesisOwner]
 
   stranger <- allocateParty "stranger"

@@ -4,7 +4,7 @@
 module Splice.Scripts.SvRightOwners.AddingChangingAndRemoving.TestRemovingAnOwner where
 
 import DA.Assert ((===))
-import DA.Time (addRelTime, hours)
+import DA.Time (addRelTime)
 
 import Daml.Script
 
@@ -29,12 +29,13 @@ test_shouldRemoveTheSvRightOwnerButNeverTheLastOne = withOnLedgerWeights $ \net 
   removeAs net net.app.dso "SV1" >>= shouldBeRejected "SV right owner \"SV1\" exists"
   removeAs net net.app.dso net.sv2.name >>= shouldBeRejected "SV right owner \"sv2\" exists"
   votedAt <- getTime
+  (_, rules) <- currentDsoRules net
 
   genesisRemoval <- voteToRemove net net.genesisOwner.name
   newcomerRemoval <- voteToRemove net newcomer.name
 
   contractPayload net genesisRemoval `shouldReturn` RemoveSvRightOwnerInstruction with
-    dso = net.app.dso; name = net.genesisOwner.name; expiresAt = addRelTime votedAt (hours 4)
+    dso = net.app.dso; name = net.genesisOwner.name; expiresAt = addRelTime votedAt rules.config.actionConfirmationTimeout
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
   svRightOwnerNamesInDsoRules net `shouldReturn` [newcomer.name, net.genesisOwner.name]
 

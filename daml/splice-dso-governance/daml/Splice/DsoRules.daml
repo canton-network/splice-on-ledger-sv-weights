@@ -1974,7 +1974,7 @@ template DsoRules with
           dso
           name
           info
-          expiresAt = now `addRelTime` hours 4
+          expiresAt = now `addRelTime` config.actionConfirmationTimeout
         return DsoRules_AddSvRightOwnerResult with instruction
 
     choice DsoRules_ExecuteAddSvRightOwnerInstruction : DsoRules_ExecuteAddSvRightOwnerInstructionResult
@@ -2021,7 +2021,7 @@ template DsoRules with
         instruction <- create RemoveSvRightOwnerInstruction with
           dso
           name
-          expiresAt = now `addRelTime` hours 4
+          expiresAt = now `addRelTime` config.actionConfirmationTimeout
         return DsoRules_RemoveSvRightOwnerResult with instruction
 
     choice DsoRules_ExecuteRemoveSvRightOwnerInstruction : DsoRules_ExecuteRemoveSvRightOwnerInstructionResult
@@ -2080,7 +2080,7 @@ template DsoRules with
           name
           baseInfo
           newInfo
-          expiresAt = now `addRelTime` hours 4
+          expiresAt = now `addRelTime` config.actionConfirmationTimeout
         return DsoRules_UpdateSvRightOwnerInfoResult with instruction
 
     nonconsuming choice DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction : DsoRules_ExecuteUpdateSvRightOwnerInfoInstructionResult
