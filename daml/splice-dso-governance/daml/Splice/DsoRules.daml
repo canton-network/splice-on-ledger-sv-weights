@@ -2001,10 +2001,11 @@ template DsoRules with
     nonconsuming choice DsoRules_ExpireAddSvRightOwnerInstruction : DsoRules_ExpireAddSvRightOwnerInstructionResult
       with
         instructionCid : ContractId AddSvRightOwnerInstruction
-        sv : Optional Party
-      controller sv
+        svOperator : Party
+      controller svOperator
       do
-        _ <- getAndValidateSvParty this sv
+        requireOnLedgerSvRightOwners this
+        _ <- getAndValidateSvParty this (Some svOperator)
         instruction <- fetchAndArchive (ForDso with dso) instructionCid
         assertDeadlineExceeded "addSvRightOwnerInstruction.expiresAt" instruction.expiresAt
         return DsoRules_ExpireAddSvRightOwnerInstructionResult

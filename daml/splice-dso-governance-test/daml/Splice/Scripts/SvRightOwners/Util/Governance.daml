@@ -34,7 +34,7 @@ execute net svOperator instructionCid = do
 
 expire : Network -> Party -> ContractId AddSvRightOwnerInstruction -> Script Attempt
 expire net svOperator instructionCid = attempt net svOperator $ \dsoRulesCid ->
-  exerciseCmd dsoRulesCid DsoRules_ExpireAddSvRightOwnerInstruction with instructionCid; sv = Some svOperator
+  exerciseCmd dsoRulesCid DsoRules_ExpireAddSvRightOwnerInstruction with instructionCid; svOperator
 
 instructionExpiresAt : (Template i, HasEnsure i, HasField "expiresAt" i Time) => Network -> ContractId i -> Script Time
 instructionExpiresAt net instructionCid = do
