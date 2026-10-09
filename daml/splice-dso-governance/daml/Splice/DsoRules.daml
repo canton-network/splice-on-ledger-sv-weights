@@ -2067,14 +2067,19 @@ template DsoRules with
       with
         name : Text -- ^ The name of the SV right owner to update; must be in use.
         baseInfo : SvRightOwnerInfo
-          -- ^ The info that this vote was created against. Only the fields that differ between
-          -- `baseInfo` and `newInfo` are updated, so that concurrent changes to the other
-          -- fields are preserved.
-        newInfo : SvRightOwnerInfo -- ^ The target info.
+          -- ^ The info that the vote was created against. It is used to merge the voted changes
+          -- with concurrent updates to an owner.
+        rightOwnerParty : Optional Party -- ^ The new right owner party, if it is being changed.
+        rewardWeight : Optional Int -- ^ The new reward weight, if it is being changed.
+        rewardNodeOperatorName : Optional Text -- ^ The new SV node operator, if it is being changed.
       controller dso
       do
         requireOnLedgerSvRightOwners this
         requireSvRightOwnerExists this name
+        let newInfo = baseInfo with
+              rightOwnerParty = fromOptional baseInfo.rightOwnerParty rightOwnerParty
+              rewardWeight = fromOptional baseInfo.rewardWeight rewardWeight
+              rewardNodeOperatorName = fromOptional baseInfo.rewardNodeOperatorName rewardNodeOperatorName
         requireRewardNodeOperatorExists this newInfo
         requireValidSvRightOwnerInfo newInfo
         now <- getTime
@@ -2082,7 +2087,9 @@ template DsoRules with
           dso
           name
           baseInfo
-          newInfo
+          rightOwnerParty
+          rewardWeight
+          rewardNodeOperatorName
           expiresAt = now `addRelTime` config.actionConfirmationTimeout
         return DsoRules_UpdateSvRightOwnerInfoResult with instruction
 
@@ -2099,7 +2106,11 @@ template DsoRules with
         requireSvRightOwnerExists this instruction.name
         assertWithinDeadline "updateSvRightOwnerInfoInstruction.expiresAt" instruction.expiresAt
         currentSvRightOwner <- fetchAndArchive (ForSv with dso; svName = instruction.name) svRightOwnerCid
-        let info = patch instruction.newInfo instruction.baseInfo currentSvRightOwner.info
+        let newInfo = instruction.baseInfo with
+              rightOwnerParty = fromOptional instruction.baseInfo.rightOwnerParty instruction.rightOwnerParty
+              rewardWeight = fromOptional instruction.baseInfo.rewardWeight instruction.rewardWeight
+              rewardNodeOperatorName = fromOptional instruction.baseInfo.rewardNodeOperatorName instruction.rewardNodeOperatorName
+            info = patch newInfo instruction.baseInfo currentSvRightOwner.info
         requireRewardNodeOperatorExists this info
         requireValidSvRightOwnerInfo info
         svRightOwner <- create currentSvRightOwner with info
@@ -2250,7 +2261,9 @@ template UpdateSvRightOwnerInfoInstruction with
     dso : Party
     name : Text -- ^ The name of the SV right owner to update.
     baseInfo : SvRightOwnerInfo -- ^ The info that the vote was created against.
-    newInfo : SvRightOwnerInfo -- ^ The target info; only fields that differ from `baseInfo` are updated.
+    rightOwnerParty : Optional Party -- ^ The new right owner party, if it is being changed.
+    rewardWeight : Optional Int -- ^ The new reward weight, if it is being changed.
+    rewardNodeOperatorName : Optional Text -- ^ The new SV node operator, if it is being changed.
     expiresAt : Time -- ^ When this contract can be archived.
   where
     signatory dso

@@ -15,7 +15,7 @@ test_shouldRejectASecondMigration = withLegacyWeights $ \net -> do
 test_shouldKeepRightOwnerTrackingEnabledAfterEveryPostMigrationChoice = withLegacyWeights $ \net -> do
   migrateDefault net
   let base = svRightOwnerInfo net.genesisOwner
-  instruction <- voteToUpdate net net.genesisOwner.name base (base with rewardWeight = tier2RewardWeight)
+  instruction <- voteToUpdate net net.genesisOwner.name base None (Some tier2RewardWeight) None
 
   executeUpdate net net.sv1.party instruction >>= shouldSucceed
   svRightOwnerNamesInDsoRules net `shouldReturn` ["sv1", "sv2", "sv3", "sv4"]

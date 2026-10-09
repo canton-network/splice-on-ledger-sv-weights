@@ -319,7 +319,9 @@ test_UpdateSvRightOwnerInfo = do
     dsoAction = SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo with
       name = "sv1"
       baseInfo = owner.info
-      newInfo
+      rightOwnerParty = None
+      rewardWeight = Some newInfo.rewardWeight
+      rewardNodeOperatorName = None
 
   [(instructionCid, _)] <- query @UpdateSvRightOwnerInfoInstruction dso
   svRightOwnerCid <- getSvRightOwnerCid app "sv1"
@@ -341,7 +343,9 @@ test_ExpireUpdateSvRightOwnerInfoInstruction = do
     dsoAction = SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo with
       name = "sv1"
       baseInfo = owner.info
-      newInfo = owner.info with rewardWeight = owner.info.rewardWeight + bpsMultiplier
+      rightOwnerParty = None
+      rewardWeight = Some (owner.info.rewardWeight + bpsMultiplier)
+      rewardNodeOperatorName = None
 
   [(instructionCid, _)] <- query @UpdateSvRightOwnerInfoInstruction dso
   passTime (hours 6)
@@ -427,7 +431,9 @@ test_ReceiveSvRewardCouponV2LowWeight = do
     dsoAction = SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo with
       name = "sv1"
       baseInfo = owner.info
-      newInfo = owner.info with rewardWeight = 3
+      rightOwnerParty = None
+      rewardWeight = Some 3
+      rewardNodeOperatorName = None
 
   [(instructionCid, _)] <- query @UpdateSvRightOwnerInfoInstruction dso
   svRightOwnerCid <- getSvRightOwnerCid app "sv1"

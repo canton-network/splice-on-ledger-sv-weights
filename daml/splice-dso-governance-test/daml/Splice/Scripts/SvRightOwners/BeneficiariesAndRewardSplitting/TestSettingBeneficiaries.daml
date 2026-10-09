@@ -51,7 +51,7 @@ test_shouldLetOnlyTheNewPartySetTheBeneficiariesAfterAVotedPartyRotation = withT
   successor <- allocateParty "successor"
   let split = sharingWith [(beneficiary, 0.2)]
       rotated = newcomer with party = successor
-  rotation <- voteToUpdate net newcomer.name (svRightOwnerInfo newcomer) (svRightOwnerInfo rotated)
+  rotation <- voteToUpdate net newcomer.name (svRightOwnerInfo newcomer) (Some successor) None None
   executeUpdate net net.sv1.party rotation >>= shouldSucceed
 
   disclosures <- servedByScan net newcomer.name
