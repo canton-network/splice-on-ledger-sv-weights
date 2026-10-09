@@ -2068,10 +2068,10 @@ template DsoRules with
         name : Text -- ^ The name of the SV right owner to update; must be in use.
         baseInfo : SvRightOwnerInfo
           -- ^ The info that the vote was created against. It is used to merge the voted changes
-          -- with concurrent updates to an ownear.
-        rightOwnerParty : Optional Party
-        rewardWeight : Optional Int
-        rewardNodeOperatorName : Optional Text
+          -- with concurrent updates to an owner.
+        rightOwnerParty : Optional Party -- ^ The new right owner party, if it is being changed.
+        rewardWeight : Optional Int -- ^ The new reward weight, if it is being changed.
+        rewardNodeOperatorName : Optional Text -- ^ The new SV node operator, if it is being changed.
       controller dso
       do
         requireOnLedgerSvRightOwners this
