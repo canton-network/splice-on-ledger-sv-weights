@@ -172,10 +172,14 @@ updateLegacyWeight net svParty newRewardWeight = attempt net net.app.dso $ \dsoR
 
 migrate
   : Network -> ContractId MigrateToOnLedgerSvRightOwnersInstruction -> TextMap.TextMap (ContractId SvRewardState) -> Script Attempt
-migrate net instructionCid rewardStates = do
+migrate net instructionCid rewardStates = migratePurgingOffboarded net instructionCid rewardStates TextMap.empty
+
+migratePurgingOffboarded
+  : Network -> ContractId MigrateToOnLedgerSvRightOwnersInstruction -> TextMap.TextMap (ContractId SvRewardState) -> TextMap.TextMap (ContractId SvRewardState) -> Script Attempt
+migratePurgingOffboarded net instructionCid rewardStates offboardedSvRewardStateCids = do
   openMiningRoundTriple <- DsoTestUtils.getOpenMiningRoundTriple net.app
   attempt net net.sv1.party $ \dsoRulesCid -> exerciseCmd dsoRulesCid DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstruction with
-    instructionCid; openMiningRoundTriple; svOperatorRewardStateCids = rewardStates; svOperator = net.sv1.party
+    instructionCid; openMiningRoundTriple; svOperatorRewardStateCids = rewardStates; offboardedSvRewardStateCids; svOperator = net.sv1.party
 
 migrateDefault : Network -> Script ()
 migrateDefault net = do

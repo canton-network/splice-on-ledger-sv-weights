@@ -1921,6 +1921,8 @@ template DsoRules with
           -- ^ Determines the latest usable round. SV right owners without an SV node operator of the same name start collecting in the round thereafter, as that operator may already have minted for it.
         svOperatorRewardStateCids : TextMap (ContractId SvRewardState)
           -- ^ The `SvRewardState` contracts of the SV node operators, keyed by the operator's name.
+        offboardedSvRewardStateCids : TextMap (ContractId SvRewardState)
+          -- ^ Leftover `SvRewardState` contracts of offboarded SVs to archive, keyed by the SV's name.
         svOperator : Party
       controller svOperator
       do
@@ -1935,6 +1937,14 @@ template DsoRules with
         forA_ (TextMap.toList svOperatorRewardStateCids) $ \(svName, rewardStateCid) ->
           unless (svName `TextMap.member` instruction.svRightOwners) $
             void $ fetchAndArchive (ForSv with dso; svName) rewardStateCid
+        forA_ (TextMap.toList offboardedSvRewardStateCids) $ \(svName, rewardStateCid) -> do
+          require "SvRewardState must belong to an offboarded SV" $
+            any (\info -> info.name == svName) (Map.values offboardedSvs)
+          require "SvRewardState must not belong to an SV node operator" $
+            not (svName `Set.member` getSvOperatorNames this)
+          require "SvRewardState must not belong to an SV right owner" $
+            not (svName `TextMap.member` instruction.svRightOwners)
+          void $ fetchAndArchive (ForSv with dso; svName) rewardStateCid
         svRightOwners <- forA (TextMap.toList instruction.svRightOwners) $ \(name, info) -> do
           svRightOwner <- create SvRightOwner with dso; name; info
           -- Reuse the reward state of the SV node operator of the same name to preserve the round it last minted for.
