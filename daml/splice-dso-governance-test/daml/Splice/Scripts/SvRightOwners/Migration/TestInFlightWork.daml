@@ -31,5 +31,6 @@ test_shouldAllowAnInFlightMigrationInstructionToExpireAfterItsDeadline = withLeg
 
   expireMigration net net.sv1.party instruction >>= shouldBeRejected "Ledger time is strictly before deadline"
   instructionExpiresAt net instruction >>= setTime
+  rewardStatesForSvOperators net >>= migrate net instruction >>= shouldBeRejected "Ledger time is at or past deadline 'migrateToOnLedgerSvRightOwnersInstruction.expiresAt'"
   expireMigration net net.sv1.party instruction >>= shouldSucceed
   expectArchived net instruction
