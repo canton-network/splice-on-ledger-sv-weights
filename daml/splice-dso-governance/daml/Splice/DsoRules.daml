@@ -2044,8 +2044,7 @@ template DsoRules with
         _ <- fetchAndArchive forSv svRightOwnerCid
         -- We archive the reward state together with the SV right owner to avoid having to track
         -- removed SV right owners just to prevent them from minting the same round twice.
-        -- Re-adding a right owner under the same name could thus mint its rewards twice for the
-        -- round in which it is re-added, which we accept as doing so that quickly is unrealistic.
+        -- A right owner re-added under the same name starts after the latest usable round, so it cannot mint a round twice.
         _ <- fetchAndArchive forSv svRewardStateCid
         newDsoRules <- create this with
           svRightOwners = Set.delete instruction.name <$> svRightOwners
