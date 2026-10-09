@@ -36,6 +36,7 @@ test_shouldMigrateOneLegacyOperatorToSeveralRightOwners = withLegacyWeights $ \n
   migrate net instruction rewardStates >>= shouldSucceed
 
   svRightOwnerNamesInDsoRules net `shouldReturn` ["sv1", "sv2-a", "sv2-b", "sv3", "sv4"]
+  (map (\owner -> (owner.name, svRightOwnerInfo owner)) <$> svRightOwners net) `shouldReturn` TextMap.toList splitOwners
   svRewardStateNames net `shouldReturn` ["sv1", "sv2-a", "sv2-b", "sv3", "sv4"]
   svNodeOperatorWeights net `shouldReturn` [0, 0, 0, 0]
 
