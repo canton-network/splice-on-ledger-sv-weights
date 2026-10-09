@@ -39,6 +39,7 @@ test_MigrateToOnLedgerSvRightOwners = do
       instructionCid
       openMiningRoundTriple
       svOperatorRewardStateCids
+      offboardedSvRewardStateCids = TextMap.empty
       svOperator = sv1
 
   [(_, dsoRules)] <- query @DsoRules dso
@@ -69,6 +70,7 @@ test_PurgeStaleSvRewardStates = do
       instructionCid
       openMiningRoundTriple
       svOperatorRewardStateCids
+      offboardedSvRewardStateCids = TextMap.empty
       svOperator = sv2
 
   svSubmits app sv2 $ \dsoRulesCid ->
@@ -137,6 +139,7 @@ test_MigrateNonOneToOneSvRightOwners = do
       instructionCid
       openMiningRoundTriple
       svOperatorRewardStateCids
+      offboardedSvRewardStateCids = TextMap.empty
       svOperator = sv1
 
   [(sv3RewardStateCidAfter, sv3RewardStateAfter)] <-
@@ -181,6 +184,7 @@ test_ExpireMigrateToOnLedgerSvRightOwnersInstruction = do
       instructionCid
       openMiningRoundTriple
       svOperatorRewardStateCids
+      offboardedSvRewardStateCids = TextMap.empty
       svOperator = sv1
 
   svSubmits app sv1 $ \dsoRulesCid ->
