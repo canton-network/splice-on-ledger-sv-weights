@@ -34,3 +34,16 @@ test_shouldLeaveNoOrphanedRewardStateAfterMigration = withLegacyWeights $ \net -
   migrate net instruction rewardStates >>= shouldSucceed
 
   svRewardStateNames net `shouldReturn` ["sv1", "sv2-owner", "sv3", "sv4"]
+
+test_shouldArchiveTheLeftoverRewardStateOfAnSvOffboardedBeforeMigration = withLegacyWeights $ \net -> do
+  sv1RewardState <- svRewardStateCidFor net "sv1"
+  sv4RewardState <- svRewardStateCidFor net "sv4"
+  offboardSvNodeOperator net net.sv4
+  owners <- svRightOwnerInfosFromOperators net.app
+  instruction <- instructionRecordedBy net $ requestMigration net owners >>= shouldSucceed
+  rewardStates <- rewardStatesForSvOperators net
+
+  migratePurgingOffboarded net instruction rewardStates (TextMap.fromList [("sv1", sv1RewardState)]) >>= shouldBeRejected "SvRewardState must belong to an offboarded SV"
+  migratePurgingOffboarded net instruction rewardStates (TextMap.fromList [("sv4", sv4RewardState)]) >>= shouldSucceed
+
+  expectArchived net sv4RewardState
