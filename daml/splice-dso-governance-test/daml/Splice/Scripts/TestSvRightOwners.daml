@@ -20,6 +20,21 @@ import Splice.DsoRules
 import Splice.Types
 import Splice.Scripts.DsoTestUtils
 import Splice.Scripts.Util
+import Splice.Scripts.SvRightOwners.Util.Fixture
+  ( attempt
+  , shouldBeRejected
+  , shouldReturn
+  , shouldSucceed
+  , svRewardStateCidFor
+  , svRewardStateNames
+  , svRightOwnerInfo
+  , withOnLedgerWeights
+  )
+import Splice.Scripts.SvRightOwners.Util.Governance
+  ( executeUpdate
+  , offboardSvNodeOperator
+  , voteToUpdate
+  )
 
 -- | Migrate the SV node operators of the test network to SV right owners of the same name.
 test_MigrateToOnLedgerSvRightOwners : Script ()
@@ -109,6 +124,22 @@ test_PurgeStaleSvRewardStatesRejectsActiveSv = do
 
   [_] <- queryFilter @SvRewardState dso (\state -> state.svName == "sv1")
   pure()
+
+test_PurgeStaleSvRewardStatesRejectsLiveRightOwnerOfOffboardedOperator : Script ()
+test_PurgeStaleSvRewardStatesRejectsLiveRightOwnerOfOffboardedOperator = withOnLedgerWeights $ \net -> do
+  let owner = net.genesisOwner
+      movedOwner = owner with hostedBy = net.sv2
+  update <- voteToUpdate net owner.name (svRightOwnerInfo owner) (svRightOwnerInfo movedOwner)
+  executeUpdate net net.sv2.party update >>= shouldSucceed
+  offboardSvNodeOperator net net.sv1
+
+  rewardState <- svRewardStateCidFor net owner.name
+  attempt net net.sv2.party (\dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_PurgeStaleSvRewardStates with
+      offboardedSvRewardStateCids = TextMap.fromList [(owner.name, rewardState)]
+      sv = Some net.sv2.party) >>= shouldBeRejected "SvRewardState must not belong to a live SV right owner"
+
+  svRewardStateNames net `shouldReturn` [owner.name]
 
 test_MigrateNonOneToOneSvRightOwners : Script ()
 test_MigrateNonOneToOneSvRightOwners = do
