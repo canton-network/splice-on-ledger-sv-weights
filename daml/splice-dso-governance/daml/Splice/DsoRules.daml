@@ -1752,6 +1752,8 @@ template DsoRules with
         forA_ (TextMap.toList offboardedSvRewardStateCids) $ \(svName, rewardStateCid) -> do
           require "SvRewardState must belong to an offboarded SV" $
             any (\info -> info.name == svName) (Map.values offboardedSvs)
+          require "SvRewardState must not belong to a live SV right owner" $
+            svName `Set.notMember` getSvRightOwners this
           void $ fetchAndArchive (ForSv with dso; svName) rewardStateCid
         pure DsoRules_PurgeStaleSvRewardStatesResult
 
