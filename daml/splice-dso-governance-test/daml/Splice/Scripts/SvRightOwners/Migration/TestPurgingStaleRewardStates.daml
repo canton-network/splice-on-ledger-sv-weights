@@ -20,7 +20,7 @@ test_shouldPurgeTheStaleRewardStateOfAnOffboardedSvOnlyAfterMigration = withLega
 
   migrateDefault net
 
-  svRewardStateCidFor net "sv1" >>= purge net "sv1" >>= shouldBeRejected "SvRewardState must belong to an offboarded SV"
+  svRewardStateCidFor net "sv1" >>= purge net "sv1" >>= shouldBeRejected "Leftover SvRewardState of offboarded SV \"sv1\" must belong to an SV in offboardedSvs"
   purge net "sv4" staleRewardState >>= shouldSucceed
   expectArchived net staleRewardState
 

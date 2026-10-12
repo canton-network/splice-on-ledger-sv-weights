@@ -43,7 +43,7 @@ test_shouldArchiveTheLeftoverRewardStateOfAnSvOffboardedBeforeMigration = withLe
   instruction <- instructionRecordedBy net $ requestMigration net owners >>= shouldSucceed
   rewardStates <- rewardStatesForSvOperators net
 
-  migratePurgingOffboarded net instruction rewardStates (TextMap.fromList [("sv1", sv1RewardState)]) >>= shouldBeRejected "SvRewardState must belong to an offboarded SV"
+  migratePurgingOffboarded net instruction rewardStates (TextMap.fromList [("sv1", sv1RewardState)]) >>= shouldBeRejected "Leftover SvRewardState of offboarded SV \"sv1\" must belong to an SV in offboardedSvs"
   migratePurgingOffboarded net instruction rewardStates (TextMap.fromList [("sv4", sv4RewardState)]) >>= shouldSucceed
 
   expectArchived net sv4RewardState
