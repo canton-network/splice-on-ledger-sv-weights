@@ -32,12 +32,13 @@ instance HasCheckedFetch SvRightOwner ForDso where
 data SvRightOwnerInfo = SvRightOwnerInfo
   with
     rightOwnerParty : Party
+      -- ^ The party of the SV right owner; receives the rewards not shared with beneficiaries.
     rewardWeight : Int
       -- ^ The weight of an SV Right Owner for reward minting
     rewardNodeOperatorName : Text
       -- ^ Name of the SV node operator through which rewards are minted.
     beneficiaries : Map Party BeneficiaryInfo
-      -- ^ List of beneficiaries and their percentages for reward distribution. Must not include the right owner's party. Remainder goes to right owner.
+      -- ^ Map of beneficiaries and their percentages for reward distribution. Must not include the right owner's party. Remainder goes to right owner.
       -- At most 20 beneficiaries are allowed to bound the number of coupons minted per round.
   deriving (Eq, Show)
 
