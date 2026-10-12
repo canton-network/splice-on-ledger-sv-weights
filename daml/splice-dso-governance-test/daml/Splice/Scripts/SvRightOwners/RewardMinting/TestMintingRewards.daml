@@ -6,6 +6,7 @@ module Splice.Scripts.SvRightOwners.RewardMinting.TestMintingRewards where
 import DA.Action (replicateA_)
 import DA.Assert ((===))
 import DA.List (last, sort)
+import qualified DA.TextMap as TextMap
 
 import Daml.Script
 
@@ -95,3 +96,7 @@ test_shouldMoveAnSvRightOwnersRewardStateOnlyByMinting = withTwoSvRightOwners $ 
     lastRoundCollected = round2.round
     numRoundsCollected = stateBefore.numRoundsCollected + 1
     numCouponsIssued = stateBefore.numCouponsIssued + 2
+
+test_shouldRefuseMintingForSvRightOwnersUnderLegacyWeightManagement = withLegacyWeights $ \net -> do
+  [_, (openRoundCid, _)] <- getOpenRoundsSorted net.app
+  mintWith net net.sv1.party openRoundCid TextMap.empty >>= shouldBeRejected "svRightOwners are tracked on-ledger"

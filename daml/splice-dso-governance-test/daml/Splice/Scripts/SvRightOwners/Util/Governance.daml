@@ -110,7 +110,9 @@ offboardSvNodeOperator : Network -> Operator -> Script ()
 offboardSvNodeOperator net operator = passVote net $ SRARC_OffboardSv DsoRules_OffboardSv with sv = operator.party
 
 passVote : Network -> DsoRules_ActionRequiringConfirmation -> Script ()
-passVote net dsoAction = DsoTestUtils.initiateAndAcceptVote net.app (svParties net) ARC_DsoRules with dsoAction
+passVote net dsoAction = do
+  (_, rules) <- currentDsoRules net
+  DsoTestUtils.initiateAndAcceptVote net.app (Map.keys rules.svs) ARC_DsoRules with dsoAction
 
 openVote : Network -> DsoRules_ActionRequiringConfirmation -> Script (ContractId VoteRequest)
 openVote net dsoAction = DsoTestUtils.initiateAndCastVote net.app (svParties net) None ARC_DsoRules with dsoAction
