@@ -1750,7 +1750,7 @@ template DsoRules with
         requireOnLedgerSvRightOwners this
         _ <- getAndValidateSvParty this sv
         forA_ (TextMap.toList offboardedSvRewardStateCids) $ \(svName, rewardStateCid) -> do
-          require "SvRewardState must belong to an offboarded SV" $
+          require ("Leftover SvRewardState of offboarded SV " <> show svName <> " must belong to an SV in offboardedSvs") $
             any (\info -> info.name == svName) (Map.values offboardedSvs)
           require "SvRewardState must not belong to a live SV right owner" $
             svName `Set.notMember` getSvRightOwners this
@@ -1923,6 +1923,8 @@ template DsoRules with
           -- ^ Determines the latest usable round. SV right owners without an SV node operator of the same name start collecting in the round thereafter, as that operator may already have minted for it.
         svOperatorRewardStateCids : TextMap (ContractId SvRewardState)
           -- ^ The `SvRewardState` contracts of the SV node operators, keyed by the operator's name.
+        offboardedSvRewardStateCids : TextMap (ContractId SvRewardState)
+          -- ^ Leftover `SvRewardState` contracts of offboarded SVs to archive, keyed by the SV's name. Must be disjoint from `svOperatorRewardStateCids` and from the SV right owners of the instruction.
         svOperator : Party
       controller svOperator
       do
@@ -1937,6 +1939,14 @@ template DsoRules with
         forA_ (TextMap.toList svOperatorRewardStateCids) $ \(svName, rewardStateCid) ->
           unless (svName `TextMap.member` instruction.svRightOwners) $
             void $ fetchAndArchive (ForSv with dso; svName) rewardStateCid
+        forA_ (TextMap.toList offboardedSvRewardStateCids) $ \(svName, rewardStateCid) -> do
+          require ("Leftover SvRewardState of offboarded SV " <> show svName <> " must belong to an SV in offboardedSvs") $
+            any (\info -> info.name == svName) (Map.values offboardedSvs)
+          require ("Leftover SvRewardState of offboarded SV " <> show svName <> " must not belong to a current SV node operator") $
+            not (svName `Set.member` getSvOperatorNames this)
+          require ("Leftover SvRewardState of offboarded SV " <> show svName <> " must not belong to an SV right owner of the migration") $
+            not (svName `TextMap.member` instruction.svRightOwners)
+          void $ fetchAndArchive (ForSv with dso; svName) rewardStateCid
         svRightOwners <- forA (TextMap.toList instruction.svRightOwners) $ \(name, info) -> do
           svRightOwner <- create SvRightOwner with dso; name; info
           -- Reuse the reward state of the SV node operator of the same name to preserve the round it last minted for.
