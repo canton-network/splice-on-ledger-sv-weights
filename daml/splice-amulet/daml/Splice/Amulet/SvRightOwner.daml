@@ -5,11 +5,11 @@ module Splice.Amulet.SvRightOwner where
 
 import Prelude hiding (all, sum)
 
-import DA.Foldable (all, sum)
+import DA.Foldable (forA_, all, sum)
 import DA.Map (Map)
 import qualified DA.Map as Map
 import Splice.Types (ForDso(..))
-import Splice.Util (HasCheckedFetch(..), Patchable(..), patchScalar)
+import Splice.Util (HasCheckedFetch(..), Patchable(..), patchScalar, require)
 
 -- | An SV right owner, i.e., an entity that owns SV rights and thereby earns SV rewards.
 --
@@ -62,14 +62,21 @@ instance Patchable BeneficiaryInfo where
     with
       rewardRatio = patchScalar new.rewardRatio base.rewardRatio current.rewardRatio
 
-validSvRightOwnerInfo : SvRightOwnerInfo -> Bool
-validSvRightOwnerInfo SvRightOwnerInfo{..} = and
-  [ rewardWeight >= 0
-  , all ((> 0.0) . rewardRatio) beneficiaries
-  , sum (fmap (.rewardRatio) beneficiaries) <= 1.0
-  , not $ Map.member rightOwnerParty beneficiaries
-  , Map.size beneficiaries <= 20
+svRightOwnerInfoChecks : [(SvRightOwnerInfo -> Bool, Text)]
+svRightOwnerInfoChecks =
+  [ (\SvRightOwnerInfo{..} -> rewardWeight >= 0, "SV right owner's reward weight is non-negative")
+  , (\SvRightOwnerInfo{..} -> all ((> 0.0) . rewardRatio) beneficiaries, "Beneficiary reward ratios are positive")
+  , (\SvRightOwnerInfo{..} -> sum (fmap (.rewardRatio) beneficiaries) <= 1.0, "Beneficiary reward ratios add up to at most 1.0")
+  , (\SvRightOwnerInfo{..} -> not $ Map.member rightOwnerParty beneficiaries, "SV right owner is not a beneficiary")
+  , (\SvRightOwnerInfo{..} -> Map.size beneficiaries <= 20, "There are at most 20 beneficiaries")
   ]
+
+validSvRightOwnerInfo : SvRightOwnerInfo -> Bool
+validSvRightOwnerInfo info = all (\(check, _) -> check info) svRightOwnerInfoChecks
+
+requireValidSvRightOwnerInfo : SvRightOwnerInfo -> Update ()
+requireValidSvRightOwnerInfo info =
+  forA_ svRightOwnerInfoChecks $ \(check, message) -> require message (check info)
 
 -- | The absolute reward weight for each party that receives rewards in the context of this SV Right Owner.
 svRewardCouponWeights : SvRightOwnerInfo -> Map Party Int
