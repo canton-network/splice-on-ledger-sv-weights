@@ -22,7 +22,7 @@ test_shouldUpdateTheSvRightOwnerWeightAndKeepItsRewardState = withTwoSvRightOwne
   updateAs net net.app.dso "no-such-owner" base base >>= shouldBeRejected "SV right owner \"no-such-owner\" exists"
   updateAs net net.app.dso newcomer.name base (base with rewardNodeOperatorName = "no-such-operator") >>= shouldBeRejected "SV right owner's node operator must exist"
   updateAs net net.app.dso newcomer.name base (base with beneficiaries = sharingWith [(firstBeneficiary, 0.6), (secondBeneficiary, 0.5)])
-    >>= shouldBeRejected "Valid SvRightOwnerInfo"
+    >>= shouldBeRejected "Beneficiaries cannot be changed through DsoRules_UpdateSvRightOwnerInfo"
   votedAt <- getTime
   (_, rules) <- currentDsoRules net
 
@@ -52,16 +52,14 @@ test_shouldMergeTheVotedFieldsWithTheSvRightOwnersConcurrentChanges = withTwoSvR
   addedLater <- allocateParty "added-later-beneficiary"
   setBeneficiaries net newcomer (sharingWith [(votedOn, 0.2)])
   let base = svRightOwnerInfo (newcomer with beneficiaries = sharingWith [(votedOn, 0.2)])
-  raise <- voteToUpdate net newcomer.name base (base with rewardWeight = tier1RewardWeight; beneficiaries = sharingWith [(votedOn, 0.5)])
-  overflow <- voteToUpdate net newcomer.name base (base with beneficiaries = sharingWith [(votedOn, 0.9)])
+  raise <- voteToUpdate net newcomer.name base (base with rewardWeight = tier1RewardWeight)
 
   setBeneficiaries net newcomer (sharingWith [(votedOn, 0.2), (addedLater, 0.3)])
 
-  executeUpdate net net.sv1.party overflow >>= shouldBeRejected "Valid SvRightOwnerInfo"
   executeUpdate net net.sv1.party raise >>= shouldSucceed
 
   svRightOwners net `shouldReturn`
-    [(newcomer with rewardWeight = tier1RewardWeight; beneficiaries = sharingWith [(votedOn, 0.5), (addedLater, 0.3)]), net.genesisOwner]
+    [(newcomer with rewardWeight = tier1RewardWeight; beneficiaries = sharingWith [(votedOn, 0.2), (addedLater, 0.3)]), net.genesisOwner]
 
 test_shouldMoveAnOrphanedSvRightOwnerToAnotherSvNodeOperatorAfterItsHostIsOffboarded = withTwoSvRightOwners $ \net newcomer -> do
   latecomer <- newSvRightOwner "latecomer" net.sv2
@@ -127,19 +125,6 @@ test_shouldLetTheSvRightOwnerRotateItsPartyAndThenOnlyTheNewPartyActForIt = with
   setBeneficiariesAs net successor rotated split >>= shouldSucceed
 
   svRightOwners net `shouldReturn` [cotenant, (rotated with beneficiaries = split), net.genesisOwner]
-
--- TODO(#61): a vote must not change the beneficiaries the owner set.
-test_shouldLetAVoteOverrideTheBeneficiariesTheSvRightOwnerSet = withTwoSvRightOwners $ \net newcomer -> do
-  ownChoice <- allocateParty "own-choice-beneficiary"
-  votedIn <- allocateParty "voted-in-beneficiary"
-  setBeneficiaries net newcomer (sharingWith [(ownChoice, 0.5)])
-  let ownSplit = newcomer with beneficiaries = sharingWith [(ownChoice, 0.5)]
-      votedSplit = newcomer with beneficiaries = sharingWith [(votedIn, 0.5)]
-  instruction <- voteToUpdate net newcomer.name (svRightOwnerInfo ownSplit) (svRightOwnerInfo votedSplit)
-
-  executeUpdate net net.sv1.party instruction >>= shouldSucceed
-
-  svRightOwners net `shouldReturn` [votedSplit, net.genesisOwner]
 
 test_shouldLetAnUpdateThatCanNoLongerSucceedOnlyExpireFromTheDeadline = withTwoSvRightOwners $ \net newcomer -> do
   let genesisBase = svRightOwnerInfo net.genesisOwner

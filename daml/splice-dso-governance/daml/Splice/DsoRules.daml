@@ -2081,11 +2081,16 @@ template DsoRules with
           -- ^ The info that this vote was created against. Only the fields that differ between
           -- `baseInfo` and `newInfo` are updated, so that concurrent changes to the other
           -- fields are preserved.
-        newInfo : SvRightOwnerInfo -- ^ The target info.
+        newInfo : SvRightOwnerInfo
+          -- ^ The target info.
+          -- Beneficiaries can't be modified using this choice.
+          -- SV Right Owners can use DsoRules_UpdateSvRightOwnerBeneficiaries instead.
       controller dso
       do
         requireOnLedgerSvRightOwners this
         requireSvRightOwnerExists this name
+        require "Beneficiaries cannot be changed through DsoRules_UpdateSvRightOwnerInfo" $
+          baseInfo.beneficiaries == newInfo.beneficiaries
         requireRewardNodeOperatorExists this newInfo
         requireValidSvRightOwnerInfo newInfo
         now <- getTime
