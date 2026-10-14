@@ -21,10 +21,10 @@ test_shouldLetOnlyTheSvRightOwnerReplaceItsBeneficiaries = withTwoSvRightOwners 
   setBeneficiariesAs net net.genesisOwner.party newcomer ownSplit >>= shouldBeRejected notOwner
   setBeneficiariesAs net cotenant.party newcomer ownSplit >>= shouldBeRejected notOwner
   setBeneficiariesAs net stranger newcomer ownSplit >>= shouldBeRejected notOwner
-  setBeneficiariesAs net newcomer.party newcomer (sharingWith [(first, 0.6), (second, 0.5)]) >>= shouldBeRejected "Valid SvRightOwnerInfo"
-  setBeneficiariesAs net newcomer.party newcomer (sharingWith [(first, 0.0)]) >>= shouldBeRejected "Valid SvRightOwnerInfo"
-  setBeneficiariesAs net newcomer.party newcomer (sharingWith [(newcomer.party, 0.1)]) >>= shouldBeRejected "Valid SvRightOwnerInfo"
-  setBeneficiariesAs net newcomer.party newcomer (sharingWith [(party, 0.01) | party <- crowd]) >>= shouldBeRejected "Valid SvRightOwnerInfo"
+  setBeneficiariesAs net newcomer.party newcomer (sharingWith [(first, 0.6), (second, 0.5)]) >>= shouldBeRejected "Beneficiary reward ratios add up to at most 1.0"
+  setBeneficiariesAs net newcomer.party newcomer (sharingWith [(first, 0.0)]) >>= shouldBeRejected "Beneficiary reward ratios are positive"
+  setBeneficiariesAs net newcomer.party newcomer (sharingWith [(newcomer.party, 0.1)]) >>= shouldBeRejected "SV right owner is not a beneficiary"
+  setBeneficiariesAs net newcomer.party newcomer (sharingWith [(party, 0.01) | party <- crowd]) >>= shouldBeRejected "There are at most 20 beneficiaries"
   setBeneficiariesAs net newcomer.party newcomer (sharingWith [(party, 0.01) | party <- take 20 crowd]) >>= shouldSucceed
   
   setBeneficiariesAs net newcomer.party newcomer ownSplit >>= shouldSucceed
