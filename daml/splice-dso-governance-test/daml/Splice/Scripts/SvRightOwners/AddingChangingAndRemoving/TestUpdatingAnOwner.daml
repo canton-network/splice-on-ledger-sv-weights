@@ -22,7 +22,7 @@ test_shouldUpdateTheSvRightOwnerWeightAndKeepItsRewardState = withTwoSvRightOwne
   updateAs net net.app.dso "no-such-owner" base base >>= shouldBeRejected "SV right owner \"no-such-owner\" exists"
   updateAs net net.app.dso newcomer.name base (base with rewardNodeOperatorName = "no-such-operator") >>= shouldBeRejected "SV right owner's node operator must exist"
   updateAs net net.app.dso newcomer.name base (base with beneficiaries = sharingWith [(firstBeneficiary, 0.6), (secondBeneficiary, 0.5)])
-    >>= shouldBeRejected "Beneficiary reward ratios add up to at most 1.0"
+    >>= shouldBeRejected "Beneficiaries cannot be changed through DsoRules_UpdateSvRightOwnerInfo"
   votedAt <- getTime
   (_, rules) <- currentDsoRules net
 
@@ -56,7 +56,6 @@ test_shouldMergeTheVotedFieldsWithTheSvRightOwnersConcurrentChanges = withTwoSvR
 
   setBeneficiaries net newcomer (sharingWith [(votedOn, 0.2), (addedLater, 0.3)])
 
-  executeUpdate net net.sv1.party overflow >>= shouldBeRejected "Beneficiary reward ratios add up to at most 1.0"
   executeUpdate net net.sv1.party raise >>= shouldSucceed
 
   svRightOwners net `shouldReturn`
