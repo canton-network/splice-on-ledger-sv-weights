@@ -2206,10 +2206,6 @@ requireRemovableSvRightOwner this name = do
   require "There is more than one SV right owner" $
     Set.size (getSvRightOwners this) > 1
 
-requireValidSvRightOwnerInfo : SvRightOwnerInfo -> Update ()
-requireValidSvRightOwnerInfo info =
-  require "Valid SvRightOwnerInfo" $ validSvRightOwnerInfo info
-
 requireRewardNodeOperatorExists : DsoRules -> SvRightOwnerInfo -> Update ()
 requireRewardNodeOperatorExists this info =
   require "SV right owner's node operator must exist" $

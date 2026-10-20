@@ -20,7 +20,7 @@ test_shouldAddAnSvRightOwnerThatFirstCollectsInTheNextRound = withOnLedgerWeight
   let unknownOperator = Operator with name = "no-such-operator"; party = net.sv2.party
   addAs net net.app.dso (newcomer with hostedBy = unknownOperator) >>= shouldBeRejected "SV right owner's node operator must exist"
   addAs net net.app.dso (newcomer with name = net.genesisOwner.name) >>= shouldBeRejected "SV right owner \"sv1\" does not exist"
-  addAs net net.app.dso (newcomer with rewardWeight = -1) >>= shouldBeRejected "Valid SvRightOwnerInfo"
+  addAs net net.app.dso (newcomer with rewardWeight = -1) >>= shouldBeRejected "SV right owner's reward weight is non-negative"
   votedAt <- getTime
   (_, rules) <- currentDsoRules net
 
