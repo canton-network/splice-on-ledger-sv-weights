@@ -22,19 +22,7 @@ test_shouldRejectAnInfoUpdateWhoseInfoIsInvalid = withOnLedgerWeights $ \net -> 
     >>= shouldBeRejected "SV right owner's reward weight is non-negative"
   updateAs net net.app.dso "sv1" info (info with
     beneficiaries = Map.fromList [(net.sv2.party, BeneficiaryInfo 1.1)])
-    >>= shouldBeRejected "Beneficiary reward ratios add up to at most 1.0"
-  updateAs net net.app.dso "sv1" info (info with
-    beneficiaries = Map.fromList [(net.sv1.party, BeneficiaryInfo 0.25)])
-    >>= shouldBeRejected "SV right owner is not a beneficiary"
-
-test_shouldRejectAnInfoUpdateWhoseMergedBeneficiaryRatiosExceedOne = withOnLedgerWeights $ \net -> do
-  let proposed = Map.fromList [(net.sv2.party, BeneficiaryInfo 0.6)]
-      current = Map.fromList [(net.sv3.party, BeneficiaryInfo 0.6)]
-      info = svRightOwnerInfo net.genesisOwner
-  instruction <- voteToUpdate net "sv1" info (info with beneficiaries = proposed)
-
-  setBeneficiaries net net.genesisOwner current
-  updateInfo net instruction "sv1" >>= shouldBeRejected "Beneficiary reward ratios add up to at most 1.0"
+    >>= shouldBeRejected "Beneficiaries cannot be changed through DsoRules_UpdateSvRightOwnerInfo"
 
 test_shouldRejectAnInfoUpdateWhoseMergedBeneficiariesIncludeItsNewRightOwner = withOnLedgerWeights $ \net -> do
   let current = Map.fromList [(net.sv2.party, BeneficiaryInfo 0.25)]
