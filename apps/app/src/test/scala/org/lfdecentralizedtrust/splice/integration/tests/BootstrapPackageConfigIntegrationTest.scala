@@ -5,6 +5,7 @@ package org.lfdecentralizedtrust.splice.integration.tests
 
 import com.digitalasset.canton.admin.api.client.data.TemplateId
 import com.digitalasset.canton.data.CantonTimestamp
+import org.lfdecentralizedtrust.splice.data.CantonTimestampExtensions.*
 import com.digitalasset.canton.topology.{ParticipantId, PartyId}
 import com.digitalasset.canton.topology.admin.grpc.TopologyStoreId
 import com.digitalasset.daml.lf.data.Ref.PackageVersion
@@ -241,6 +242,9 @@ class BootstrapPackageConfigIntegrationTest
         amuletConfig.externalPartyConfigStateTickDuration,
         amuletConfig.rewardConfig,
         amuletConfig.transferPreapprovalBaseDuration,
+        amuletConfig.developmentFundManagerBlacklist,
+        amuletConfig.minDevelopmentFundMintingDelay,
+        amuletConfig.amuletSwitchOverTimes,
       )
 
       val upgradeAction = new ARC_AmuletRules(
@@ -293,6 +297,7 @@ class BootstrapPackageConfigIntegrationTest
       env.environment.clock
         .scheduleAt(
           _ => (),
+          "wait_for_scheduled_time",
           CantonTimestamp.assertFromInstant(scheduledTime.plus(500, ChronoUnit.MILLIS)),
         )
         .unwrap
@@ -336,7 +341,7 @@ class BootstrapPackageConfigIntegrationTest
     sv2PackageVettingTrigger.resume()
 
     clue(s"Vetting state for slow sv is updated after the trigger runs, and alice sees it") {
-      eventually() {
+      eventually(timeUntilSuccess = 2.minutes) {
         vettingIsUpdatedForTheNewConfig(
           aliceValidatorBackend.participantClient,
           sv2Backend.participantClient.id,
@@ -391,6 +396,9 @@ class BootstrapPackageConfigIntegrationTest
         amuletConfig.externalPartyConfigStateTickDuration,
         amuletConfig.rewardConfig,
         amuletConfig.transferPreapprovalBaseDuration,
+        amuletConfig.developmentFundManagerBlacklist,
+        amuletConfig.minDevelopmentFundMintingDelay,
+        amuletConfig.amuletSwitchOverTimes,
       )
 
       val upgradeAction = new ARC_AmuletRules(

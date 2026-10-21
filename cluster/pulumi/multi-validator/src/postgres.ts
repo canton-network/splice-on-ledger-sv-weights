@@ -3,27 +3,22 @@
 import * as pulumi from '@pulumi/pulumi';
 import {
   activeVersion,
-  appsAffinityAndTolerations,
+  appsKubernetesScheduling,
   CnInput,
   ExactNamespace,
   spliceConfig,
   standardStorageClassName,
 } from '@canton-network/splice-pulumi-common';
+import { MultiValidatorConfig } from '@canton-network/splice-pulumi-common/src/config/multiValidatorConfig';
 import { installSplicePostgres, Postgres } from '@canton-network/splice-pulumi-common/src/postgres';
-
-import { multiValidatorConfig } from './config';
 
 export function installPostgres(
   xns: ExactNamespace,
   name: string,
+  config: MultiValidatorConfig,
   dependsOn: CnInput<pulumi.Resource>[]
 ): Postgres {
   const secretName = `${name}-secret`;
-
-  if (!multiValidatorConfig) {
-    throw new Error('multiValidator config must be set when they are enabled');
-  }
-  const config = multiValidatorConfig!;
 
   return installSplicePostgres(
     xns,
@@ -40,10 +35,10 @@ export function installPostgres(
         pvcTemplateName: 'pg-data-hd',
       },
       resources: config.resources?.postgres,
-      appsAffinityAndTolerations,
+      appsAffinityAndTolerations: appsKubernetesScheduling,
     },
     true, // overrideDbSizeFromValues
-    false, // useInfraAffinityAndTolerations
+    false, // useinfraKubernetesScheduling
     {
       dependsOn,
       ...(spliceConfig.pulumiProjectConfig.replacePostgresStatefulSetOnChanges

@@ -222,6 +222,14 @@ class S3BucketConnection(
     private val parts = TrieMap.empty[Integer, CompletedPart]
     private val md = MessageDigest.getInstance("SHA-256")
 
+    /** The checksum of the whole object. Computing it via a `lazy val` to support idempotent `finish()` calls.
+      */
+    private lazy val objectChecksum: String = Base64.getEncoder.encodeToString(md.digest())
+
+    /** `lazy val` to ensure that multi-part upload is completed at most once.
+      */
+    private lazy val finishResult: Future[Unit] = doFinish()
+
     /** Call this once before uploading a new part.
       *  The content must already be provided for checksums, but will not be uploaded yet.
       */
@@ -273,7 +281,29 @@ class S3BucketConnection(
       }
     }
 
-    def finish(): Future[Unit] = {
+    /** Completes the multi-part upload and stores the object checksum in the object's metadata.
+      * Idempotent, safe to call more than once (will just return the Future from the first call again).
+      */
+    def finish(): Future[Unit] = finishResult
+
+    /** Aborts the multi-part upload, discarding all uploaded parts. The object never becomes visible.
+      */
+    def abort(): Future[Unit] =
+      for {
+        id <- uploadId
+        _ <- s3Client
+          .abortMultipartUpload(
+            AbortMultipartUploadRequest
+              .builder()
+              .bucket(bucketName)
+              .key(key)
+              .uploadId(id)
+              .build()
+          )
+          .asScala
+      } yield ()
+
+    private def doFinish(): Future[Unit] = {
       require(numParts.get() > 0)
       require(
         parts.size == numParts.get(),
@@ -297,7 +327,7 @@ class S3BucketConnection(
         _ <- s3Client.completeMultipartUpload(completeRequest).asScala
 
         // Copy-in-place of the object to add the final checksum to its metadata
-        metadata = Map("splice-checksum" -> Base64.getEncoder.encodeToString(md.digest()))
+        metadata = Map("splice-checksum" -> objectChecksum)
 
         copyReq = CopyObjectRequest
           .builder()

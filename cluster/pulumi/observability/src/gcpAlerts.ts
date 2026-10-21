@@ -60,6 +60,25 @@ function getAlertStrategy(notificationChannel: gcp.monitoring.NotificationChanne
   };
 }
 
+type AlertPolicyBaseArgs = Pick<
+  gcp.monitoring.AlertPolicyArgs,
+  'alertStrategy' | 'combiner' | 'notificationChannels' | 'userLabels'
+>;
+
+// Arguments shared by all our alert policies: same notification channel, same
+// strategy, and the cluster label that alert routing filters on.
+function getAlertPolicyBaseArgs(
+  notificationChannel: gcp.monitoring.NotificationChannel
+): AlertPolicyBaseArgs {
+  return {
+    alertStrategy: getAlertStrategy(notificationChannel),
+    combiner: 'OR',
+    notificationChannels: [notificationChannel.name],
+    userLabels: { cluster: CLUSTER_BASENAME },
+    // severity: 'SEVERITY_UNSPECIFIED', // "Policy Severity Level"
+  };
+}
+
 export function installGcpLoggingAlerts(
   notificationChannel: gcp.monitoring.NotificationChannel
 ): void {
@@ -325,16 +344,7 @@ export function installGcpQuotaAlerts(
   const rollingWindowDuration = `${rollingWindowSeconds}s`;
   const retestWindowDuration = `${retestWindowSeconds}s`;
 
-  const baseArgs: Pick<
-    gcp.monitoring.AlertPolicyArgs,
-    'alertStrategy' | 'combiner' | 'notificationChannels' | 'userLabels'
-  > = {
-    alertStrategy: getAlertStrategy(notificationChannel),
-    combiner: 'OR',
-    notificationChannels: [notificationChannel.name],
-    userLabels: { cluster: CLUSTER_BASENAME },
-    // severity: 'SEVERITY_UNSPECIFIED', // "Policy Severity Level"
-  };
+  const baseArgs = getAlertPolicyBaseArgs(notificationChannel);
 
   new gcp.monitoring.AlertPolicy('quotaExceededAlert', {
     ...baseArgs,
@@ -444,15 +454,7 @@ export function installNatAlerts(
   notificationChannel: gcp.monitoring.NotificationChannel,
   natConfig: NatPortUsageConfig
 ): void {
-  const baseArgs: Pick<
-    gcp.monitoring.AlertPolicyArgs,
-    'alertStrategy' | 'combiner' | 'notificationChannels' | 'userLabels'
-  > = {
-    alertStrategy: getAlertStrategy(notificationChannel),
-    combiner: 'OR',
-    notificationChannels: [notificationChannel.name],
-    userLabels: { cluster: CLUSTER_BASENAME },
-  };
+  const baseArgs = getAlertPolicyBaseArgs(notificationChannel);
 
   const prometheusDefaults = {
     duration: '0s',

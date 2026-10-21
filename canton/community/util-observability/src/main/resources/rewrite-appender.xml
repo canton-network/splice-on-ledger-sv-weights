@@ -101,10 +101,12 @@
             <testing>true</testing>
         </rewrite>
 
+        <!-- Expected error when the JSON Ledger API rejects an oversized request body; used for JsonMaxInboundMessageSizeTest -->
         <rewrite class="com.digitalasset.canton.logging.Rewrite">
-            <logger>org.flywaydb.core.Flyway</logger>
+            <logger>org.apache.pekko.actor.ActorSystemImpl</logger>
             <maxLevel>INFO</maxLevel>
-            <contains>cleanOnValidationError is deprecated and will be removed in a later release</contains>
+            <contains>Error during processing of request</contains>
+            <contains>exceeded size limit</contains>
             <testing>true</testing>
         </rewrite>
 
@@ -340,12 +342,74 @@
             <testing>true</testing>
         </rewrite>
 
-        <!-- TODO(#31008) remove this rule, once the cache metrics are properly closed again -->
+        <!-- Warnings emitted by caffeine when refreshAfterWrite triggers and the reload fails -->
         <rewrite class="com.digitalasset.canton.logging.Rewrite">
-            <logger>io.opentelemetry.sdk.metrics.internal.state.AsynchronousMetricStorage</logger>
+            <logger>
+                com.github.benmanes.caffeine.cache.BoundedLocalCache
+            </logger>
+            <contains>Exception thrown during refresh</contains>
             <maxLevel>INFO</maxLevel>
             <testing>true</testing>
         </rewrite>
 
+        <!-- Need to silence this in tests, as it cannot be intercepted.
+        -->
+        <rewrite class="com.digitalasset.canton.logging.Rewrite">
+            <logger>com.digitalasset.daml.lf</logger>
+            <contains>LF internal error in</contains>
+            <maxLevel>INFO</maxLevel>
+            <testing>true</testing>
+        </rewrite>
+        <rewrite class="com.digitalasset.canton.logging.Rewrite">
+            <logger>com.digitalasset.daml.lf</logger>
+            <contains>root cause:</contains>
+            <maxLevel>INFO</maxLevel>
+            <testing>true</testing>
+        </rewrite>
+
+    <!-- TODO(#33883) remove when shutdown order of TEA has been cleaned up -->
+        <rewrite class="com.digitalasset.canton.logging.Rewrite">
+            <logger>io.grpc.netty.shaded.io.netty.channel.ChannelInitializer</logger>
+            <maxLevel>INFO</maxLevel>
+            <testing>true</testing>
+        </rewrite>
+
+        <rewrite class="com.digitalasset.canton.logging.Rewrite">
+            <logger>org.apache.pekko.stream.scaladsl.RestartWithBackoffSource</logger>
+            <contains>Ledger API offset dispatcher is not running</contains>
+            <maxLevel>INFO</maxLevel>
+            <testing>true</testing>
+        </rewrite>
+
+        <!-- TeaProjectionTest feeds the projection a delta it cannot apply, so pekko-projection reports the
+             rejection on its own logger, which canton's log suppression does not reach. The in-memory backend
+             fails immediately and attaches the cause, the slick backend retries first and inlines it instead. -->
+        <rewrite class="com.digitalasset.canton.logging.Rewrite">
+            <logger>org.apache.pekko.projection.testkit.internal.TestInternalProjectionState</logger>
+            <exceptionMessage>TRAFFIC_UPDATE_OUT_OF_BOUND</exceptionMessage>
+            <maxLevel>INFO</maxLevel>
+            <testing>true</testing>
+        </rewrite>
+        <rewrite class="com.digitalasset.canton.logging.Rewrite">
+            <logger>org.apache.pekko.projection.slick.internal.SlickProjectionImpl$SlickInternalProjectionState</logger>
+            <exceptionMessage>TRAFFIC_UPDATE_OUT_OF_BOUND</exceptionMessage>
+            <maxLevel>INFO</maxLevel>
+            <testing>true</testing>
+        </rewrite>
+        <rewrite class="com.digitalasset.canton.logging.Rewrite">
+            <logger>org.apache.pekko.projection.slick.internal.SlickProjectionImpl$SlickInternalProjectionState</logger>
+            <contains>TRAFFIC_UPDATE_OUT_OF_BOUND</contains>
+            <maxLevel>INFO</maxLevel>
+            <testing>true</testing>
+        </rewrite>
+
+        <!-- TODO(#27260) Remove this rewrite rule when SequencerAggregatorPekko is removed or cleaned up
+        -->
+        <rewrite class="com.digitalasset.canton.logging.Rewrite">
+            <logger>com.digitalasset.canton.sequencing.SequencerAggregatorPekko</logger>
+            <contains>Sequencer subscriptions have diverged and cannot reach the threshold</contains>
+            <maxLevel>INFO</maxLevel>
+            <testing>true</testing>
+        </rewrite>
    </appender>
 </included>

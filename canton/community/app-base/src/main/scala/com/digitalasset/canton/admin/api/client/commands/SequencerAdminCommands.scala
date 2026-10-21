@@ -20,6 +20,8 @@ import com.digitalasset.canton.admin.pruning.v30 as pruningProto
 import com.digitalasset.canton.admin.sequencer.v30 as sequencerProto
 import com.digitalasset.canton.config.RequireTypes.{NonNegativeLong, PositiveInt}
 import com.digitalasset.canton.data.CantonTimestamp
+import com.digitalasset.canton.logging.ErrorLoggingContext
+import com.digitalasset.canton.protocol.StaticSynchronizerParameters as InternalSsp
 import com.digitalasset.canton.sequencer.admin.v30 as proto
 import com.digitalasset.canton.sequencer.admin.v30.SequencerAdministrationServiceGrpc
 import com.digitalasset.canton.sequencing.protocol.{SubmissionRequestType, TrafficState}
@@ -33,16 +35,16 @@ import com.digitalasset.canton.synchronizer.sequencer.traffic.{
 import com.digitalasset.canton.synchronizer.sequencer.{SequencerPruningStatus, SequencerSnapshot}
 import com.digitalasset.canton.time.NonNegativeFiniteDuration
 import com.digitalasset.canton.topology.MediatorGroup.MediatorGroupIndex
-import com.digitalasset.canton.topology.{Member, SequencerId}
-import com.digitalasset.canton.util.{GrpcStreamingUtils, ResourceUtil}
-import com.digitalasset.canton.version.ProtocolVersion
+import com.digitalasset.canton.topology.{Member, SequencerId, SynchronizerId}
+import com.digitalasset.canton.util.GrpcStreamingUtils
+import com.digitalasset.canton.version.{ProtoVersion, ProtocolVersion, ReleaseVersion}
 import com.google.protobuf.ByteString
 import io.grpc.Context.CancellableContext
 import io.grpc.stub.StreamObserver
-import io.grpc.{Context, ManagedChannel}
+import io.grpc.{Context, ManagedChannel, Status}
 
-import java.io.{ByteArrayInputStream, InputStream}
-import scala.concurrent.Future
+import java.io.InputStream
+import scala.concurrent.{ExecutionContext, Future}
 
 object SequencerAdminCommands {
 
@@ -248,9 +250,11 @@ object SequencerAdminCommands {
     "Use InitializeFromOnboardingStateV2 instead",
     since = "3.5",
   )
-  final case class InitializeFromOnboardingState(onboardingState: ByteString)
-      extends GrpcAdminCommand[
-        proto.InitializeSequencerFromOnboardingStateRequest,
+  final case class InitializeFromOnboardingState(onboardingStateStream: InputStream)(implicit
+      ec: ExecutionContext,
+      loggingContext: ErrorLoggingContext,
+  ) extends GrpcAdminCommand[
+        Unit,
         proto.InitializeSequencerFromOnboardingStateResponse,
         InitializeSequencerResponse,
       ] {
@@ -264,20 +268,18 @@ object SequencerAdminCommands {
 
     override protected def submitRequest(
         service: proto.SequencerInitializationServiceGrpc.SequencerInitializationServiceStub,
-        request: proto.InitializeSequencerFromOnboardingStateRequest,
+        request: Unit,
     ): Future[proto.InitializeSequencerFromOnboardingStateResponse] =
       GrpcStreamingUtils.streamToServer(
         service.initializeSequencerFromOnboardingState,
-        (onboardingState: Array[Byte]) =>
+        (onboardingState: ByteString) =>
           proto.InitializeSequencerFromOnboardingStateRequest(
-            ByteString.copyFrom(onboardingState)
+            onboardingState
           ),
-        new ByteArrayInputStream(request.onboardingState.toByteArray),
+        onboardingStateStream,
       )
 
-    override protected def createRequest()
-        : Either[String, proto.InitializeSequencerFromOnboardingStateRequest] =
-      Right(proto.InitializeSequencerFromOnboardingStateRequest(onboardingState = onboardingState))
+    override protected def createRequest(): Either[String, Unit] = Right(())
 
     override protected def handleResponse(
         response: proto.InitializeSequencerFromOnboardingStateResponse
@@ -287,9 +289,11 @@ object SequencerAdminCommands {
     override def timeoutType: TimeoutType = DefaultUnboundedTimeout
   }
 
-  final case class InitializeFromOnboardingStateV2(onboardingState: ByteString)
-      extends GrpcAdminCommand[
-        proto.InitializeSequencerFromOnboardingStateV2Request,
+  final case class InitializeFromOnboardingStateV2(onboardingStateStream: InputStream)(implicit
+      ec: ExecutionContext,
+      loggingContext: ErrorLoggingContext,
+  ) extends GrpcAdminCommand[
+        Unit,
         proto.InitializeSequencerFromOnboardingStateV2Response,
         InitializeSequencerResponse,
       ] {
@@ -303,22 +307,18 @@ object SequencerAdminCommands {
 
     override protected def submitRequest(
         service: proto.SequencerInitializationServiceGrpc.SequencerInitializationServiceStub,
-        request: proto.InitializeSequencerFromOnboardingStateV2Request,
+        request: Unit,
     ): Future[proto.InitializeSequencerFromOnboardingStateV2Response] =
       GrpcStreamingUtils.streamToServer(
         service.initializeSequencerFromOnboardingStateV2,
-        (onboardingState: Array[Byte]) =>
+        (onboardingState: ByteString) =>
           proto.InitializeSequencerFromOnboardingStateV2Request(
-            ByteString.copyFrom(onboardingState)
+            onboardingState
           ),
-        new ByteArrayInputStream(request.onboardingState.toByteArray),
+        onboardingStateStream,
       )
 
-    override protected def createRequest()
-        : Either[String, proto.InitializeSequencerFromOnboardingStateV2Request] =
-      Right(
-        proto.InitializeSequencerFromOnboardingStateV2Request(onboardingState)
-      )
+    override protected def createRequest(): Either[String, Unit] = Right(())
 
     override protected def handleResponse(
         response: proto.InitializeSequencerFromOnboardingStateV2Response
@@ -333,10 +333,12 @@ object SequencerAdminCommands {
     since = "3.5",
   )
   final case class InitializeFromGenesisState(
-      topologySnapshot: ByteString,
-      synchronizerParameters: com.digitalasset.canton.protocol.StaticSynchronizerParameters,
-  ) extends GrpcAdminCommand[
-        proto.InitializeSequencerFromGenesisStateRequest,
+      topologySnapshotStream: InputStream,
+      synchronizerParameters: InternalSsp,
+      serverVersion: Option[ReleaseVersion],
+  )(implicit ec: ExecutionContext, loggingContext: ErrorLoggingContext)
+      extends GrpcAdminCommand[
+        Unit,
         proto.InitializeSequencerFromGenesisStateResponse,
         InitializeSequencerResponse,
       ] {
@@ -350,26 +352,38 @@ object SequencerAdminCommands {
 
     override protected def submitRequest(
         service: proto.SequencerInitializationServiceGrpc.SequencerInitializationServiceStub,
-        request: proto.InitializeSequencerFromGenesisStateRequest,
-    ): Future[proto.InitializeSequencerFromGenesisStateResponse] =
+        request: Unit,
+    ): Future[proto.InitializeSequencerFromGenesisStateResponse] = {
+      val parameters = synchronizerParameters.protoVersion match {
+        case ProtoVersion(30) =>
+          proto.InitializeSequencerFromGenesisStateRequest.Parameters.V30(
+            synchronizerParameters.toProtoV30
+          )
+        case ProtoVersion(31) =>
+          proto.InitializeSequencerFromGenesisStateRequest.Parameters.V31(
+            synchronizerParameters.toProtoV31
+          )
+        case other =>
+          throw Status.INTERNAL
+            .withDescription(
+              s"Cannot serialize StaticSynchronizerParameters to proto version $other"
+            )
+            .asRuntimeException()
+      }
+
       GrpcStreamingUtils.streamToServer(
         service.initializeSequencerFromGenesisState,
-        (topologySnapshot: Array[Byte]) =>
+        (topologySnapshot: ByteString) =>
           proto.InitializeSequencerFromGenesisStateRequest(
-            topologySnapshot = ByteString.copyFrom(topologySnapshot),
-            synchronizerParameters = Some(synchronizerParameters.toProtoV30),
+            topologySnapshot = topologySnapshot,
+            parameters = parameters,
           ),
-        new ByteArrayInputStream(request.topologySnapshot.toByteArray),
+        topologySnapshotStream,
       )
+    }
 
-    override protected def createRequest()
-        : Either[String, proto.InitializeSequencerFromGenesisStateRequest] =
-      Right(
-        proto.InitializeSequencerFromGenesisStateRequest(
-          topologySnapshot = topologySnapshot,
-          synchronizerParameters = Some(synchronizerParameters.toProtoV30),
-        )
-      )
+    override protected def createRequest(): Either[String, Unit] =
+      checkSspCompatibility(synchronizerParameters, serverVersion)
 
     override protected def handleResponse(
         response: proto.InitializeSequencerFromGenesisStateResponse
@@ -379,11 +393,21 @@ object SequencerAdminCommands {
     override def timeoutType: TimeoutType = DefaultUnboundedTimeout
   }
 
+  private def checkSspCompatibility(
+      synchronizerParameters: InternalSsp,
+      serverVersion: Option[ReleaseVersion],
+  ): Either[String, Unit] =
+    // Stubbed in splice
+    Either.unit
+
   final case class InitializeFromLsuPredecessor(
       topologySnapshotStream: InputStream,
-      synchronizerParameters: com.digitalasset.canton.protocol.StaticSynchronizerParameters,
+      synchronizerParameters: InternalSsp,
       ignorePsidCheck: Boolean,
-  ) extends GrpcAdminCommand[
+      synchronizerId: SynchronizerId,
+      serverVersion: Option[ReleaseVersion],
+  )(implicit ec: ExecutionContext, loggingContext: ErrorLoggingContext)
+      extends GrpcAdminCommand[
         Unit,
         proto.InitializeSequencerFromLsuPredecessorResponse,
         Unit,
@@ -399,21 +423,39 @@ object SequencerAdminCommands {
     override protected def submitRequest(
         service: proto.SequencerInitializationServiceGrpc.SequencerInitializationServiceStub,
         request: Unit,
-    ): Future[proto.InitializeSequencerFromLsuPredecessorResponse] =
-      ResourceUtil.withResource(topologySnapshotStream) { inputStream =>
-        GrpcStreamingUtils.streamToServer(
-          service.initializeSequencerFromLsuPredecessor,
-          (topologySnapshot: Array[Byte]) =>
-            proto.InitializeSequencerFromLsuPredecessorRequest(
-              topologySnapshot = ByteString.copyFrom(topologySnapshot),
-              synchronizerParameters = Some(synchronizerParameters.toProtoV30),
-              ignorePsidCheck = ignorePsidCheck,
-            ),
-          inputStream,
-        )
+    ): Future[proto.InitializeSequencerFromLsuPredecessorResponse] = {
+      val parameters = synchronizerParameters.protoVersion match {
+        case ProtoVersion(30) =>
+          proto.InitializeSequencerFromLsuPredecessorRequest.Parameters.V30(
+            synchronizerParameters.toProtoV30
+          )
+        case ProtoVersion(31) =>
+          proto.InitializeSequencerFromLsuPredecessorRequest.Parameters.V31(
+            synchronizerParameters.toProtoV31
+          )
+        case other =>
+          throw Status.INTERNAL
+            .withDescription(
+              s"Cannot serialize StaticSynchronizerParameters to proto version $other"
+            )
+            .asRuntimeException()
       }
 
-    override protected def createRequest(): Either[String, Unit] = Right(())
+      GrpcStreamingUtils.streamToServer(
+        service.initializeSequencerFromLsuPredecessor,
+        (topologySnapshot: ByteString) =>
+          proto.InitializeSequencerFromLsuPredecessorRequest(
+            topologySnapshot = topologySnapshot,
+            parameters = parameters,
+            ignorePsidCheck = ignorePsidCheck,
+            synchronizerId = synchronizerId.toProtoPrimitive,
+          ),
+        topologySnapshotStream,
+      )
+    }
+
+    override protected def createRequest(): Either[String, Unit] =
+      checkSspCompatibility(synchronizerParameters, serverVersion)
 
     override protected def handleResponse(
         response: proto.InitializeSequencerFromLsuPredecessorResponse
@@ -423,10 +465,12 @@ object SequencerAdminCommands {
   }
 
   final case class InitializeFromGenesisStateV2(
-      topologySnapshot: Seq[ByteString],
-      synchronizerParameters: com.digitalasset.canton.protocol.StaticSynchronizerParameters,
-  ) extends GrpcAdminCommand[
-        Seq[proto.InitializeSequencerFromGenesisStateV2Request],
+      topologySnapshotStream: InputStream,
+      synchronizerParameters: InternalSsp,
+      serverVersion: Option[ReleaseVersion],
+  )(implicit ec: ExecutionContext, loggingContext: ErrorLoggingContext)
+      extends GrpcAdminCommand[
+        Unit,
         proto.InitializeSequencerFromGenesisStateV2Response,
         InitializeSequencerResponse,
       ] {
@@ -440,23 +484,38 @@ object SequencerAdminCommands {
 
     override protected def submitRequest(
         service: proto.SequencerInitializationServiceGrpc.SequencerInitializationServiceStub,
-        request: Seq[proto.InitializeSequencerFromGenesisStateV2Request],
-    ): Future[proto.InitializeSequencerFromGenesisStateV2Response] =
-      GrpcStreamingUtils.streamToServerChunked(
-        service.initializeSequencerFromGenesisStateV2,
-        request,
-      )
-
-    override protected def createRequest()
-        : Either[String, Seq[proto.InitializeSequencerFromGenesisStateV2Request]] =
-      Right(
-        topologySnapshot.map(bytes =>
-          proto.InitializeSequencerFromGenesisStateV2Request(
-            topologySnapshot = bytes,
-            Some(synchronizerParameters.toProtoV30),
+        request: Unit,
+    ): Future[proto.InitializeSequencerFromGenesisStateV2Response] = {
+      val parameters = synchronizerParameters.protoVersion match {
+        case ProtoVersion(30) =>
+          proto.InitializeSequencerFromGenesisStateV2Request.Parameters.SynchronizerParametersV30(
+            synchronizerParameters.toProtoV30
           )
-        )
+        case ProtoVersion(31) =>
+          proto.InitializeSequencerFromGenesisStateV2Request.Parameters.SynchronizerParametersV31(
+            synchronizerParameters.toProtoV31
+          )
+        case other =>
+          throw Status.INTERNAL
+            .withDescription(
+              s"Cannot serialize StaticSynchronizerParameters to proto version $other"
+            )
+            .asRuntimeException()
+      }
+
+      GrpcStreamingUtils.streamToServer(
+        service.initializeSequencerFromGenesisStateV2,
+        (topologySnapshot: ByteString) =>
+          proto.InitializeSequencerFromGenesisStateV2Request(
+            topologySnapshot = topologySnapshot,
+            parameters,
+          ),
+        topologySnapshotStream,
       )
+    }
+
+    override protected def createRequest(): Either[String, Unit] =
+      checkSspCompatibility(synchronizerParameters, serverVersion)
 
     override protected def handleResponse(
         response: proto.InitializeSequencerFromGenesisStateV2Response

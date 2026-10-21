@@ -14,7 +14,7 @@ import {
 import { CREATE_PROPOSAL_FIELD_LABEL_SX } from '../../constants/createProposalLayout';
 import type { FormEvent } from 'react';
 import { useFieldContext } from '../../hooks/formContext';
-import { scrollableSelectFieldSx } from '../beta/identifierStyles';
+import { scrollableSelectFieldSx } from '../ui/identifierStyles';
 import { selectFieldSx } from '../../themes/fieldStyles';
 
 export type Option = { key: string; value: string };
@@ -37,8 +37,10 @@ export const SelectField: React.FC<SelectFieldProps> = props => {
     externalOnChange();
   };
 
-  const showPlaceholder = !!placeholder && !field.state.value;
-  const isError = !field.state.meta.isValid && !showPlaceholder;
+  const article = /^[aeiou]/i.test(title) ? 'an' : 'a';
+  const resolvedPlaceholder = placeholder ?? `Select ${article} ${title.toLowerCase()}`;
+  const showPlaceholder = !field.state.value;
+  const isError = !field.state.meta.isValid && !(placeholder && showPlaceholder);
 
   return (
     <Box data-testid={`${id}-select-component`}>
@@ -60,7 +62,7 @@ export const SelectField: React.FC<SelectFieldProps> = props => {
             if (!selected) {
               return showPlaceholder ? (
                 <Typography component="span" color="text.secondary">
-                  {placeholder}
+                  {resolvedPlaceholder}
                 </Typography>
               ) : (
                 ''

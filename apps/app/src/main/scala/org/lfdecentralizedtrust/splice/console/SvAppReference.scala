@@ -42,7 +42,7 @@ import org.lfdecentralizedtrust.splice.sv.config.{
 }
 import org.lfdecentralizedtrust.splice.sv.migration.SynchronizerNodeIdentities
 import org.lfdecentralizedtrust.splice.sv.util.ValidatorOnboarding
-import org.lfdecentralizedtrust.splice.util.Contract
+import org.lfdecentralizedtrust.splice.util.{Contract, DsoInfo}
 
 import java.time.Instant
 import scala.concurrent.duration.FiniteDuration
@@ -89,9 +89,9 @@ abstract class SvAppReference(
       httpCommand(HttpSvPublicAppClient.DevNetOnboardValidatorPrepare())
     }
 
-  def getDsoInfo(): HttpSvPublicAppClient.DsoInfo =
+  def getDsoInfo(): DsoInfo =
     consoleEnvironment.run {
-      httpCommand(HttpSvPublicAppClient.GetDsoInfo)
+      httpCommand(HttpSvOperatorAppClient.GetDsoInfo)
     }
 
   @Help.Summary("Get the CometBFT node status")
@@ -184,6 +184,17 @@ abstract class SvAppReference(
         throw new RuntimeException("No latest vote request found")
       )
     latestVoteRequest.payload.trackingCid.toScala.getOrElse(latestVoteRequest.contractId)
+  }
+
+  @Help.Summary("List vote requests by their trackingCids")
+  def listVoteRequestsByTrackingCid(
+      trackingCids: Seq[VoteRequest.ContractId]
+  ): Seq[Contract[VoteRequest.ContractId, VoteRequest]] = {
+    consoleEnvironment.run {
+      httpCommand(
+        HttpSvOperatorAppClient.ListVoteRequestsByTrackingCid(trackingCids)
+      )
+    }
   }
 
   @Help.Summary("Lookup vote request")

@@ -9,62 +9,50 @@ export const BucketRateLimitSchema = z.object({
   fillInterval: z.string(),
 });
 
-const IpRangeSchema = z.string().refine(
-  cidr => {
-    const parts = cidr.split('/');
-    if (parts.length !== 2) {
-      return false;
-    }
-    const [network, prefixStr] = parts;
-    if (isIP(network) !== 4) {
-      return false;
-    }
-    const prefix = Number(prefixStr);
-    return Number.isInteger(prefix) && prefix >= 0 && prefix <= 32;
-  },
-  {
-    message:
-      'Expected IPv4 CIDR (e.g., 192.168.0.0/24). Single IPs must be specified as x.x.x.x/32',
-  }
-);
-
-const IpRangeOverrideSchema = BucketRateLimitSchema.extend({
-  ipRanges: z.array(IpRangeSchema).min(1),
+const Ipv4AddressSchema = z.string().refine(ip => isIP(ip) === 4, {
+  message: 'Expected IPv4 address',
 });
 
-export const PerIpRangeLimitSchema = BucketRateLimitSchema.extend({
-  overrides: z.record(z.string().min(1), IpRangeOverrideSchema).optional(),
+const OverrideSchema = BucketRateLimitSchema.extend({
+  ips: z.array(Ipv4AddressSchema).min(1),
 });
 
-const BucketMatchedRateLimitSchema = BucketRateLimitSchema.extend({
+export const PerIpLimitsSchema = BucketRateLimitSchema.extend({
+  overrides: z.record(z.string().min(1), OverrideSchema).optional(),
+});
+
+export const RateLimitConfigSchema = BucketRateLimitSchema.extend({
   type: z.literal('limited'),
-  perIpRangeLimit: PerIpRangeLimitSchema.optional(),
+  perIpLimits: PerIpLimitsSchema.optional(),
 });
-
-export const BannedSchema = z.object({
-  type: z.literal('banned'),
-});
-
-export const UnlimitedSchema = z.object({
-  type: z.literal('unlimited'),
-});
-
-export const RateLimitConfigSchema = z.discriminatedUnion('type', [
-  BucketMatchedRateLimitSchema,
-  BannedSchema,
-  UnlimitedSchema,
-]);
 
 export type ExternalRateLimit = z.infer<typeof RateLimitSchema>;
 
+export const defaultGlobalLimits = {
+  maxTokens: 10000,
+  tokensPerFill: 10000,
+  fillInterval: '60s',
+};
+
+export const defaultGlobalPerIpLimits = {
+  maxTokens: 1000,
+  tokensPerFill: 1000,
+  fillInterval: '60s',
+};
+
 export const RateLimitSchema = z.object({
-  globalLimits: BucketRateLimitSchema,
-  rateLimits: z.object({}).catchall(
-    z.intersection(
-      z.object({
-        name: z.string(),
-      }),
-      RateLimitConfigSchema
+  globalLimits: BucketRateLimitSchema.default(defaultGlobalLimits),
+  globalPerIpLimits: PerIpLimitsSchema.default(defaultGlobalPerIpLimits),
+  // TODO(canton-network/splice/pull#7797) consider removing, depending on what we decide to do with per-endpoint rate limits
+  rateLimits: z
+    .object({})
+    .catchall(
+      z.intersection(
+        z.object({
+          name: z.string(),
+        }),
+        RateLimitConfigSchema
+      )
     )
-  ),
+    .optional(),
 });

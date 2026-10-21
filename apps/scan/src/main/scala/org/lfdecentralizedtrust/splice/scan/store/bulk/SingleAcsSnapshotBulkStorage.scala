@@ -7,7 +7,6 @@ import scala.concurrent.ExecutionContext
 import com.digitalasset.canton.logging.{NamedLoggerFactory, NamedLogging}
 import com.digitalasset.canton.tracing.TraceContext
 import org.apache.pekko.stream.scaladsl.{Flow, Source}
-import org.apache.pekko.util.ByteString
 import org.lfdecentralizedtrust.splice.scan.admin.http.ScanHttpEncodings
 import org.lfdecentralizedtrust.splice.scan.store.AcsSnapshotStore
 import org.lfdecentralizedtrust.splice.store.{
@@ -21,7 +20,6 @@ import org.lfdecentralizedtrust.splice.store.events.SpliceCreatedEvent
 import scala.concurrent.Future
 import io.circe.syntax.*
 
-import java.nio.charset.StandardCharsets
 import Position.*
 import org.apache.pekko.NotUsed
 import org.lfdecentralizedtrust.splice.scan.config.{BulkStorageConfig, ScanStorageConfig}
@@ -33,7 +31,7 @@ object Position {
 
   case object End extends Position
 
-  final case class Index(value: Long) extends Position
+  final case class Index(value: AcsSnapshotStore.QueryAcsSnapshotPaginationToken) extends Position
 }
 
 class SingleAcsSnapshotBulkStorage(
@@ -49,14 +47,14 @@ class SingleAcsSnapshotBulkStorage(
 
   private def getAcsSnapshotChunk(
       timestamp: TimestampWithMigrationId,
-      after: Option[Long],
+      after: Option[AcsSnapshotStore.QueryAcsSnapshotPaginationToken],
   ): Future[(Position, Vector[SpliceCreatedEvent])] = {
     for {
       snapshot <- acsSnapshotStore.queryAcsSnapshot(
         timestamp.migrationId,
         snapshot = timestamp.timestamp,
         after,
-        PageLimit.tryCreate(storageConfig.bulkDbReadChunkSize),
+        PageLimit.tryCreate(appConfig.dbReadChunkSize),
         Seq.empty,
         Seq.empty,
       )
@@ -67,20 +65,15 @@ class SingleAcsSnapshotBulkStorage(
 
   }
 
-  private def encodeEvents(
-      events: Vector[SpliceCreatedEvent],
+  private def encodeEvent(
+      event: SpliceCreatedEvent,
       encoding: ScanStorageConfig.Encoding,
-  ): ByteString = {
-    val encodings = ScanHttpEncodings.fromDamlValueEncoding(encoding.damlValueEncoding)
-    val encoded = events.map(event =>
-      encodings.javaToHttpActiveContract(event.eventId, event.recordTime, event.event)
-    )
-    val contractsStr = encoded.map(_.asJson.noSpacesSortKeys).mkString("\n") + "\n"
-    val contractsBytes = ByteString(contractsStr.getBytes(StandardCharsets.UTF_8))
-    logger.debug(
-      s"Read ${encoded.length} contracts from ACS, to a bytestring of size ${contractsBytes.length} bytes, with encoding ${encoding.key}"
-    )
-    contractsBytes
+  ): String = {
+    ScanHttpEncodings
+      .fromDamlValueEncoding(encoding.damlValueEncoding)
+      .javaToHttpActiveContract(event.eventId, event.recordTime, event.event)
+      .asJson
+      .noSpacesSortKeys
   }
 
   private def getSource: Source[Seq[String], NotUsed] = {
@@ -94,9 +87,10 @@ class SingleAcsSnapshotBulkStorage(
         historyMetrics.BulkStorage.incContractsCount(events.length)
         events
       })
+      .mapConcat(identity)
       .via(
         MultiEncodingBulkStorageFlow(
-          encodeEvents,
+          encodeEvent,
           encoding =>
             S3ZstdObjects(
               storageConfig,
@@ -107,7 +101,7 @@ class SingleAcsSnapshotBulkStorage(
                     .storageKey("ACS", objIdx)}",
               loggerFactory,
             ),
-          encoding => historyMetrics.BulkStorage.incAcsSnapshotObjects(encoding.key),
+          encoding => historyMetrics.BulkStorage.incAcsSnapshotObjects(encoding.key, "staging"),
         )
       )
       .fold(Seq.empty[String])(_ :+ _)

@@ -4,7 +4,6 @@
 package com.digitalasset.canton.logging.pretty
 
 import cats.Show.Shown
-import com.daml.nonempty.{NonEmpty, NonEmptyUtil}
 import com.digitalasset.base.error.utils.DecodedCantonError
 import com.digitalasset.canton.config.RequireTypes.{Port, RefinedNumeric}
 import com.digitalasset.canton.data.{DeduplicationPeriod, LedgerTimeBoundaries}
@@ -21,6 +20,7 @@ import com.digitalasset.daml.lf.transaction.LegacyContractStateMachine.ActiveLed
 import com.digitalasset.daml.lf.transaction.LegacyTransactionErrors.*
 import com.digitalasset.daml.lf.transaction.{CreationTime, Versioned}
 import com.digitalasset.daml.lf.value.Value
+import com.digitalasset.nonempty.{NonEmpty, NonEmptyUtil}
 import com.google.protobuf.ByteString
 import io.grpc.Status
 import io.grpc.health.v1.HealthCheckResponse.ServingStatus
@@ -47,6 +47,15 @@ trait PrettyInstances {
       // Cast is required to make IDEA happy.
       inst.prettyInternal.treeOf(inst.asInstanceOf[inst.type])
     }
+
+  @SuppressWarnings(Array("org.wartremover.warts.AsInstanceOf"))
+  implicit def prettyPrettyPrintingFromCompanion[T <: PrettyPrintingFromCompanion]: Pretty[T] =
+    inst =>
+      if (inst == null) PrettyUtil.nullTree
+      else {
+        // Cast is required to make IDEA happy.
+        inst.prettyCompanion.prettyInternal.treeOf(inst.asInstanceOf[inst.type])
+      }
 
   implicit def prettyTree[T <: Tree]: Pretty[T] = identity
 
@@ -103,7 +112,7 @@ trait PrettyInstances {
     elements =>
       treeOfIterable("Map", elements.map { case (k, v) => Tree.Infix(k.toTree, "->", v.toTree) })
 
-  def treeOfIterable[T: Pretty](prefix: String, elements: Iterable[T]): Tree =
+  private def treeOfIterable[T: Pretty](prefix: String, elements: Iterable[T]): Tree =
     if (elements.sizeCompare(1) == 0) {
       elements.iterator.next().toTree
     } else {
@@ -165,7 +174,7 @@ trait PrettyInstances {
 
   implicit val prettyNodeId: Pretty[LfNodeId] = prettyOfParam(_.index)
 
-  protected def prettyUidString(partyStr: String): String =
+  private def prettyUidString(partyStr: String): String =
     UniqueIdentifier.fromProtoPrimitive_(partyStr) match {
       case Right(uid) => uid.show
       case Left(_) => partyStr
