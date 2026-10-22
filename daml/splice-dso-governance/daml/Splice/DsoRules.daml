@@ -257,44 +257,58 @@ data DsoRules_UpdateFeaturedAppRightResult = DsoRules_UpdateFeaturedAppRightResu
 
 data DsoRules_MigrateToOnLedgerSvRightOwnersResult = DsoRules_MigrateToOnLedgerSvRightOwnersResult with
     instruction : ContractId MigrateToOnLedgerSvRightOwnersInstruction
+  deriving (Serializable)
 
 data DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstructionResult = DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstructionResult with
     newDsoRules : ContractId DsoRules
     svRightOwners : TextMap (ContractId SvRightOwner, ContractId SvRewardState)
+  deriving (Serializable)
 
 data DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstructionResult = DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstructionResult with
+  deriving (Serializable)
 
 data DsoRules_AddSvRightOwnerResult = DsoRules_AddSvRightOwnerResult with
     instruction : ContractId AddSvRightOwnerInstruction
+  deriving (Serializable)
 
 data DsoRules_ExecuteAddSvRightOwnerInstructionResult = DsoRules_ExecuteAddSvRightOwnerInstructionResult with
     newDsoRules : ContractId DsoRules
     svRightOwner : ContractId SvRightOwner
     svRewardState : ContractId SvRewardState
+  deriving (Serializable)
 
 data DsoRules_ExpireAddSvRightOwnerInstructionResult = DsoRules_ExpireAddSvRightOwnerInstructionResult with
+  deriving (Serializable)
 
 data DsoRules_RemoveSvRightOwnerResult = DsoRules_RemoveSvRightOwnerResult with
     instruction : ContractId RemoveSvRightOwnerInstruction
+  deriving (Serializable)
 
 data DsoRules_ExecuteRemoveSvRightOwnerInstructionResult = DsoRules_ExecuteRemoveSvRightOwnerInstructionResult with
     newDsoRules : ContractId DsoRules
+  deriving (Serializable)
 
 data DsoRules_ExpireRemoveSvRightOwnerInstructionResult = DsoRules_ExpireRemoveSvRightOwnerInstructionResult with
+  deriving (Serializable)
 
 data DsoRules_UpdateSvRightOwnerInfoResult = DsoRules_UpdateSvRightOwnerInfoResult with
     instruction : ContractId UpdateSvRightOwnerInfoInstruction
+  deriving (Serializable)
 
 data DsoRules_ExecuteUpdateSvRightOwnerInfoInstructionResult = DsoRules_ExecuteUpdateSvRightOwnerInfoInstructionResult with
     svRightOwner : ContractId SvRightOwner
+  deriving (Serializable)
 
 data DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult = DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult with
+  deriving (Serializable)
 
 data DsoRules_UpdateSvRightOwnerBeneficiariesResult = DsoRules_UpdateSvRightOwnerBeneficiariesResult with
     svRightOwner : ContractId SvRightOwner
+  deriving (Serializable)
 
 data DsoRules_UpdateSvRightOwnerPartyResult = DsoRules_UpdateSvRightOwnerPartyResult with
     svRightOwner : ContractId SvRightOwner
+  deriving (Serializable)
 
 data DsoRules_OnboardValidatorResult = DsoRules_OnboardValidatorResult with
     validatorLicense : ContractId ValidatorLicense
@@ -375,6 +389,7 @@ data DsoRules_ReceiveSvRewardCouponResult = DsoRules_ReceiveSvRewardCouponResult
 data DsoRules_ReceiveSvRewardCouponV2Result = DsoRules_ReceiveSvRewardCouponV2Result with
     svRewardStates : TextMap (ContractId SvRewardState)
     svRewardCoupons : TextMap (Map Party (ContractId SvRewardCoupon))
+  deriving (Serializable)
 
 data DsoRules_ClaimExpiredRewardsResult = DsoRules_ClaimExpiredRewardsResult with
     unclaimedReward: Optional (ContractId UnclaimedReward)
@@ -425,6 +440,7 @@ data DsoRules_MergeSvRewardStateResult = DsoRules_MergeSvRewardStateResult with
   deriving (Serializable)
 
 data DsoRules_PurgeStaleSvRewardStatesResult = DsoRules_PurgeStaleSvRewardStatesResult
+  deriving (Serializable)
 
 data DsoRules_PruneAmuletConfigScheduleResult = DsoRules_PruneAmuletConfigScheduleResult with
     amuletRulesCid : ContractId AmuletRules

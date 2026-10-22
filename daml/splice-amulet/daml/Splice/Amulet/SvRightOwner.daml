@@ -40,7 +40,7 @@ data SvRightOwnerInfo = SvRightOwnerInfo
     beneficiaries : Map Party BeneficiaryInfo
       -- ^ Map of beneficiaries and their percentages for reward distribution. Must not include the right owner's party. Remainder goes to right owner.
       -- At most 20 beneficiaries are allowed to bound the number of coupons minted per round.
-  deriving (Eq, Show)
+  deriving (Eq, Show, Serializable)
 
 instance Patchable SvRightOwnerInfo where
   patch new base current = SvRightOwnerInfo
@@ -55,7 +55,7 @@ data BeneficiaryInfo = BeneficiaryInfo
   with
     rewardRatio : Decimal
       -- ^ The proportion of rewards of the SV Right Owner that are shared with this beneficiary. It should be >0.0 and <=1.0
-  deriving (Eq, Show)
+  deriving (Eq, Show, Serializable)
 
 instance Patchable BeneficiaryInfo where
   patch new base current = BeneficiaryInfo
