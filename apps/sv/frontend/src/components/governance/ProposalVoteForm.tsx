@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 import { useForm } from '@tanstack/react-form';
+import { retryOnRateLimit } from '@canton-network/splice-common-frontend';
 import { z } from 'zod';
 import { useSvAdminClient } from '../../contexts/SvAdminServiceContext';
 import { useMutation, UseMutationResult } from '@tanstack/react-query';
@@ -9,11 +10,14 @@ import { isValidUrl } from '../../utils/validations';
 import { ContractId } from '@daml/types';
 import { VoteRequest } from '@daml.js/splice-dso-governance/lib/Splice/DsoRules';
 import { ProposalVote } from '../../utils/types';
-import { Alert, Box, Button, Stack, TextField, Typography } from '@mui/material';
+import { Alert, Box, Button, TextField, Typography } from '@mui/material';
+import { CREATE_PROPOSAL_FIELD_LABEL_SX } from '../../constants/createProposalLayout';
+import { proposalSummaryFieldSx, singleLineFieldSx } from '../../themes/fieldStyles';
 import {
   VOTE_REASON_PLACEHOLDER,
   VOTE_REASON_SUMMARY_LABEL,
   VOTE_REASON_URL_LABEL,
+  VOTE_REASON_URL_PLACEHOLDER,
 } from '../../utils/constants';
 interface CastVoteArgs {
   accepted: boolean;
@@ -33,12 +37,13 @@ export const ProposalVoteForm: React.FC<ProposalVoteFormProps> = props => {
   const { castVote } = useSvAdminClient();
   const yourVote = votes.find(vote => vote.sv === currentSvPartyId);
 
-  const castVoteMutation: UseMutationResult<void, string, CastVoteArgs> = useMutation({
+  const castVoteMutation: UseMutationResult<void, Error, CastVoteArgs> = useMutation({
     mutationKey: ['castVote', voteRequestContractId],
     mutationFn: async ({ accepted, url, reason }) => {
       return castVote(voteRequestContractId, accepted, url, reason);
     },
     onMutate: () => onSubmissionStart?.(),
+    retry: retryOnRateLimit,
   });
 
   const form = useForm({
@@ -106,20 +111,15 @@ export const ProposalVoteForm: React.FC<ProposalVoteFormProps> = props => {
             }}
             children={field => {
               return (
-                <Stack gap={3}>
-                  <Typography
-                    variant="subtitle2"
-                    color="white"
-                    fontWeight="bold"
-                    fontSize={18}
-                    lineHeight={1}
-                  >
+                <Box>
+                  <Typography component="p" sx={{ ...CREATE_PROPOSAL_FIELD_LABEL_SX, mb: 1 }}>
                     {VOTE_REASON_SUMMARY_LABEL}
                   </Typography>
                   <TextField
-                    variant="filled"
+                    fullWidth
+                    variant="outlined"
                     multiline
-                    rows={5}
+                    autoComplete="off"
                     name={field.name}
                     value={field.state.value}
                     onBlur={field.handleBlur}
@@ -128,22 +128,9 @@ export const ProposalVoteForm: React.FC<ProposalVoteFormProps> = props => {
                     helperText={field.state.meta.errors?.[0]}
                     placeholder={VOTE_REASON_PLACEHOLDER}
                     inputProps={{ 'data-testid': 'your-vote-reason-input' }}
-                    sx={{
-                      '& .MuiFilledInput-root': {
-                        borderRadius: 1,
-                        paddingTop: 1,
-                        '&:before, &:after': {
-                          display: 'none',
-                        },
-                      },
-                      // Figma empty Reason (`1013:1869`): muted `#4F4F4F`.
-                      '& .MuiFilledInput-input::placeholder': {
-                        color: '#4F4F4F',
-                        opacity: 1,
-                      },
-                    }}
+                    sx={proposalSummaryFieldSx}
                   />
-                </Stack>
+                </Box>
               );
             }}
           />
@@ -164,18 +151,14 @@ export const ProposalVoteForm: React.FC<ProposalVoteFormProps> = props => {
             }}
             children={field => {
               return (
-                <Stack gap={3}>
-                  <Typography
-                    variant="subtitle2"
-                    color="white"
-                    fontWeight="bold"
-                    fontSize={18}
-                    lineHeight={1}
-                  >
+                <Box>
+                  <Typography component="p" sx={{ ...CREATE_PROPOSAL_FIELD_LABEL_SX, mb: 1 }}>
                     {VOTE_REASON_URL_LABEL}
                   </Typography>
                   <TextField
-                    variant="filled"
+                    fullWidth
+                    variant="outlined"
+                    autoComplete="off"
                     name={field.name}
                     value={field.state.value}
                     onBlur={field.handleBlur}
@@ -186,21 +169,11 @@ export const ProposalVoteForm: React.FC<ProposalVoteFormProps> = props => {
                         {field.state.meta.errors?.[0]}
                       </span>
                     }
+                    placeholder={VOTE_REASON_URL_PLACEHOLDER}
                     inputProps={{ 'data-testid': 'your-vote-url-input' }}
-                    sx={{
-                      '& .MuiFilledInput-root': {
-                        borderRadius: 1,
-                        '&:before, &:after': {
-                          display: 'none',
-                        },
-                      },
-                      '& .MuiFilledInput-input': {
-                        paddingTop: 1.5,
-                        paddingBottom: 1.5,
-                      },
-                    }}
+                    sx={singleLineFieldSx}
                   />
-                </Stack>
+                </Box>
               );
             }}
           />
@@ -225,17 +198,6 @@ export const ProposalVoteForm: React.FC<ProposalVoteFormProps> = props => {
                 <>
                   <Button
                     variant="pill"
-                    disabled={!isValid}
-                    onClick={() => {
-                      form.setFieldValue('vote', 'accepted');
-                      form.handleSubmit();
-                    }}
-                    data-testid="your-vote-accept"
-                  >
-                    Accept
-                  </Button>
-                  <Button
-                    variant="pill"
                     color="secondary"
                     disabled={!isValid}
                     onClick={() => {
@@ -246,6 +208,17 @@ export const ProposalVoteForm: React.FC<ProposalVoteFormProps> = props => {
                     data-testid="your-vote-reject"
                   >
                     Reject
+                  </Button>
+                  <Button
+                    variant="pill"
+                    disabled={!isValid}
+                    onClick={() => {
+                      form.setFieldValue('vote', 'accepted');
+                      form.handleSubmit();
+                    }}
+                    data-testid="your-vote-accept"
+                  >
+                    Accept
                   </Button>
                 </>
               )}

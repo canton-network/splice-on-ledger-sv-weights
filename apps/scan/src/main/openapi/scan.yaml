@@ -66,6 +66,7 @@ paths:
             type: array
             items:
               type: string
+            maxItems: 1000
       responses:
         "200":
           description: ok
@@ -608,39 +609,11 @@ paths:
           $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/responses/500"
 
 
-  /v0/state/acs:
-    post:
-      deprecated: true
-      tags: [ deprecated ]
-      x-jvm-package: scan
-      operationId: "getAcsSnapshotAt"
-      description: |
-        Deprecated. Please use /v1/state/acs instead. Returns the ACS in creation date ascending order, paged, for a given migration id and record time.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              "$ref": "#/components/schemas/AcsRequest"
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AcsResponse"
-        "400":
-          $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/responses/400"
-        "404":
-          $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/responses/404"
-        "500":
-          $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/responses/500"
-
-  /v1/state/acs:
+  /v2/state/acs:
     post:
       tags: [ external, scan ]
       x-jvm-package: scan
-      operationId: "getAcsSnapshotAtV1"
+      operationId: "getAcsSnapshotAtV2"
       description: |
         Returns the ACS in creation date ascending order, paged, for a given migration id and record time.
         Unlike /v0/state/acs, every contract is identified by an (optional) update_id
@@ -652,14 +625,14 @@ paths:
         content:
           application/json:
             schema:
-              "$ref": "#/components/schemas/AcsRequest"
+              "$ref": "#/components/schemas/AcsRequestV2"
       responses:
         "200":
           description: ok
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AcsResponseV1"
+                $ref: "#/components/schemas/AcsResponseV2"
         "400":
           $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/responses/400"
         "404":
@@ -690,38 +663,11 @@ paths:
         "500":
           $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/responses/500"
 
-  /v0/holdings/state:
-    post:
-      tags: [deprecated]
-      x-jvm-package: scan
-      operationId: "getHoldingsStateAt"
-      description: |
-        Deprecated. Please use /v1/holdings/state instead. Returns the active amulet contracts for a given migration id and record time, in creation date ascending order, paged.
-      requestBody:
-        required: true
-        content:
-          application/json:
-            schema:
-              "$ref": "#/components/schemas/HoldingsStateRequest"
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/AcsResponse"
-        "400":
-          $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/responses/400"
-        "404":
-          $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/responses/404"
-        "500":
-          $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/responses/500"
-
-  /v1/holdings/state:
+  /v2/holdings/state:
     post:
       tags: [external, scan]
       x-jvm-package: scan
-      operationId: "getHoldingsStateAtV1"
+      operationId: "getHoldingsStateAtV2"
       description: |
         Returns the active amulet contracts for a given migration id and record time, in creation date ascending order, paged.
       requestBody:
@@ -729,14 +675,14 @@ paths:
         content:
           application/json:
             schema:
-              "$ref": "#/components/schemas/HoldingsStateRequest"
+              "$ref": "#/components/schemas/HoldingsStateRequestV2"
       responses:
         "200":
           description: ok
           content:
             application/json:
               schema:
-                $ref: "#/components/schemas/AcsResponseV1"
+                $ref: "#/components/schemas/AcsResponseV2"
         "400":
           $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/responses/400"
         "404":
@@ -1143,50 +1089,6 @@ paths:
               schema:
                 "$ref": "#/components/schemas/GetMigrationIdResponse"
 
-  # TODO(DACH-NY/canton-network-internal#418) Move to SV app
-  /v0/synchronizer-identities/{domain_id_prefix}:
-    get:
-      tags: [internal, scan]
-      x-jvm-package: scan_soft_domain_migration_poc
-      operationId: "getSynchronizerIdentities"
-      parameters:
-        - name: "domain_id_prefix"
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/SynchronizerIdentities"
-        "404":
-          $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/responses/404"
-
-  # TODO(DACH-NY/canton-network-internal#418) Move to SV app
-  /v0/synchronizer-bootstrapping-transactions/{domain_id_prefix}:
-    get:
-      tags: [internal, scan]
-      x-jvm-package: scan_soft_domain_migration_poc
-      operationId: "getSynchronizerBootstrappingTransactions"
-      parameters:
-        - name: "domain_id_prefix"
-          in: path
-          required: true
-          schema:
-            type: string
-      responses:
-        "200":
-          description: ok
-          content:
-            application/json:
-              schema:
-                "$ref": "#/components/schemas/SynchronizerBootstrappingTransactions"
-        "404":
-          $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/responses/404"
-
   /v0/splice-instance-names:
     get:
       tags: [internal, scan]
@@ -1577,6 +1479,28 @@ paths:
           $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/responses/400"
         "500":
           $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/responses/500"
+
+  /v0/events/latest-record-time:
+    get:
+      tags: [external, scan]
+      x-jvm-package: scan
+      operationId: "getLatestEventRecordTime"
+      description: |
+        Returns the latest record time for which /v0/events will be able to return events.
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/EventLatestRecordTimeResponse"
+        "400":
+          $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/responses/400"
+        "404":
+          $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/responses/404"
+        "500":
+          $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/responses/500"
+
   /v0/events/{update_id}:
     get:
       tags: [external, scan]
@@ -1739,6 +1663,10 @@ paths:
           schema:
             type: string
             format: date-time
+        - name: "daml_value_encoding"
+          in: "query"
+          schema:
+            $ref: "#/components/schemas/DamlValueEncoding"
       responses:
         "200":
           description: ok
@@ -1804,6 +1732,42 @@ paths:
         "501":
           $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/responses/501"
 
+  /v0/history/bulk/progress:
+    get:
+      tags: [ internal, pre-alpha, scan ]
+      x-jvm-package: scan
+      operationId: "getBulkObjectsProgress"
+      description: |
+        **Under Development, do not use in production yet** Query whether bulk storage object creation has advanced to a certain record time.
+        Meant for internal use only, as part of the processing pipeline of bulk objects.
+      parameters:
+        - name: "record_time"
+          in: "query"
+          required: true
+          schema:
+            type: string
+            format: date-time
+        - name: "bucket"
+          in: "query"
+          required: true
+          schema:
+            $ref: "#/components/schemas/BulkStorageBucket"
+        - name: "kind"
+          in: "query"
+          required: false
+          schema:
+            $ref: "#/components/schemas/BulkObjectKind"
+      responses:
+        "200":
+          description: ok
+          content:
+            application/json:
+              schema:
+                "$ref": "#/components/schemas/GetBulkObjectsProgressResponse"
+        "501":
+          $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/responses/501"
+
+
 
 components:
   schemas:
@@ -1867,6 +1831,7 @@ components:
             knows about. If unsure, an empty array is fine; only a performance
             penalty is incurred.
           type: array
+          maxItems: 1000
           items:
             $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/schemas/ContractId"
         cached_issuing_round_contract_ids:
@@ -1875,6 +1840,7 @@ components:
             caller knows about. If unsure, an empty array is fine; only a
             performance penalty is incurred.
           type: array
+          maxItems: 1000
           items:
             $ref: "../../../../common/src/main/openapi/common-external.yaml#/components/schemas/ContractId"
     GetOpenAndIssuingMiningRoundsResponse:
@@ -2777,7 +2743,7 @@ components:
           format: date-time
           description: |
             The record time of the last transaction in the snapshot.
-    AcsRequest:
+    AcsRequestV2:
       type: object
       required:
         - migration_id
@@ -2807,13 +2773,13 @@ components:
             - "at_or_before"
           default: "exact"
         after:
-          type: integer
-          format: int64
+          type: string
           description: |
             Pagination token for the next page of results. For this to be valid,
             this must be the `next_page_token` from a prior request with identical
             parameters aside from `after` and `page_size`; the response may be
             invalid otherwise.
+            This token is opaque and not meant to be edited by users.
         page_size:
           description: |
             The maximum number of created events returned for this request.
@@ -2823,15 +2789,17 @@ components:
           type: array
           items:
             type: string
+          maxItems: 1000
           description: |
             Filters the ACS by contracts in which these party IDs are stakeholders.
         templates:
           type: array
           items:
             type: string
+          maxItems: 1000
           description: |
             Filters the ACS by contracts with these template IDs, specified as "PACKAGE_NAME:MODULE_NAME:ENTITY_NAME".
-    HoldingsStateRequest: # subset of AcsRequest
+    HoldingsStateRequestV2: # subset of AcsRequestV2
       type: object
       required:
         - migration_id
@@ -2862,10 +2830,10 @@ components:
             - "at_or_before"
           default: "exact"
         after:
-          type: integer
-          format: int64
+          type: string
           description: |
             Pagination token for the next page of results.
+            This token is opaque and not meant to be edited by users.
         page_size:
           description: |
             The maximum number of created events returned for this request.
@@ -2876,6 +2844,7 @@ components:
           items:
             type: string
           minItems: 1
+          maxItems: 1000
           description: |
             Filters by contracts in which these party_ids are the owners of the amulets.
 
@@ -2913,6 +2882,7 @@ components:
           items:
             type: string
           minItems: 1
+          maxItems: 1000
           description: |
             The owners for which to compute the summary.
         as_of_round:
@@ -2955,6 +2925,7 @@ components:
           items:
             type: string
           minItems: 1
+          maxItems: 1000
           description: |
             The owners for which to compute the summary.
 
@@ -2973,37 +2944,7 @@ components:
           description: The current migration ID of the Scan.
           type: integer
           format: int64
-    AcsResponse:
-      type: object
-      required:
-        - record_time
-        - migration_id
-        - created_events
-      properties:
-        record_time:
-          description: The same `record_time` as in the request.
-          type: string
-          format: date-time
-        migration_id:
-          description: The same `migration_id` as in the request.
-          type: integer
-          format: int64
-        created_events:
-          description: |
-            Up to `page_size` contracts in the ACS.
-            `create_arguments` are always encoded as `compact_json`.
-          type: array
-          items:
-            $ref: "#/components/schemas/CreatedEvent"
-        next_page_token:
-          type: integer
-          format: int64
-          description: |
-            When requesting the next page of results, pass this as `after`
-            to the `AcsRequest` or `HoldingsStateRequest`.
-            Will be absent when there are no more pages.
-
-    AcsResponseV1:
+    AcsResponseV2:
       type: object
       required:
         - record_time
@@ -3026,12 +2967,12 @@ components:
           items:
             $ref: "#/components/schemas/ActiveContract"
         next_page_token:
-          type: integer
-          format: int64
+          type: string
           description: |
             When requesting the next page of results, pass this as `after`
-            to the `AcsRequest` or `HoldingsStateRequest`.
+            to the `AcsRequestV2` or `HoldingsStateRequestV2`.
             Will be absent when there are no more pages.
+            This token is opaque and not meant to be edited by users.
 
     HoldingsSummaryResponse:
       type: object
@@ -3486,41 +3427,6 @@ components:
           type: integer
           format: int64
 
-    SynchronizerIdentities:
-      type: object
-      required:
-        - sequencer_id
-        - sequencer_identity_transactions
-        - mediator_id
-        - mediator_identity_transactions
-      properties:
-        sequencer_id:
-          type: string
-        sequencer_identity_transactions:
-          type: array
-          items:
-            type: string
-        mediator_id:
-          type: string
-        mediator_identity_transactions:
-          type: array
-          items:
-            type: string
-
-    SynchronizerBootstrappingTransactions:
-      type: object
-      required:
-        - domain_parameters
-        - sequencer_domain_state
-        - mediator_domain_state
-      properties:
-        domain_parameters:
-          type: string
-        sequencer_domain_state:
-          type: string
-        mediator_domain_state:
-          type: string
-
     GetMigrationInfoRequest:
       type: object
       required:
@@ -3845,6 +3751,16 @@ components:
         app_activity_records:
           $ref: "#/components/schemas/EventHistoryAppActivityRecords"
           nullable: true
+    EventLatestRecordTimeResponse:
+      type: object
+      required:
+        - record_time
+      properties:
+        record_time:
+          description: |
+            The record_time of the latest event.
+          type: string
+          format: date-time
     EventHistoryVerdict:
       type: object
       required:
@@ -3862,6 +3778,9 @@ components:
         update_id:
           description: |
             The ID of the transaction update associated with this verdict.
+
+            Verdicts are deduplicated by update_id. Only the first verdict ingested for a given update_id is stored and returned, while a subsequent verdict with the same update_id is rejected.
+            This can happen for example if a sequencer client retries a successful submission. In that case, the retry is rejected as a duplicate, and the events endpoint will only show the successful verdict but not the rejected duplicates.
           type: string
         migration_id:
           description: |
@@ -4098,6 +4017,8 @@ components:
           format: int32
           minimum: 1
           maximum: 1000
+        daml_value_encoding:
+          $ref: "#/components/schemas/DamlValueEncoding"
 
     ListBulkUpdateHistoryObjectsResponse:
       type: object
@@ -4126,6 +4047,7 @@ components:
           description: |
             The list of keys of the bulk storage objects for which checksums are requested.
           type: array
+          maxItems: 1000
           items:
             type: string
 
@@ -4136,7 +4058,8 @@ components:
       properties:
         checksums:
           description: |
-            The list of checksums for the requested bulk storage objects (in the same order as the object_keys).
+            The list of (optional) checksums for the requested bulk storage objects (in the same order as the object_keys),
+            where `None` values indicate objects that do not exist.
           type: array
           items:
             type: object
@@ -4158,6 +4081,49 @@ components:
           description: |
             The sha256 digest of the bulk storage object, for verification of integrity and consistency across SVs.
           type: string
+
+    GetBulkObjectsProgressResponse:
+      type: object
+      required:
+        - availability
+      properties:
+        availability:
+          $ref: "#/components/schemas/BulkObjectsAvailability"
+
+    BulkStorageBucket:
+      type: string
+      description: |
+        The bulk storage bucket a progress query refers to: "staging" holds the objects this Scan has written or
+        copied but not yet verified against its peers, "committed" the objects that passed that check.
+      enum:
+        - "staging"
+        - "committed"
+
+    BulkObjectKind:
+      type: string
+      description: |
+        The kind of bulk storage objects a progress query refers to: "updates" for update segments, "snapshots" for
+        ACS snapshots. Without a kind, the query refers to both.
+      enum:
+        - "updates"
+        - "snapshots"
+
+    BulkObjectsAvailability:
+      type: string
+      description: |
+        Whether the requested bucket of this Scan holds all bulk storage objects of the requested kind (update
+        segments, ACS snapshots, or both when no kind is given) up to the requested record time.
+        "available": it does.
+        "processing": it does not yet. The record time lies within this Scan's own history, so it produces the
+        objects itself from its own data; they appear once its dump (staging) or its check against the peers
+        (committed) has reached the record time.
+        "backfilling": it does not, and will not produce them itself, because the record time lies before this
+        Scan's own history (it joined after the network started). It copies these objects from its peers instead,
+        and answers "available" once that copy has reached the record time.
+      enum:
+        - "available"
+        - "processing"
+        - "backfilling"
 
     GetRewardAccountingEarliestAvailableRoundResponse:
       type: object

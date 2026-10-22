@@ -4,7 +4,6 @@
 package org.lfdecentralizedtrust.splice.sv.onboarding.sv1
 
 import cats.implicits.{
-  catsSyntaxOptionId,
   catsSyntaxTuple2Semigroupal,
   catsSyntaxTuple3Semigroupal,
   catsSyntaxTuple4Semigroupal,
@@ -12,7 +11,10 @@ import cats.implicits.{
 }
 import cats.syntax.functorFilter.*
 import com.daml.grpc.adapter.ExecutionSequencerFactory
-import com.daml.nonempty.NonEmpty
+import com.digitalasset.nonempty.NonEmpty
+import com.digitalasset.canton.admin.api.client.data.SequencerConnectionPoolDelaysAccess.*
+import com.digitalasset.canton.admin.api.client.data.SubmissionRequestAmplificationAccess.*
+import com.digitalasset.canton.admin.api.client.data.SubscriptionLivenessLimitsAccess.*
 import com.digitalasset.canton.config.RequireTypes.{NonNegativeInt, PositiveInt}
 import com.digitalasset.canton.config.SynchronizerTimeTrackerConfig
 import com.digitalasset.canton.data.CantonTimestamp
@@ -45,7 +47,6 @@ import com.digitalasset.canton.topology.transaction.{
   TopologyMapping,
 }
 import com.digitalasset.canton.tracing.TraceContext
-import com.digitalasset.canton.util.MonadUtil
 import com.digitalasset.canton.util.ShowUtil.*
 import io.grpc.Status
 import io.opentelemetry.api.trace.Tracer
@@ -180,6 +181,8 @@ class SV1Initializer(
             config.participantClient.sequencerRequestAmplification.toInternal,
             sequencerConnectionPoolDelays =
               config.participantClient.sequencerConnectionPoolDelays.toInternal,
+            subscriptionLivenessLimits =
+              config.participantClient.subscriptionLivenessLimits.toInternal,
           ),
           psid = Some(psid),
           timeTracker = SynchronizerTimeTrackerConfig(
@@ -261,7 +264,8 @@ class SV1Initializer(
         participantId,
         dsoAcsStoreDescriptorUserVersion,
       )
-      synchronizerId <- participantAdminConnection.getSynchronizerId(config.domains.global.alias)
+      psid <- participantAdminConnection.getPhysicalSynchronizerId(config.domains.global.alias)
+      synchronizerId = psid.logical
       packageVersionSupport = PackageVersionSupport.createPackageVersionSupport(
         synchronizerId,
         initConnection,
@@ -314,7 +318,7 @@ class SV1Initializer(
         },
         logger,
       )
-      dsoAutomation = newSvDsoAutomationService(
+      dsoAutomation <- newSvDsoAutomationService(
         svStore,
         dsoStore,
         synchronizerNodeService,
@@ -325,11 +329,9 @@ class SV1Initializer(
         new SynchronizerNodeReconciler(
           dsoStore,
           connection,
-          packageVersionSupport,
           clock,
           retryProvider,
           loggerFactory,
-          domainMigrationId,
           config.scan,
         ),
       )
@@ -337,9 +339,7 @@ class SV1Initializer(
       _ <- dsoStore.domains.waitForDomainConnection(config.domains.global.alias)
       withDsoStore = new WithDsoStore(
         dsoAutomation,
-        decentralizedSynchronizer,
-        packageVersionSupport,
-        domainMigrationId,
+        psid,
       )
       _ <- retryProvider.ensureThatB(
         RetryFor.WaitingOnInitDependency,
@@ -516,19 +516,16 @@ class SV1Initializer(
                 sequencerState,
                 mediatorState,
               ) <- (
-                MonadUtil
-                  .sequentialTraverse(
-                    List(
-                      participantAdminConnection,
-                      synchronizerNode.mediatorAdminConnection,
-                      synchronizerNode.sequencerAdminConnection,
-                    )
-                  ) { con =>
-                    con
-                      .getId()
-                      .flatMap(con.getIdentityTransactions(_, TopologyStoreId.Authorized))
-                  }
-                  .map(_.flatten),
+                for {
+                  participantIdentity <- participantAdminConnection.getIdentityTransactions(
+                    participantId.uid,
+                    TopologyStoreId.Authorized,
+                  )
+                  mediatorIdentity <- synchronizerNode.mediatorAdminConnection
+                    .generateOnboardingTopologyTransactions(synchronizerNode.config.protocolVersion)
+                  sequencerIdentity <- synchronizerNode.sequencerAdminConnection
+                    .generateOnboardingTopologyTransactions(synchronizerNode.config.protocolVersion)
+                } yield participantIdentity ++ mediatorIdentity ++ sequencerIdentity,
                 participantAdminConnection.proposeInitialDomainParameters(
                   synchronizerId,
                   values,
@@ -579,6 +576,7 @@ class SV1Initializer(
               synchronizerNode.internalSequencerConnection,
               synchronizerNode.mediatorSequencerAmplification.toInternal,
               synchronizerNode.mediatorSequencerConnectionPoolDelays.toInternal,
+              synchronizerNode.mediatorSubscriptionLivenessLimits.toInternal,
             ),
             logger,
           )
@@ -592,11 +590,10 @@ class SV1Initializer(
     */
   private class WithDsoStore(
       dsoStoreWithIngestion: AppStoreWithIngestion[SvDsoStore],
-      synchronizerId: SynchronizerId,
-      packageVersionSupport: PackageVersionSupport,
-      domainMigrationId: Long,
+      psid: PhysicalSynchronizerId,
   ) {
 
+    private val synchronizerId = psid.logical
     private val dsoStore = dsoStoreWithIngestion.store
     private val dsoParty = dsoStore.key.dsoParty
     private val svParty = dsoStore.key.svParty
@@ -605,8 +602,6 @@ class SV1Initializer(
       dsoStoreWithIngestion.connection(SpliceLedgerConnectionPriority.Low),
       clock = clock,
       retryProvider = retryProvider,
-      versionSupport = packageVersionSupport,
-      migrationId = domainMigrationId,
       scanConfig = config.scan,
       loggerFactory = loggerFactory,
     )
@@ -628,7 +623,7 @@ class SV1Initializer(
         tc: TraceContext
     ): Future[Unit] = {
       synchronizerNodeReconciler.reconcileSynchronizerNodeConfigIfRequired(
-        synchronizerNodeService.nodes.some,
+        synchronizerNodeService.nodes,
         synchronizerId,
         SynchronizerNodeState.OnboardedImmediately,
       )
@@ -642,6 +637,8 @@ class SV1Initializer(
         synchronizerId,
         sv1Config.voteCooldownTime,
         sv1Config.acsCommitmentReconciliationInterval,
+        sv1Config.initialSvOperationsSwitchOverTimes,
+        sv1Config.initialPackageConfig,
       )
       for {
         (participantId, trafficStateForAllMembers, amuletRules, dsoRules) <- (
@@ -688,9 +685,8 @@ class SV1Initializer(
                     synchronizerNodeService.nodes.current.cometbftNode,
                     synchronizerNodeService.nodes.current,
                     config.scan,
-                    synchronizerId,
+                    psid,
                     clock,
-                    domainMigrationId,
                   )
                   _ = logger
                     .info(

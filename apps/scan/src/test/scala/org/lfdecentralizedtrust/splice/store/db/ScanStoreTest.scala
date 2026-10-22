@@ -58,12 +58,14 @@ import scala.jdk.CollectionConverters.*
 import scala.jdk.OptionConverters.*
 import scala.math.BigDecimal.javaBigDecimal2bigDecimal
 import org.lfdecentralizedtrust.splice.config.IngestionConfig
+import org.lfdecentralizedtrust.splice.scan.config.AnalyzableTimeWindowConfig
 import org.lfdecentralizedtrust.splice.store.MultiDomainAcsStore.IngestionSink.IngestionStart.{
   InitializeAcsAtLatestOffset,
   InitializeAcsAtOffset,
-  UpdateHistoryInitAtLatestPrunedOffset,
   ResumeAtOffset,
+  UpdateHistoryInitAtLatestPrunedOffset,
 }
+import org.lfdecentralizedtrust.splice.store.db.AcsJdbcTypes.StoreMemberId
 
 abstract class ScanStoreTest
     extends StoreTestBase
@@ -118,7 +120,7 @@ abstract class ScanStoreTest
             dummyDomain.create(_)(store.multiDomainAcsStore)
           )
           result <- store.getTotalPurchasedMemberTraffic(
-            goodMember,
+            StoreMemberId(goodMember),
             dummyDomain,
           )
         } yield result shouldBe (1 to 3).sum.toLong
@@ -187,6 +189,32 @@ abstract class ScanStoreTest
           store
             .lookupFeaturedAppRight(userParty(1))
             .futureValue should be(expectedResult)
+        }
+      }
+    }
+
+    "listFeaturedAppRightsByProvider" should {
+
+      "return the FeaturedAppRights of the wanted provider in creation order, up to the limit" in {
+        val wanted = (1 to 3).map(_ => featuredAppRight(userParty(1)))
+        val unwanted = featuredAppRight(userParty(2))
+        for {
+          store <- mkStore()
+          _ <- MonadUtil.sequentialTraverse(wanted :+ unwanted)(
+            dummyDomain.create(_)(store.multiDomainAcsStore)
+          )
+          all <- store.listFeaturedAppRightsByProvider(userParty(1), HardLimit.tryCreate(3))
+          page <- store.listFeaturedAppRightsByProvider(userParty(1), PageLimit.tryCreate(2))
+          hard <- loggerFactory.assertLogs(
+            store.listFeaturedAppRightsByProvider(userParty(1), HardLimit.tryCreate(2)),
+            _.warningMessage should include(
+              "Size of the result exceeded the limit in listFeaturedAppRightsByProvider"
+            ).and(include("Result size: 3. Limit: 2")),
+          )
+        } yield {
+          all.map(_.contract) shouldBe wanted
+          page.map(_.contract) shouldBe wanted.take(2)
+          hard.map(_.contract) shouldBe wanted.take(2)
         }
       }
     }
@@ -1606,6 +1634,7 @@ trait AmuletTransferUtil { self: StoreTestBase =>
         Optional.empty(),
         Optional.empty(), // voteCooldownTime
         Optional.empty(), // nextScheduledLogicalSynchronizerUpgrade
+        Optional.empty(), // svOperationsSwitchOverTimes
       ),
       Collections.emptyMap(),
       true,
@@ -1724,19 +1753,23 @@ class DbScanStoreTest
   override def mkUpdateHistory(
       migrationId: Long
   ): Future[UpdateHistory] = {
-    val updateHistory = new UpdateHistory(
-      storage.underlying, // not under test
-      migrationId,
-      "update_history_scan_store_test",
-      mkParticipantId("whatever"),
-      dsoParty,
-      BackfillingRequirement.BackfillingNotRequired,
-      loggerFactory,
-      enableissue12777Workaround = true,
-      enableImportUpdateBackfill = true,
-      HistoryMetrics(NoOpMetricsFactory, migrationId),
-    )
-    updateHistory.ingestionSink.initialize().map(_ => updateHistory)
+    for {
+      updateHistory <- UpdateHistory.create(
+        storage.underlying, // not under test
+        migrationId,
+        "update_history_scan_store_test",
+        StoreMemberId(mkParticipantId("whatever")),
+        dsoParty,
+        BackfillingRequirement.BackfillingNotRequired,
+        internedStringStore(storage),
+        analyzableTimeWindowDuration = AnalyzableTimeWindowConfig.UnlimitedAtw,
+        loggerFactory,
+        enableImportUpdateBackfill = true,
+        HistoryMetrics(NoOpMetricsFactory, migrationId),
+      )
+
+      _ <- updateHistory.ingestionSink.initialize()
+    } yield updateHistory
   }
 
   override protected def cleanDb(
@@ -1813,10 +1846,14 @@ class DbScanStoreTest
         result <- store.getValidatorLicenseByValidator(
           Vector(alice, bob)
         )
+        withDuplicates <- store.getValidatorLicenseByValidator(
+          Vector(alice, bob, alice, alice)
+        )
       } yield {
         result should contain(aliceValidatorLicense)
         result should contain(bobValidatorLicense)
         result should not contain charlesValidatorLicense
+        withDuplicates should contain theSameElementsAs result
       }
     }
   }

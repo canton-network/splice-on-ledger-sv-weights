@@ -7,6 +7,8 @@ import cats.implicits.{catsSyntaxApplicativeByValue as _, *}
 import com.daml.grpc.adapter.ExecutionSequencerFactory
 import com.daml.ledger.javaapi.data.User
 import com.digitalasset.canton.SynchronizerAlias
+import com.digitalasset.canton.admin.api.client.data.SequencerConnectionPoolDelaysAccess.*
+import com.digitalasset.canton.admin.api.client.data.SubscriptionLivenessLimitsAccess.*
 import com.digitalasset.canton.concurrent.FutureSupervisor
 import com.digitalasset.canton.config.CantonRequireTypes.InstanceName
 import com.digitalasset.canton.config.ProcessingTimeout
@@ -85,9 +87,11 @@ import org.lfdecentralizedtrust.splice.wallet.util.ValidatorTopupConfig
 import org.lfdecentralizedtrust.splice.wallet.{ExternalPartyWalletManager, UserWalletManager}
 import org.lfdecentralizedtrust.tokenstandard.allocation.v1.Resource as TokenStandardAllocationV1Resource
 import org.lfdecentralizedtrust.tokenstandard.allocation.v2.Resource as TokenStandardAllocationV2Resource
-import org.lfdecentralizedtrust.tokenstandard.allocationinstruction.v1.Resource as TokenStandardAllocationInstructionResource
+import org.lfdecentralizedtrust.tokenstandard.allocationinstruction.v1.Resource as TokenStandardAllocationInstructionV1Resource
+import org.lfdecentralizedtrust.tokenstandard.allocationinstruction.v2.Resource as TokenStandardAllocationInstructionV2Resource
 import org.lfdecentralizedtrust.tokenstandard.metadata.v1.Resource as TokenStandardMetadataResource
-import org.lfdecentralizedtrust.tokenstandard.transferinstruction.v1.Resource as TokenStandardTransferInstructionResource
+import org.lfdecentralizedtrust.tokenstandard.transferinstruction.v1.Resource as TokenStandardTransferInstructionV1Resource
+import org.lfdecentralizedtrust.tokenstandard.transferinstruction.v2.Resource as TokenStandardTransferInstructionV2Resource
 
 import scala.concurrent.{ExecutionContextExecutor, Future}
 
@@ -193,7 +197,6 @@ class ValidatorApp(
               config,
               participantAdminConnection,
               scanConnection,
-              domainMigrationId,
               retryProvider,
               loggerFactory,
             )
@@ -590,6 +593,11 @@ class ValidatorApp(
           this.getClass.getSimpleName,
           loggerFactory,
         )
+      // Querying topology updates for all parties on the ledger API requires readAsAnyParty rights.
+      _ <-
+        if (config.automation.topologyMetricsPollingInterval.isDefined)
+          readOnlyLedgerConnection.grantReadAsAnyParty(config.ledgerApiUser)
+        else Future.unit
       participantAdminConnection = new ParticipantAdminConnection(
         config.participantClient.adminApi,
         amuletAppParameters.loggingConfig.api,
@@ -765,7 +773,6 @@ class ValidatorApp(
           config,
           participantAdminConnection,
           scanConnection,
-          domainMigrationId,
           retryProvider,
           loggerFactory,
         ),
@@ -774,6 +781,7 @@ class ValidatorApp(
         config.svValidator,
         config.sequencerRequestAmplificationPatience.toInternal,
         config.sequencerConnectionPoolDelays.toInternal,
+        config.subscriptionLivenessLimits.toInternal,
         config.contactPoint,
         initialSynchronizerTime,
         config.maxVettingDelay,
@@ -782,7 +790,7 @@ class ValidatorApp(
         config.parameters.enabledFeatures,
         config.additionalPackagesToUnvet,
         config.domains.global.alias,
-        config.enableDeprecatedTransferCommandSupport,
+        config.supportEmbeddedPartySigningKeys,
         loggerFactory,
         packageVersionSupport,
       )
@@ -866,7 +874,6 @@ class ValidatorApp(
           getAmuletRulesDomain = scanConnection.getAmuletRulesDomain,
           scanConnection = scanConnection,
           participantAdminConnection,
-          packageVersionSupport,
           config,
           clock,
           retryProvider = retryProvider,
@@ -986,26 +993,6 @@ class ValidatorApp(
                     },
                 ),
                 pathPrefix("api" / "validator" / "v0" / "scan-proxy") {
-                  TokenStandardAllocationV2Resource.routes(
-                    tokenStandardScanProxyHandler,
-                    operation => {
-                      metrics.httpServerMetrics
-                        .withMetrics("tokenStandardAllocationV2")(operation)
-                        .tflatMap { _ =>
-                          AuthenticationOnlyAuthExtractor(
-                            verifier,
-                            loggerFactory,
-                            OAuthRealms.ScanProxy,
-                          )(
-                            traceContext
-                          )(
-                            operation
-                          )
-                        }
-                    },
-                  )
-                },
-                pathPrefix("api" / "validator" / "v0" / "scan-proxy") {
                   concat(
                     TokenStandardMetadataResource.routes(
                       tokenStandardScanProxyHandler,
@@ -1025,7 +1012,7 @@ class ValidatorApp(
                           }
                       },
                     ),
-                    TokenStandardTransferInstructionResource.routes(
+                    TokenStandardTransferInstructionV1Resource.routes(
                       tokenStandardScanProxyHandler,
                       operation =>
                         metrics.httpServerMetrics
@@ -1042,11 +1029,45 @@ class ValidatorApp(
                             )
                           },
                     ),
-                    TokenStandardAllocationInstructionResource.routes(
+                    TokenStandardTransferInstructionV2Resource.routes(
+                      tokenStandardScanProxyHandler,
+                      operation =>
+                        metrics.httpServerMetrics
+                          .withMetrics("tokenStandardTransferV2")(operation)
+                          .tflatMap { _ =>
+                            AuthenticationOnlyAuthExtractor(
+                              verifier,
+                              loggerFactory,
+                              OAuthRealms.ScanProxy,
+                            )(
+                              traceContext
+                            )(
+                              operation
+                            )
+                          },
+                    ),
+                    TokenStandardAllocationInstructionV1Resource.routes(
                       tokenStandardScanProxyHandler,
                       operation =>
                         metrics.httpServerMetrics
                           .withMetrics("tokenStandardAllocationInstruction")(operation)
+                          .tflatMap { _ =>
+                            AuthenticationOnlyAuthExtractor(
+                              verifier,
+                              loggerFactory,
+                              OAuthRealms.ScanProxy,
+                            )(
+                              traceContext
+                            )(
+                              operation
+                            )
+                          },
+                    ),
+                    TokenStandardAllocationInstructionV2Resource.routes(
+                      tokenStandardScanProxyHandler,
+                      operation =>
+                        metrics.httpServerMetrics
+                          .withMetrics("tokenStandardAllocationInstructionV2")(operation)
                           .tflatMap { _ =>
                             AuthenticationOnlyAuthExtractor(
                               verifier,
@@ -1075,6 +1096,24 @@ class ValidatorApp(
                               operation
                             )
                           },
+                    ),
+                    TokenStandardAllocationV2Resource.routes(
+                      tokenStandardScanProxyHandler,
+                      operation => {
+                        metrics.httpServerMetrics
+                          .withMetrics("tokenStandardAllocationV2")(operation)
+                          .tflatMap { _ =>
+                            AuthenticationOnlyAuthExtractor(
+                              verifier,
+                              loggerFactory,
+                              OAuthRealms.ScanProxy,
+                            )(
+                              traceContext
+                            )(
+                              operation
+                            )
+                          }
+                      },
                     ),
                   )
                 },

@@ -31,10 +31,10 @@ lazy val `canton-ledger-api-value` = BuildCommon.`canton-ledger-api-value`
 lazy val `canton-ledger-json-api` = BuildCommon.`canton-ledger-json-api`
 lazy val `canton-sequencer-driver-api` = BuildCommon.`canton-sequencer-driver-api`
 lazy val `canton-community-reference-driver` = BuildCommon.`canton-community-reference-driver`
-lazy val `canton-observability-metrics-testing` = BuildCommon.`canton-observability-metrics-testing`
 lazy val `canton-traffic-enforcement-component` = BuildCommon.`canton-traffic-enforcement-component`
 lazy val `daml-lf-transaction-test-lib` = BuildCommon.`daml-lf-transaction-test-lib`
 lazy val `daml-lf-data-scalacheck` = BuildCommon.`daml-lf-data-scalacheck`
+lazy val `canton-fork-logback-test` = BuildCommon.`canton-fork-logback-test`
 
 lazy val `splice-wartremover-extension` = Wartremover.`splice-wartremover-extension`
 
@@ -135,7 +135,12 @@ lazy val root: Project = (project in file("."))
     `canton-community-synchronizer`,
     `canton-community-participant`,
     `canton-ledger-api-value`,
-    `canton-observability-metrics-testing`,
+    `canton-fork-community-common-test`,
+    `canton-fork-logback-test`,
+    `canton-fork-app-base`,
+    `canton-fork-base`,
+    `canton-fork-common`,
+    `canton-fork-testing`,
     pulumi,
     `load-tester`,
     tools,
@@ -1188,13 +1193,56 @@ lazy val `lf-value-json` =
       CantonDependencies.excludeTranscodeConflictingDependencies,
     )
 
+lazy val `canton-fork-community-common-test` =
+  project
+    .in(file("canton-fork/community-common-test"))
+    .dependsOn(`canton-community-common`, `canton-community-testing`)
+    .settings(
+      scalacOptions --= JvmRulesPlugin.scalacOptionsToDisableForTests,
+      libraryDependencies += CantonDependencies.pekko_stream_testkit,
+      Headers.ApacheDAHeaderSettings,
+    )
+
+lazy val `canton-fork-base` =
+  project
+    .in(file("canton-fork/base"))
+    .dependsOn(`canton-community-base`)
+    .settings(Headers.ApacheDAHeaderSettings)
+
+lazy val `canton-fork-common` =
+  project
+    .in(file("canton-fork/common"))
+    .dependsOn(`canton-community-common`)
+    .settings(Headers.ApacheDAHeaderSettings)
+
+lazy val `canton-fork-testing` =
+  project
+    .in(file("canton-fork/testing"))
+    .dependsOn(`canton-community-testing`)
+    .settings(
+      scalacOptions --= JvmRulesPlugin.scalacOptionsToDisableForTests,
+      Headers.ApacheDAHeaderSettings,
+    )
+
+lazy val `canton-fork-app-base` =
+  project
+    .in(file("canton-fork/app-base"))
+    .dependsOn(`canton-community-app-base`)
+    .settings(
+      Headers.ApacheDAHeaderSettings,
+      CantonDependencies.excludeTranscodeConflictingDependencies,
+    )
+
 lazy val `apps-common` =
   project
     .in(file("apps/common"))
     .dependsOn(
       `canton-community-common`,
-      `canton-community-app` % "compile->compile;test->test",
-      `canton-community-testing` % "test->test",
+      `canton-community-app`,
+      `canton-fork-app-base`,
+      `canton-fork-base`,
+      `canton-community-testing` % Test,
+      `canton-fork-community-common-test` % Test,
       `lf-value-json`,
       `splice-wartremover-extension` % "compile->compile;test->test",
       // We include all DARs here to make sure they are available as resources.
@@ -1380,7 +1428,17 @@ lazy val `apps-sv` =
             pkg = "org.lfdecentralizedtrust.splice.http.v0",
             modules = List("pekko-http-v1.0.0", "circe"),
             customExtraction = true,
-          )
+          ),
+          // Separate file as we only generate the server but hand-write the client as guardrail doesn't work well for streaming responses
+          ScalaServer(
+            new File("apps/sv/src/main/openapi/sv-stream-server.yaml"),
+            pkg = "org.lfdecentralizedtrust.splice.http.v0",
+            modules = List("pekko-http-v1.0.0", "circe"),
+            imports = List(
+              "org.lfdecentralizedtrust.splice.admin.http.ResponseEntityGuardrailSupport._"
+            ),
+            customExtraction = true,
+          ),
         ),
     )
 
@@ -1422,7 +1480,7 @@ lazy val `apps-scan` =
             pkg = "org.lfdecentralizedtrust.splice.http.v0",
             modules = List("pekko-http-v1.0.0", "circe"),
             imports = List(
-              "org.lfdecentralizedtrust.splice.scan.admin.http.ResponseEntityGuardrailSupport._"
+              "org.lfdecentralizedtrust.splice.admin.http.ResponseEntityGuardrailSupport._"
             ),
             customExtraction = true,
           ),
@@ -1734,11 +1792,21 @@ lazy val `apps-common-frontend` = {
         val copyViteReports = baseDirectory.value / "../../../scripts/copy-vite-reports.sh"
         val log = streams.value.log
         runCommand(Seq(copyViteReports.toString), log, None, None)
+        val rootDir = baseDirectory.value / "../../.."
+        val testReportsDir = rootDir / "test-reports"
+        val reports = (testReportsDir * "TEST-*.xml").get.map(_.toString)
+        val mergedReport = testReportsDir / "vitest-merged.xml"
         runCommand(
-          Seq("npm", "run", "xunit-viewer", "--workspaces", "--if-present"),
+          Seq("junit2html", "--merge", mergedReport.toString) ++ reports,
           log,
           None,
-          Some(npmRootDir.value),
+          None,
+        )
+        runCommand(
+          Seq("junit2html", mergedReport.toString, (rootDir / "log/report.html").toString),
+          log,
+          None,
+          None,
         )
       },
       cleanFiles += damlTsCodegenDir.value,
@@ -1878,6 +1946,7 @@ lazy val `apps-splitwell` =
     .dependsOn(
       `apps-common` % "compile->compile;test->test",
       `apps-scan` % "compile->compile;test->test",
+      `canton-fork-common`,
       `splitwell-daml`,
     )
     .settings(
@@ -2041,8 +2110,9 @@ def mergeStrategy(oldStrategy: String => MergeStrategy): String => MergeStrategy
       MergeStrategy.last
     case PathList("org", "checkerframework", _ @_*) => MergeStrategy.first
     case PathList("google", "protobuf", _*) => MergeStrategy.first
-    case "google/longrunning/operations.proto" => MergeStrategy.first
-    case "google/apps/card/v1/card.proto" => MergeStrategy.first
+    case path @ PathList("google", _*) if path.endsWith(".proto") => MergeStrategy.first
+    // we pull these in twice through community-common. Unfortunately we can't just get rid of our fork as some of the modifications do actually matter.
+    case PathList("db", "migration", "canton", _*) => MergeStrategy.first
     case PathList("org", "apache", "logging", _*) => MergeStrategy.first
     case PathList("ch", "qos", "logback", _*) => MergeStrategy.first
     case PathList("META-INF", "okhttp.kotlin_module") => MergeStrategy.first
@@ -2396,9 +2466,10 @@ lazy val `apps-app`: Project =
       `apps-sv` % "compile->compile;test->test",
       `apps-scan`,
       `apps-wallet`,
-      `canton-community-app` % "compile->compile;test->test",
+      `canton-community-app`,
       `canton-community-base`,
       `canton-community-integration-testing` % "test",
+      `canton-fork-testing` % "test",
       `splice-amulet-test-daml` % "test",
       `splice-util-featured-app-proxies-daml` % "test",
       // necessary for token-standard-cli to get `npm install`ed so that TokenStandardCliSanityCheckPlugin can run
@@ -2407,7 +2478,8 @@ lazy val `apps-app`: Project =
     .settings(
       // scalatestplus-selenium is lagging behind, it depends on selenium 4.12,
       // but that's fine as it's compatible with selenium 4.44 that we end up using
-      libraryDependencies += "org.scalatestplus" %% "selenium-4-12" % "3.2.17.0" % "test",
+      libraryDependencies += ("org.scalatestplus" %% "selenium-4-12" % "3.2.17.0" % "test")
+        .exclude("org.seleniumhq.selenium", "htmlunit-driver"),
       libraryDependencies += CantonDependencies.scalatest_shouldmatchers,
       libraryDependencies += "org.seleniumhq.selenium" % "selenium-java" % "4.44.0" % "test",
       libraryDependencies += "eu.rekawek.toxiproxy" % "toxiproxy-java" % "2.1.4" % "test",
@@ -2435,6 +2507,11 @@ lazy val `apps-app`: Project =
       assembly / assemblyJarName := "splice-node.jar",
       // include historic dars in the jar
       Compile / unmanagedResourceDirectories += { file(file(".").absolutePath) / "daml/dars" },
+      // scalafix walks classDirectory but is only ordered after compile, not copyResources, so a
+      // DAR copy can land mid-walk and delete the .tmp it stages through, failing scalafix with
+      // "Unable to load symbol table". Ordering compile after copyResources avoids the overlap.
+      Compile / compile := (Compile / compile).dependsOn(Compile / copyResources).value,
+      Test / compile := (Test / compile).dependsOn(Test / copyResources).value,
     )
 
 // https://tanin.nanakorn.com/technical/2018/09/10/parallelise-tests-in-sbt-on-circle-ci.html
@@ -2506,9 +2583,8 @@ updateTestConfigForParallelRuns := {
   def isWithDockerWithoutCantonTest(name: String): Boolean =
     name.contains("LocalNet") || name.contains("BulkStorage") || name.contains("S3Upload")
   def isWithDockerWithSimtimeCantonTest(name: String): Boolean =
-    name contains "ScanTimeBasedIntegrationTest"
-  def isCometBftTest(name: String): Boolean =
-    name contains "CometBft"
+    Seq("ScanTimeBasedIntegrationTest", "ScanNewNetworkBackfillingTimeBasedIntegrationTest")
+      .exists(name.contains)
   def isDynamicSynchronizerParamsReconciliationTest(name: String): Boolean =
     name contains "DynamicSynchronizerParamsReconciliationTimeBasedIntegrationTest"
   def isLSUTest(name: String): Boolean =
@@ -2565,13 +2641,7 @@ updateTestConfigForParallelRuns := {
     (
       "Preflight tests against core nodes",
       "test-full-class-names-core-preflight.log",
-      (t: String) =>
-        isCoreDeploymentPreflightIntegrationTest(t) && !isNonDevNetTest(t) && !isCometBftTest(t),
-    ),
-    (
-      "Preflight tests against core nodes for cometBft",
-      "test-full-class-names-core-preflight-cometbft.log",
-      (t: String) => isCoreDeploymentPreflightIntegrationTest(t) && isCometBftTest(t),
+      (t: String) => isCoreDeploymentPreflightIntegrationTest(t) && !isNonDevNetTest(t),
     ),
     (
       "Preflight tests against validator1",
@@ -2586,13 +2656,7 @@ updateTestConfigForParallelRuns := {
     (
       "Preflight tests against runbook SV",
       "test-full-class-names-sv-preflight.log",
-      (t: String) =>
-        isRunbookSvPreflightIntegrationTest(t) && !isNonDevNetTest(t) && !isCometBftTest(t),
-    ),
-    (
-      "Preflight tests against runbook SV for cometBft",
-      "test-full-class-names-sv-preflight-cometbft.log",
-      (t: String) => isRunbookSvPreflightIntegrationTest(t) && isCometBftTest(t),
+      (t: String) => isRunbookSvPreflightIntegrationTest(t) && !isNonDevNetTest(t),
     ),
     (
       "Non-DevNet Preflight tests against runbook SV",
@@ -2623,11 +2687,6 @@ updateTestConfigForParallelRuns := {
       "tests using docker images",
       "test-full-class-names-docker-based.log",
       (t: String) => isDockerComposeBasedTest(t),
-    ),
-    (
-      "tests with wall clock time using CometBFT",
-      "test-cometbft-full-class-names.log",
-      (t: String) => !isTimeBasedTest(t) && !isFrontEndTest(t) && isCometBftTest(t),
     ),
     (
       "tests to check logical sync roll-forward upgrade",

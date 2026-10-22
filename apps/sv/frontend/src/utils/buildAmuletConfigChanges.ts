@@ -14,6 +14,7 @@ import { IssuanceConfig } from '@daml.js/splice-amulet/lib/Splice/Issuance';
 import { Schedule } from '@daml.js/splice-amulet/lib/Splice/Schedule';
 import { AmuletDecentralizedSynchronizerConfig } from '@daml.js/splice-amulet/lib/Splice/DecentralizedSynchronizer';
 import { ConfigChange } from './types';
+import { switchOverMapToConfigValue } from '../components/forms/formValidators';
 
 export function buildAmuletConfigChanges(
   before: Optional<AmuletConfig<'USD'>>,
@@ -45,6 +46,19 @@ export function buildAmuletConfigChanges(
       label: 'Development fund manager',
       currentValue: before?.optDevelopmentFundManager || '',
       newValue: after?.optDevelopmentFundManager || '',
+    },
+    {
+      fieldName: 'developmentFundManagerBlacklist',
+      label: 'Blacklisted development fund managers (comma-separated party ids)',
+      currentValue: before?.developmentFundManagerBlacklist?.join(', ') || '',
+      newValue: after?.developmentFundManagerBlacklist?.join(', ') || '',
+    },
+    {
+      fieldName: 'minDevelopmentFundMintingDelay',
+      label:
+        'Minimum delay between allocating and minting a development fund coupon in microseconds',
+      currentValue: before?.minDevelopmentFundMintingDelay?.microseconds || '',
+      newValue: after?.minDevelopmentFundMintingDelay?.microseconds || '',
     },
     {
       fieldName: 'transferConfigCreateFee',
@@ -118,6 +132,13 @@ export function buildAmuletConfigChanges(
     ...buildPackageConfigChanges(before?.packageConfig, after?.packageConfig),
 
     ...buildRewardConfigChanges(before?.rewardConfig, after?.rewardConfig),
+
+    {
+      fieldName: 'amuletSwitchOverTimes',
+      label: 'Amulet switch-over times',
+      currentValue: switchOverMapToConfigValue(before?.amuletSwitchOverTimes),
+      newValue: switchOverMapToConfigValue(after?.amuletSwitchOverTimes),
+    },
   ] as ConfigChange[];
 
   return showAllFields ? changes : changes.filter(c => c.currentValue !== c.newValue);
@@ -390,7 +411,7 @@ function buildDecentralizedSynchronizerChanges(
     return synchronizers.map
       .entriesArray()
       .map(r => r[0])
-      .sort();
+      .toSorted();
   };
 
   const beforeRequiredSynchronizers = getRequiredSynchronizers(before?.requiredSynchronizers);
@@ -398,7 +419,7 @@ function buildDecentralizedSynchronizerChanges(
 
   const allSynchronizers = [
     ...new Set([...beforeRequiredSynchronizers, ...afterRequiredSynchronizers]),
-  ].sort();
+  ].toSorted();
   const requiredSynchronizersChanges = allSynchronizers.map((sync, idx) => ({
     fieldName: `decentralizedSynchronizerRequiredSynchronizers${idx + 1}`,
     label: `(unused) Decentralized synchronizer (required synchronizer ${idx + 1})`,

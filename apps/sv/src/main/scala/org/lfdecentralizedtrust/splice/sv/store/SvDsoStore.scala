@@ -53,6 +53,7 @@ import com.digitalasset.canton.util.MonadUtil
 import com.digitalasset.canton.util.ShowUtil.*
 import io.grpc.Status
 import org.lfdecentralizedtrust.splice.config.IngestionConfig
+import org.lfdecentralizedtrust.splice.store.db.AcsJdbcTypes.StoreMemberId
 
 import scala.concurrent.duration.FiniteDuration
 import scala.concurrent.{ExecutionContext, Future}
@@ -200,12 +201,12 @@ trait SvDsoStore
 
   /** List amulets that are expired and can never be used as transfer input. */
   def listExpiredAmulets(
-      ignoredPartiesStore: Option[IgnoredPartiesStore] = None
+      unavailablePartiesStore: Option[UnavailablePartiesStore] = None
   ): ListExpiredContracts[splice.amulet.Amulet.ContractId, splice.amulet.Amulet]
 
   /** List amulet transfer instructions that are expired */
   def listExpiredAmuletTransferInstructions(
-      ignoredPartiesStore: Option[IgnoredPartiesStore] = None
+      unavailablePartiesStore: Option[UnavailablePartiesStore] = None
   ): ListExpiredContracts[
     splice.amulettransferinstruction.AmuletTransferInstruction.ContractId,
     splice.amulettransferinstruction.AmuletTransferInstruction,
@@ -213,7 +214,7 @@ trait SvDsoStore
 
   /** List amulet allocations that are expired */
   def listExpiredAmuletAllocations(
-      ignoredPartiesStore: Option[IgnoredPartiesStore] = None
+      unavailablePartiesStore: Option[UnavailablePartiesStore] = None
   ): ListExpiredContracts[
     splice.amuletallocation.AmuletAllocation.ContractId,
     splice.amuletallocation.AmuletAllocation,
@@ -221,7 +222,7 @@ trait SvDsoStore
 
   /** List amulet allocations V2 that are expired */
   def listExpiredAmuletAllocationsV2(
-      ignoredParties: Set[PartyId]
+      unavailablePartiesStore: Option[UnavailablePartiesStore] = None
   ): ListExpiredContracts[
     splice.amuletallocationv2.AmuletAllocationV2.ContractId,
     splice.amuletallocationv2.AmuletAllocationV2,
@@ -229,7 +230,7 @@ trait SvDsoStore
 
   /** List locked amulets that are expired and can never be used as transfer input. */
   def listLockedExpiredAmulets(
-      ignoredPartiesStore: Option[IgnoredPartiesStore] = None
+      unavailablePartiesStore: Option[UnavailablePartiesStore] = None
   ): ListExpiredContracts[splice.amulet.LockedAmulet.ContractId, splice.amulet.LockedAmulet]
 
   def listExpiredVoteRequests(): ListExpiredContracts[VoteRequest.ContractId, VoteRequest] =
@@ -442,13 +443,12 @@ trait SvDsoStore
   final def getExpiredCouponsInBatchesPerRoundAndCouponType(
       domain: SynchronizerId,
       enableExpireValidatorFaucet: Boolean,
-      ignoredPartiesStore: Option[IgnoredPartiesStore] = None,
+      unavailablePartiesStore: Option[UnavailablePartiesStore] = None,
       batchSize: Limit = PageLimit.tryCreate(100),
       numBatches: Limit = PageLimit.tryCreate(100),
   )(implicit
       tc: TraceContext
   ): Future[Seq[ExpiredRewardCouponsBatch]] = {
-    val ignoredExpiredRewardsPartyIds = ignoredPartiesStore.fold(Set.empty[PartyId])(_.getAll)
     def associateRoundContractWithBatch[T](
         batches: Seq[SvDsoStore.RoundBatch[T]],
         roundMap: Map[
@@ -462,6 +462,7 @@ trait SvDsoStore
         roundMap.get(batch.roundNumber).map(closedRound => (closedRound, batch.batch)).toList
       }
     for {
+      ignoredExpiredRewardsPartyIds <- UnavailablePartiesStore.listParties(unavailablePartiesStore)
       appRewardGroups <- listAppRewardCouponsGroupedByRound(
         domain,
         batchSize = batchSize,
@@ -753,20 +754,22 @@ trait SvDsoStore
       : ListExpiredContracts[so.SvOnboardingConfirmed.ContractId, so.SvOnboardingConfirmed] =
     multiDomainAcsStore.listExpiredFromPayloadExpiry(so.SvOnboardingConfirmed.COMPANION)
 
-  def listExpiredAnsEntries(ignoredPartiesStore: Option[IgnoredPartiesStore]): ListExpiredContracts[
+  def listExpiredAnsEntries(
+      unavailablePartiesStore: Option[UnavailablePartiesStore]
+  ): ListExpiredContracts[
     splice.ans.AnsEntry.ContractId,
     splice.ans.AnsEntry,
   ] =
     multiDomainAcsStore.listExpiredFromPayloadExpiry(
       splice.ans.AnsEntry.COMPANION,
-      ignoredPartiesStore,
+      unavailablePartiesStore,
       ignoredPartyFields = Seq("user"),
     )
 
   def listExpiredAnsSubscriptions(
       now: CantonTimestamp,
       limit: Limit = defaultLimit,
-      ignoredPartiesStore: Option[IgnoredPartiesStore],
+      unavailablePartiesStore: Option[UnavailablePartiesStore],
   )(implicit tc: TraceContext): Future[Seq[SvDsoStore.IdleAnsSubscription]]
 
   def listExpiredUnallocatedUnclaimedActivityRecord: ListExpiredContracts[
@@ -792,7 +795,7 @@ trait SvDsoStore
     )
 
   def listExpiredRewardCouponsV2(
-      ignoredPartiesStore: Option[IgnoredPartiesStore] = None
+      unavailablePartiesStore: Option[UnavailablePartiesStore] = None
   ): ListExpiredContracts[
     splice.amulet.RewardCouponV2.ContractId,
     splice.amulet.RewardCouponV2,
@@ -888,8 +891,12 @@ trait SvDsoStore
       )
     } yield unclaimedRewards map (_.contract)
 
-  def listMemberTrafficContracts(memberId: Member, synchronizerId: SynchronizerId, limit: Limit)(
-      implicit tc: TraceContext
+  def listMemberTrafficContracts(
+      memberId: StoreMemberId,
+      synchronizerId: SynchronizerId,
+      limit: Limit,
+  )(implicit
+      tc: TraceContext
   ): Future[
     Seq[Contract[
       splice.decentralizedsynchronizer.MemberTraffic.ContractId,
@@ -951,8 +958,8 @@ trait SvDsoStore
       tc: TraceContext
   ): Future[Seq[Contract[ValidatorLicense.ContractId, ValidatorLicense]]]
 
-  def getTotalPurchasedMemberTraffic(memberId: Member, synchronizerId: SynchronizerId)(implicit
-      tc: TraceContext
+  def getTotalPurchasedMemberTraffic(memberId: StoreMemberId, synchronizerId: SynchronizerId)(
+      implicit tc: TraceContext
   ): Future[Long]
 
   def lookupVoteByThisSvAndVoteRequestWithOffset(
@@ -1108,14 +1115,14 @@ trait SvDsoStore
   ]
 
   def listExpiredTransferPreapprovals(
-      ignoredPartiesStore: Option[IgnoredPartiesStore]
+      unavailablePartiesStore: Option[UnavailablePartiesStore]
   ): ListExpiredContracts[
     splice.amuletrules.TransferPreapproval.ContractId,
     splice.amuletrules.TransferPreapproval,
   ] =
     multiDomainAcsStore.listExpiredFromPayloadExpiry(
       splice.amuletrules.TransferPreapproval.COMPANION,
-      ignoredPartiesStore,
+      unavailablePartiesStore,
       ignoredPartyFields = Seq("receiver", "provider"),
     )
 
@@ -1171,7 +1178,7 @@ trait SvDsoStore
   /** Whether there are more than the given number of featured app activity markers. */
   def featuredAppActivityMarkerCountAboveOrEqualTo(
       threshold: Int,
-      ignoredPartiesStore: Option[IgnoredPartiesStore],
+      unavailablePartiesStore: Option[UnavailablePartiesStore],
   )(implicit
       tc: TraceContext
   ): Future[Boolean]
@@ -1180,7 +1187,7 @@ trait SvDsoStore
       contractIdHashLbIncl: Int,
       contractIdHashUbIncl: Int,
       limit: Int,
-      ignoredPartiesStore: Option[IgnoredPartiesStore],
+      unavailablePartiesStore: Option[UnavailablePartiesStore],
   )(implicit tc: TraceContext): Future[Seq[Contract[
     splice.amulet.FeaturedAppActivityMarker.ContractId,
     splice.amulet.FeaturedAppActivityMarker,
@@ -1486,7 +1493,7 @@ object SvDsoStore {
               // we ignore cases where the member id is invalid instead of throwing an exception
               // to avoid killing the entire ingestion pipeline as a result
               _ => None,
-              Some(_),
+              member => Some(StoreMemberId(member)),
             ),
           memberTrafficDomain = Some(SynchronizerId.tryFromString(contract.payload.synchronizerId)),
           totalTrafficPurchased = Some(contract.payload.totalPurchased),

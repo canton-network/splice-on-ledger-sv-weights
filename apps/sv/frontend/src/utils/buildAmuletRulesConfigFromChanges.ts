@@ -8,6 +8,7 @@ import { RelTime } from '@daml.js/daml-stdlib-DA-Time-Types-1.0.0/lib/DA/Time/Ty
 import { IssuanceConfig } from '@daml.js/splice-amulet/lib/Splice/Issuance';
 import { ConfigChange } from './types';
 import { Set as DamlSet } from '@daml.js/daml-stdlib-DA-Set-Types-1.0.0/lib/DA/Set/Types';
+import { configValueToSwitchOverMap } from '../components/forms/formValidators';
 
 function lsToSet<T>(ls: T[]): DamlSet<T> {
   return {
@@ -93,7 +94,20 @@ export function buildAmuletRulesConfigFromChanges(
     true
   );
   const transferConfigTokenStandardMaxTTL = getValue('transferConfigTokenStandardMaxTTL', true);
+  const developmentFundManagerBlacklistParties =
+    getValue('developmentFundManagerBlacklist', true)
+      ?.split(',')
+      .map(party => party.trim())
+      .filter(party => party !== '') ?? [];
+  const developmentFundManagerBlacklist =
+    developmentFundManagerBlacklistParties.length > 0
+      ? developmentFundManagerBlacklistParties
+      : null;
+  const minDevelopmentFundMintingDelay = getValue('minDevelopmentFundMintingDelay', true);
   const rewardConfigMintingVersion = getValue('rewardConfigMintingVersion', true);
+
+  const amuletSwitchOverTimes = configValueToSwitchOverMap(getValue('amuletSwitchOverTimes', true));
+
   const amuletConfig: AmuletConfig<'USD'> = {
     tickDuration: { microseconds: getValue('tickDuration', false) },
     transferPreapprovalFee: getValue('transferPreapprovalFee', true),
@@ -104,6 +118,12 @@ export function buildAmuletRulesConfigFromChanges(
         ? null
         : { microseconds: externalPartyConfigStateTickDuration },
     transferPreapprovalBaseDuration: null,
+    developmentFundManagerBlacklist,
+    minDevelopmentFundMintingDelay:
+      minDevelopmentFundMintingDelay === null
+        ? null
+        : { microseconds: minDevelopmentFundMintingDelay },
+    amuletSwitchOverTimes: amuletSwitchOverTimes,
     transferConfig: {
       createFee: { fee: getValue('transferConfigCreateFee', false) },
       holdingFee: { rate: getValue('transferConfigHoldingFeeRate', false) },

@@ -4,7 +4,11 @@
 package org.lfdecentralizedtrust.splice.sv
 
 import cats.syntax.either.*
-import com.daml.nonempty.NonEmpty
+import com.digitalasset.nonempty.NonEmpty
+import com.digitalasset.canton.admin.api.client.data.SequencerConnectionPoolDelaysAccess.*
+import com.digitalasset.canton.admin.api.client.data.SubmissionRequestAmplificationAccess.*
+import com.digitalasset.canton.admin.api.client.data.SubscriptionLivenessLimitsAccess.*
+import com.digitalasset.canton.protocol.StaticSynchronizerParametersAccess.*
 import com.digitalasset.canton.{SequencerAlias, SynchronizerAlias}
 import com.digitalasset.canton.admin.api.client.data.NodeStatus
 import com.digitalasset.canton.config.{ClientConfig, CryptoConfig, CryptoProvider}
@@ -30,6 +34,7 @@ import com.digitalasset.canton.topology.transaction.TopologyMapping.Code.{
 }
 import com.digitalasset.canton.tracing.TraceContext
 import com.digitalasset.canton.util.ShowUtil.*
+import com.digitalasset.canton.version.ProtocolVersion
 import io.grpc.Status
 import org.apache.pekko.http.scaladsl.model.StatusCodes
 import org.apache.pekko.stream.Materializer
@@ -73,6 +78,7 @@ class LocalSynchronizerNode(
       sequencerConfig,
       config.mediator.sequencerRequestAmplification,
       config.mediator.sequencerConnectionPoolDelays,
+      config.mediator.subscriptionLivenessLimits,
       cometbftNode,
     )
     with RetryProvider.Has
@@ -90,7 +96,11 @@ class LocalSynchronizerNode(
     config.sequencer.pruning
 
   def staticSynchronizerParameters(serial: NonNegativeInt): StaticSynchronizerParameters = {
-    SynchronizerParametersConfig()
+    SynchronizerParametersConfig(synchronizerLimits =
+      config.synchronizerLimits
+        .map(_.toInternal)
+        .filter(_ => config.protocolVersion >= ProtocolVersion.v37)
+    )
       .toStaticSynchronizerParameters(
         CryptoConfig(provider = CryptoProvider.Jce),
         config.protocolVersion,
@@ -218,9 +228,8 @@ class LocalSynchronizerNode(
     logger.info("Adding mediator identity transactions")
     for {
       mediatorId <- mediatorAdminConnection.getMediatorId
-      identity <- mediatorAdminConnection.getIdentityTransactions(
-        mediatorId.uid,
-        TopologyStoreId.Authorized,
+      identity <- mediatorAdminConnection.generateOnboardingTopologyTransactions(
+        config.protocolVersion
       )
       _ <- addIdentityTransactions(
         "mediator",
@@ -312,6 +321,7 @@ class LocalSynchronizerNode(
               internalSequencerConnection,
               mediatorSequencerAmplification.toInternal,
               mediatorSequencerConnectionPoolDelays.toInternal,
+              mediatorSubscriptionLivenessLimits.toInternal,
             )
           case NodeStatus.Success(_) =>
             logger.info("Mediator is already initialized")
@@ -384,9 +394,8 @@ class LocalSynchronizerNode(
     )
     for {
       sequencerId <- sequencerAdminConnection.getSequencerId
-      identity <- sequencerAdminConnection.getIdentityTransactions(
-        sequencerId.uid,
-        TopologyStoreId.Authorized,
+      identity <- sequencerAdminConnection.generateOnboardingTopologyTransactions(
+        config.protocolVersion
       )
       _ <- addIdentityTransactions(
         "sequencer",
@@ -520,6 +529,7 @@ class LocalSynchronizerNode(
           sequencerConnection,
           mediatorSequencerAmplification.toInternal,
           mediatorSequencerConnectionPoolDelays.toInternal,
+          mediatorSubscriptionLivenessLimits.toInternal,
         ),
       logger,
     )
