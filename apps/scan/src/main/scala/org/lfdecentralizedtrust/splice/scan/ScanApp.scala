@@ -77,12 +77,18 @@ import org.lfdecentralizedtrust.splice.scan.store.{
   ScanStore,
 }
 import org.lfdecentralizedtrust.splice.scan.store.bulk.BulkStorage
+import org.lfdecentralizedtrust.splice.scan.store.historystart.{
+  KvHistoryStartStore,
+  ParticipantHistoryStartSources,
+  ScanHistoryReadiness,
+  ScanHistoryStart,
+}
 import org.lfdecentralizedtrust.splice.scan.store.db.{
   DbAppActivityRecordStore,
   DbScanAppRewardsStore,
   DbScanVerdictStore,
 }
-import org.lfdecentralizedtrust.splice.store.db.DbAppStore
+import org.lfdecentralizedtrust.splice.store.db.{DbAppStore, InternedStringStore}
 import org.lfdecentralizedtrust.splice.store.{
   ChoiceContextContractFetcher,
   PageLimit,
@@ -94,8 +100,8 @@ import org.lfdecentralizedtrust.splice.util.HasHealth
 
 import scala.concurrent.{ExecutionContextExecutor, Future}
 import cats.implicits.*
-
 import org.apache.pekko.stream.Materializer
+import org.lfdecentralizedtrust.splice.store.db.AcsJdbcTypes.StoreMemberId
 
 /** Class representing a Scan app instance.
   *
@@ -110,7 +116,7 @@ class ScanApp(
     val loggerFactory: NamedLoggerFactory,
     tracerProvider: TracerProvider,
     futureSupervisor: FutureSupervisor,
-    nodeMetrics: ScanAppMetrics,
+    scanAppMetrics: ScanAppMetrics,
     adminRoutes: AdminRoutes,
 )(implicit
     ac: ActorSystem,
@@ -124,7 +130,7 @@ class ScanApp(
       loggerFactory,
       tracerProvider,
       futureSupervisor,
-      nodeMetrics,
+      scanAppMetrics,
     ) {
 
   override def packagesForJsonDecoding =
@@ -141,13 +147,13 @@ class ScanApp(
         syncConfig.sequencer,
         amuletAppParameters.loggingConfig.api,
         loggerFactory,
-        nodeMetrics.grpcClientMetrics,
+        scanAppMetrics.grpcClientMetrics,
         retryProvider,
       ),
       new SequencerTrafficClient(
         syncConfig.sequencer,
         retryProvider,
-        nodeMetrics.grpcClientMetrics,
+        scanAppMetrics.grpcClientMetrics,
         loggerFactory,
       ),
     )
@@ -173,7 +179,7 @@ class ScanApp(
             syncConfig.sequencer,
             amuletAppParameters.loggingConfig.api,
             loggerFactory,
-            nodeMetrics.grpcClientMetrics,
+            scanAppMetrics.grpcClientMetrics,
             retryProvider,
           ) -> bftConfig
         }
@@ -191,7 +197,7 @@ class ScanApp(
         config.participantClient.adminApi,
         amuletAppParameters.loggingConfig.api,
         loggerFactory,
-        nodeMetrics.grpcClientMetrics,
+        scanAppMetrics.grpcClientMetrics,
         retryProvider,
       )
       participantId <- appInitStep("Get participant id") {
@@ -211,23 +217,31 @@ class ScanApp(
         domainMigrationId,
         participantId,
         config.cache,
-        nodeMetrics.dbScanStore,
+        scanAppMetrics.dbScanStore,
         config.automation.ingestion,
         config.parameters.defaultLimit,
         config.acsStoreDescriptorUserVersion,
         config.txLogStoreDescriptorUserVersion,
       )
-      updateHistory = new UpdateHistory(
+      internedStringStore <- InternedStringStore.createAndWarmupCache(
+        storage,
+        config.cache.internedStrings.maxSize,
+        config.cache.internedStrings.ttl.underlying,
+        loggerFactory,
+        retryProvider.metricsFactory,
+      )
+      updateHistory <- UpdateHistory.create(
         storage,
         domainMigrationId,
         store.storeName,
-        participantId,
+        StoreMemberId(participantId),
         store.acsContractFilter.ingestionFilter.primaryParty,
         BackfillingRequirement.NeedsBackfilling,
+        internedStringStore,
+        config.analyzableTimeWindow.duration,
         loggerFactory,
-        enableissue12777Workaround = true,
         enableImportUpdateBackfill = config.updateHistoryBackfillImportUpdatesEnabled,
-        nodeMetrics.dbScanStore.history,
+        scanAppMetrics.dbScanStore.history,
       )
       acsSnapshotStore = AcsSnapshotStore(
         storage,
@@ -254,24 +268,46 @@ class ScanApp(
       )
       kvStore <- ScanKeyValueStore(dsoParty, participantId, storage, loggerFactory)
       kvProvider = new ScanKeyValueProvider(kvStore, loggerFactory)
-      bulkStorage = (config.bulkStorage.staging, config.bulkStorage.committed).tupled.map(_ =>
-        BulkStorage(
-          scanStorageConfigV1,
-          config.bulkStorage,
-          acsSnapshotStore,
+      historyStart = new ScanHistoryStart(
+        new KvHistoryStartStore(kvProvider),
+        new ParticipantHistoryStartSources(
+          config.isFirstSv,
+          config.updateHistoryBackfillEnabled && config.updateHistoryBackfillImportUpdatesEnabled,
           updateHistory,
-          currentMigrationId = domainMigrationId,
-          kvProvider,
-          retryProvider.metricsFactory,
-          config.automation,
-          backoffClock = new WallClock(retryProvider.timeouts, loggerFactory),
-          store,
-          svName,
-          ledgerClient,
-          amuletAppParameters.upgradesConfig,
-          retryProvider,
-          loggerFactory,
-        )
+          domainMigrationId,
+          participantAdminConnection,
+          config.globalSynchronizerAlias,
+          participantId,
+          dsoParty,
+        ),
+        loggerFactory,
+      )
+      _ <-
+        if (config.bulkStorage.debugReresolveHistoryStart) historyStart.forgetRecorded()
+        else Future.unit
+      historyReadiness = new ScanHistoryReadiness(updateHistory, historyStart)
+      bulkStorage <- (config.bulkStorage.staging, config.bulkStorage.committed).tupled.traverse(_ =>
+        appInitStep("Initialize bulk storage") {
+          BulkStorage(
+            scanStorageConfigV1,
+            config.bulkStorage,
+            acsSnapshotStore,
+            updateHistory,
+            currentMigrationId = domainMigrationId,
+            kvProvider,
+            historyStart,
+            historyReadiness,
+            retryProvider.metricsFactory,
+            config.automation,
+            backoffClock = new WallClock(retryProvider.timeouts, loggerFactory),
+            store,
+            svName,
+            ledgerClient,
+            amuletAppParameters.upgradesConfig,
+            retryProvider,
+            loggerFactory,
+          )
+        }
       )
       appActivityRecordStore = new DbAppActivityRecordStore(
         storage,
@@ -281,6 +317,7 @@ class ScanApp(
           config.activityIngestionUserVersion.fold(0)(_.toInt),
         ),
         config.isFirstSv,
+        initialRound.toLong,
         loggerFactory,
       )
       appRewardsStore = new DbScanAppRewardsStore(
@@ -319,7 +356,9 @@ class ScanApp(
         svName,
         amuletAppParameters.upgradesConfig,
         packageVersionSupport,
+        historyReadiness,
       )
+      _ = automation.registerHistoryStartTrigger(historyStart)
       scanVerdictStore = DbScanVerdictStore(
         storage,
         updateHistory,
@@ -368,6 +407,7 @@ class ScanApp(
         )
         automation.registerRewardsReferenceStoreIngestion(rewardsStore)
         automation.registerRewardComputationTrigger(rewardsStore)
+        automation.registerPruneRewardAccountingTrigger(rewardsStore, scanVerdictStore)
         rewardsStore
       }
       verdictAutomation = new ScanVerdictAutomationService(
@@ -376,11 +416,11 @@ class ScanApp(
         clock,
         retryProvider,
         loggerFactory,
-        nodeMetrics.grpcClientMetrics,
+        scanAppMetrics.grpcClientMetrics,
         scanVerdictStore,
         domainMigrationId,
         synchronizerId,
-        nodeMetrics.verdictIngestion,
+        scanAppMetrics.verdictIngestion,
         rewardsReferenceStore,
       )
       scanHandler = new HttpScanHandler(
@@ -396,9 +436,11 @@ class ScanApp(
         acsSnapshotStore,
         scanEventStore,
         bulkStorage.map(_.reader),
+        scanAppMetrics.httpApi,
         dsoAnsResolver,
         config.miningRoundsCacheTimeToLiveOverride,
         config.enableForcedAcsSnapshots,
+        config.perAcsSnapshotTablesEnabled,
         clock,
         loggerFactory,
         packageVersionSupport,
@@ -450,7 +492,7 @@ class ScanApp(
       )
       httpRateLimiter = new HttpRateLimiter(
         config.parameters.rateLimiting,
-        nodeMetrics.openTelemetryMetricsFactory,
+        scanAppMetrics.openTelemetryMetricsFactory,
         loggerFactory.getTracedLogger(classOf[HttpRateLimiter]),
       )
       route = cors(
@@ -459,7 +501,7 @@ class ScanApp(
         withTraceContext { traceContext =>
           {
             def buildRouteForOperation(operation: String, httpService: String) = {
-              nodeMetrics.httpServerMetrics
+              scanAppMetrics.httpServerMetrics
                 .withMetrics(httpService)(operation)
                 .tflatMap(_ =>
                   // rate limit after the metrics to capture the result in the http metrics
@@ -536,6 +578,7 @@ class ScanApp(
         store,
         automation,
         bulkStorage,
+        historyStart,
         verdictAutomation,
         scanEventStore,
         rewardsReferenceStore,
@@ -610,6 +653,7 @@ object ScanApp {
       store: ScanStore,
       automation: ScanAutomationService,
       bulkStorage: Option[BulkStorage],
+      historyStart: ScanHistoryStart,
       verdictAutomation: ScanVerdictAutomationService,
       eventStore: ScanEventStore,
       rewardsReferenceStore: ScanRewardsReferenceStore,

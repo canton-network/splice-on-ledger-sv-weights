@@ -210,7 +210,14 @@ class SvOnboardingAddlIntegrationTest
         }
         val nodeState = sv1NodeStates.get(svParty).value.payload
         val synchronizerNode = nodeState.state.synchronizerNodes.values.loneElement
-        val localSequencerUrl: String = synchronizerNode.sequencer.toScala.value.url
+        val localSequencerUrl: String =
+          synchronizerNode.physicalSynchronizers.toScala.value
+            .values()
+            .loneElement
+            .sequencer
+            .toScala
+            .value
+            .url
         localSequencerUrls should contain(localSequencerUrl)
         synchronizerNode.mediator.toScala.value.mediatorId should not be empty withClue "mediatorId"
 
@@ -362,7 +369,7 @@ class SvOnboardingAddlIntegrationTest
               amount = amuletAmount,
             ),
             _.errorMessage should (include(
-              s"INVALID_ARGUMENT/An error occurred. Please contact the operator and inquire about the request"
+              s"FAILED_PRECONDITION/DECENTRALIZED_PARTY_CANNOT_SUBMIT"
             ) or include(
               s"NO_SYNCHRONIZER_ON_WHICH_ALL_SUBMITTERS_CAN_SUBMIT"
             )),

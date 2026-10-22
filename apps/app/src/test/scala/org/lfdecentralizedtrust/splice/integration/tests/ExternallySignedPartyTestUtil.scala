@@ -1,11 +1,13 @@
 package org.lfdecentralizedtrust.splice.integration.tests
 
+import cats.syntax.either.*
 import com.daml.metrics.api.noop.NoOpMetricsFactory
 import com.daml.metrics.api.{MetricName, MetricsContext, HistogramInventory}
 import com.digitalasset.canton.config.RequireTypes.PositiveInt
-import com.digitalasset.canton.config.{CachingConfigs, CryptoProvider, CryptoSchemeConfig}
+import com.digitalasset.canton.config.{CachingConfigs, CryptoProvider}
 import com.digitalasset.canton.crypto.*
 import com.digitalasset.canton.crypto.provider.jce.JcePureCrypto
+import com.digitalasset.canton.crypto.provider.jce.JcePureCryptoAccess.*
 import com.digitalasset.canton.crypto.v30 as cryptoProto
 import com.digitalasset.canton.metrics.{
   SigningHistograms,
@@ -14,8 +16,16 @@ import com.digitalasset.canton.metrics.{
   DecryptionHistograms,
 }
 import com.digitalasset.canton.topology.PartyId
+import com.digitalasset.canton.topology.transaction.{
+  HostingParticipant,
+  ParticipantPermission,
+  PartyToParticipant,
+  TopologyChangeOp,
+  TopologyTransaction,
+}
 import com.digitalasset.canton.util.HexString
 import com.digitalasset.canton.version.ProtocolVersion
+import com.digitalasset.nonempty.NonEmpty
 import com.google.protobuf.ByteString
 import org.bouncycastle.asn1.edec.EdECObjectIdentifiers
 import org.bouncycastle.asn1.pkcs.PrivateKeyInfo
@@ -67,6 +77,74 @@ trait ExternallySignedPartyTestUtil extends TestCommon {
       keyPair,
       PartyId.tryCreate(truePartyHint, generatedKey.fingerprint),
     )
+  }
+
+  /** onboard external party with keys embedded in the p2p instead of a separate p2k mapping */
+  def onboardExternalPartyWithEmbeddedKeys(
+      validatorBackend: ValidatorAppBackendReference,
+      partyHint: Option[String] = None,
+  )(implicit env: SpliceTestConsoleEnvironment): OnboardingResult = {
+    val participantClient = validatorBackend.participantClient
+    val generatedKey: SigningPublicKey =
+      participantClient.keys.secret
+        .generate_signing_key(
+          UUID.randomUUID().toString,
+          SigningKeyUsage.All,
+          Some(SigningKeySpec.EcCurve25519),
+        )
+    val signingKeyPairByteString = participantClient.keys.secret
+      .download(generatedKey.fingerprint, ProtocolVersion.dev)
+    // delete the key from the participant to ensure that it won't be actually used there for anything
+    participantClient.keys.secret.delete(generatedKey.fingerprint, true)
+    val keyPair = CryptoKeyPair.fromTrustedByteString(signingKeyPairByteString).value
+    val privateKey = keyPair.privateKey.asInstanceOf[SigningPrivateKey]
+
+    val partyId =
+      PartyId.tryCreate(partyHint.getOrElse(UUID.randomUUID().toString), generatedKey.fingerprint)
+    val psid = participantClient.synchronizers
+      .list_connected()
+      .map(_.physicalSynchronizerId)
+      .find(_.logical == decentralizedSynchronizerId)
+      .valueOrFail("Participant is not connected to the global synchronizer")
+    val partyToParticipantTx = TopologyTransaction
+      .create(
+        TopologyChangeOp.Replace,
+        serial = PositiveInt.one,
+        PartyToParticipant.tryCreate(
+          partyId = partyId,
+          threshold = PositiveInt.one,
+          participants = Seq(
+            HostingParticipant(participantClient.id, ParticipantPermission.Confirmation)
+          ),
+          partySigningKeysWithThreshold = Some(
+            SigningKeysWithThreshold(
+              keys = NonEmpty.mk(Set, generatedKey),
+              threshold = PositiveInt.one,
+            )
+          ),
+        ),
+        psid.protocolVersion,
+      )
+      .value
+    val signature = crypto(env.executionContext)
+      .sign(
+        hash = partyToParticipantTx.hash.hash,
+        signingKey = privateKey,
+        usage = NonEmpty.mk(Set, SigningKeyUsage.Namespace, SigningKeyUsage.Protocol),
+      )
+      .value
+    // the participant api always creates p2ps with embedded keys.
+    participantClient.ledger_api.parties.allocate_external(
+      psid.logical,
+      Seq(partyToParticipantTx -> Seq(signature)),
+      multiSignatures = Seq.empty,
+    )
+    validatorBackend.participantClientWithAdminToken.ledger_api.users.rights.grant(
+      validatorBackend.getValidatorUserInfo().userName,
+      actAs = Set(partyId),
+    )
+
+    OnboardingResult(partyId, generatedKey, privateKey)
   }
 
   def submitTopologyAndOnboard(
@@ -137,7 +215,11 @@ trait ExternallySignedPartyTestUtil extends TestCommon {
   ): SubjectPublicKeyInfo = {
     SubjectPublicKeyInfo
       .getInstance(
-        publicKey.toProtoPublicKeyV30.getSigningPublicKey.publicKey.toByteArray
+        publicKey.toProtoPublicKeyV30
+          .valueOr(err => throw new RuntimeException(s"failed to convert public key: $err"))
+          .getSigningPublicKey
+          .publicKey
+          .toByteArray
       )
   }
 
@@ -157,24 +239,28 @@ trait ExternallySignedPartyTestUtil extends TestCommon {
 
   // The parameters here are just defaults so don't really matter
   def crypto(implicit ec: ExecutionContext) = new JcePureCrypto(
-    CryptoProvider.Jce.symmetric.default,
-    CryptoScheme
-      .create(CryptoSchemeConfig[SigningAlgorithmSpec](), CryptoProvider.Jce.signingAlgorithms)
-      .value,
-    CryptoScheme
+    defaultSymmetricKeyScheme = CryptoProvider.Jce.symmetric.default,
+    signingAlgorithmSpecs = CryptoScheme
       .create(
-        CryptoSchemeConfig[EncryptionAlgorithmSpec](),
-        CryptoProvider.Jce.encryptionAlgorithms,
+        CryptoProvider.Jce.signingAlgorithms.default,
+        CryptoProvider.Jce.signingAlgorithms.supported,
       )
       .value,
-    CryptoProvider.Jce.hash.default,
-    CryptoProvider.Jce.pbkdf.value.default,
-    CachingConfigs.defaultPublicKeyConversionCache,
-    None,
-    PositiveInt.tryCreate(1),
-    signingMetrics,
-    decryptionMetrics,
-    loggerFactory,
+    encryptionAlgorithmSpecs = CryptoScheme
+      .create(
+        CryptoProvider.Jce.encryptionAlgorithms.default,
+        CryptoProvider.Jce.encryptionAlgorithms.supported,
+      )
+      .value,
+    defaultHashAlgorithm = CryptoProvider.Jce.hash.default,
+    defaultPbkdfScheme = CryptoProvider.Jce.pbkdf.value.default,
+    publicKeyConversionCacheConfig = CachingConfigs.defaultPublicKeyConversionCache,
+    privateKeyConversionCacheTtl = None,
+    signatureVerificationParallelism = PositiveInt.one,
+    encryptionParallelism = PositiveInt.one,
+    signingMetrics = signingMetrics,
+    decryptionMetrics = decryptionMetrics,
+    loggerFactory = loggerFactory,
   )
 
   case class OnboardingResult(
@@ -407,6 +493,9 @@ trait ExternallySignedPartyTestUtil extends TestCommon {
         .fromProtoCryptoKeyPairV30(cryptoKeyPairProto)
         .value
         .toByteString(ProtocolVersion.dev)
+        .valueOr(err =>
+          throw new RuntimeException(s"Failed to convert key pair to bytestring: $err")
+        )
     }
 
     PreGeneratedParty(

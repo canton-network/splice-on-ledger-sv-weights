@@ -3,7 +3,6 @@
 
 package com.digitalasset.canton.topology
 
-import com.daml.nonempty.NonEmpty
 import com.digitalasset.base.error.ErrorCategory.{
   InvalidGivenCurrentSystemStateOther,
   InvalidGivenCurrentSystemStateResourceExists,
@@ -39,6 +38,7 @@ import com.digitalasset.canton.topology.transaction.TopologyTransaction.{
 }
 import com.digitalasset.daml.lf.data.Ref
 import com.digitalasset.daml.lf.language.Util
+import com.digitalasset.nonempty.NonEmpty
 
 sealed trait TopologyManagerError extends ContextualizedCantonError
 
@@ -84,7 +84,7 @@ object TopologyManagerError extends TopologyManagerErrorGroup {
     final case class Unexpected(description: String)(implicit
         val loggingContext: ErrorLoggingContext
     ) extends CantonError.Impl(
-          cause = s"Unhandled error: $description"
+          cause = s"Unexpected error: $description"
         )
         with TopologyManagerError
 
@@ -225,6 +225,32 @@ object TopologyManagerError extends TopologyManagerErrorGroup {
           cause = "Secret key with given fingerprint could not be found"
         )
         with TopologyManagerError
+
+    final case class Failures(keyIds: Set[Fingerprint])(implicit
+        val loggingContext: ErrorLoggingContext
+    ) extends CantonError.Impl(
+          cause = "Could not find any of the keys with the given fingerprints"
+        )
+        with TopologyManagerError
+  }
+
+  @Explanation(
+    """This indicates an error while trying to communicate with the key store."""
+  )
+  @Resolution(
+    "Check the configuration of the secret key store for the node."
+  )
+  object KeyStoreLookupError
+      extends ErrorCode(
+        id = "TOPOLOGY_KEY_STORE_LOOKUP_ERROR",
+        ErrorCategory.InvalidGivenCurrentSystemStateOther,
+      ) {
+    final case class Failure(error: CryptoPrivateStoreError)(implicit
+        val loggingContext: ErrorLoggingContext
+    ) extends CantonError.Impl(
+          cause = s"Key lookup failed due to a key store error: $error"
+        )
+        with TopologyManagerError
   }
 
   @Explanation(
@@ -298,14 +324,6 @@ object TopologyManagerError extends TopologyManagerErrorGroup {
         val loggingContext: ErrorLoggingContext
     ) extends CantonError.Impl(
           cause = s"Invalid synchronizer $invalid"
-        )
-        with TopologyManagerError
-
-    final case class MultipleSynchronizerStoresFound(storeIds: Seq[TopologyStoreId])(implicit
-        val loggingContext: ErrorLoggingContext
-    ) extends CantonError.Impl(
-          cause =
-            s"Multiple synchronizer stores found for the provided storeId: ${storeIds.mkString(", ")}."
         )
         with TopologyManagerError
   }
@@ -695,7 +713,7 @@ object TopologyManagerError extends TopologyManagerErrorGroup {
     ) extends CantonError.Impl(cause = s"""REMOVE must not change the topology mapping:
          |actual: $actual
          |expected: $expected""".stripMargin)
-        with TopologyManagerError {}
+        with TopologyManagerError
   }
 
   @Explanation(
@@ -736,7 +754,7 @@ object TopologyManagerError extends TopologyManagerErrorGroup {
 
     final case class UnexpectedPhysicalSynchronizerId(
         fromParameters: PhysicalSynchronizerId,
-        fromAnnouncement: PhysicalSynchronizerId,
+        fromAnnouncement: OpaquePhysicalSynchronizerId,
     )(implicit val loggingContext: ErrorLoggingContext)
         extends CantonError.Impl(
           cause =
@@ -1004,7 +1022,7 @@ object TopologyManagerError extends TopologyManagerErrorGroup {
         InvalidIndependentOfSystemState,
       ) {
     final case class Reject(
-        successorSynchronizerId: PhysicalSynchronizerId,
+        successorSynchronizerId: OpaquePhysicalSynchronizerId,
         details: String,
     )(implicit val loggingContext: ErrorLoggingContext)
         extends CantonError.Impl(
@@ -1016,7 +1034,7 @@ object TopologyManagerError extends TopologyManagerErrorGroup {
     object Reject {
       def conflictWithCurrentPsid(
           currentSynchronizerId: PhysicalSynchronizerId,
-          successorSynchronizerId: PhysicalSynchronizerId,
+          successorSynchronizerId: OpaquePhysicalSynchronizerId,
       )(implicit loggingContext: ErrorLoggingContext): Reject =
         Reject(
           successorSynchronizerId,
@@ -1024,8 +1042,8 @@ object TopologyManagerError extends TopologyManagerErrorGroup {
         )
 
       def conflictWithPreviousAnnouncement(
-          successorSynchronizerId: PhysicalSynchronizerId,
-          previouslyAnnouncedSuccessor: PhysicalSynchronizerId,
+          successorSynchronizerId: OpaquePhysicalSynchronizerId,
+          previouslyAnnouncedSuccessor: OpaquePhysicalSynchronizerId,
       )(implicit loggingContext: ErrorLoggingContext): Reject =
         Reject(
           successorSynchronizerId = successorSynchronizerId,
@@ -1048,8 +1066,8 @@ object TopologyManagerError extends TopologyManagerErrorGroup {
       ) {
     final case class Reject(
         sequencerId: SequencerId,
-        successorPsid: PhysicalSynchronizerId,
-        expectedSuccessorPsid: PhysicalSynchronizerId,
+        successorPsid: OpaquePhysicalSynchronizerId,
+        expectedSuccessorPsid: OpaquePhysicalSynchronizerId,
     )(implicit val loggingContext: ErrorLoggingContext)
         extends CantonError.Impl(
           cause =
@@ -1090,6 +1108,35 @@ object TopologyManagerError extends TopologyManagerErrorGroup {
         extends CantonError.Impl(
           cause =
             s"Topology of synchronizer $synchronizerId is known until $topologyKnownUntil but tried to query at $queryTime"
+        )
+        with TopologyManagerError
+  }
+
+  @Explanation("It was not possible to generate a new key.")
+  @Resolution("Verify the parameters used for generating the key.")
+  object KeyGenerationError
+      extends ErrorCode(
+        id = "TOPOLOGY_CANNOT_GENERATE_KEY",
+        ErrorCategory.InvalidGivenCurrentSystemStateOther,
+      ) {
+    final case class Encryption(err: EncryptionKeyGenerationError)(implicit
+        val loggingContext: ErrorLoggingContext
+    ) extends CantonError.Impl(
+          cause = s"Failed to generate encryption key: $err"
+        )
+        with TopologyManagerError
+
+    final case class Signing(err: SigningKeyGenerationError)(implicit
+        val loggingContext: ErrorLoggingContext
+    ) extends CantonError.Impl(
+          cause = s"Failed to generate signing key: $err"
+        )
+        with TopologyManagerError
+
+    final case class InvalidName(err: String)(implicit
+        val loggingContext: ErrorLoggingContext
+    ) extends CantonError.Impl(
+          cause = s"Invalid key name: $err"
         )
         with TopologyManagerError
   }
