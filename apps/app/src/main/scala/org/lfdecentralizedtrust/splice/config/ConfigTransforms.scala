@@ -695,6 +695,11 @@ object ConfigTransforms {
       )
     )
 
+  def withOnLedgerSvRightOwners: ConfigTransform =
+    updateAllSvAppFoundDsoConfigs_(c =>
+      c.copy(onLedgerSvRightOwners = Some(SvOnboardingConfig.OnLedgerSvRightOwnersConfig()))
+    )
+
   def withPerAcsSnapshotTablesEnabled: ConfigTransform =
     updateAllScanAppConfigs_(c => c.copy(perAcsSnapshotTablesEnabled = true))
 
