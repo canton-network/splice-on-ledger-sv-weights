@@ -133,6 +133,8 @@ class ReceiveSvRewardCouponTrigger(
     for {
       // Note that the DsoRules will be different for every task, so we have to return them one-by-one.
       dsoRules <- OptionT.liftF(store.getDsoRules())
+      // Once SV right owners are on-ledger, DsoRules_ReceiveSvRewardCoupon refuses, so there is nothing to claim here.
+      _ <- OptionT.when[Future, Unit](!dsoRules.payload.svRightOwners.isPresent)(())
       svInfo <- OptionT.fromOption[Future](
         Option(dsoRules.payload.svs.get(svParty.toProtoPrimitive))
       )
