@@ -44,11 +44,11 @@ import com.digitalasset.canton.sequencing.GrpcSequencerConnection
 import com.digitalasset.canton.time.Clock
 import com.digitalasset.canton.topology.PartyId
 import com.digitalasset.canton.topology.admin.grpc.TopologyStoreId
+import com.digitalasset.canton.protocol.SynchronizerLimits
 import com.digitalasset.canton.topology.transaction.*
 import com.digitalasset.canton.topology.transaction.SignedTopologyTransaction.GenericSignedTopologyTransaction
 import com.digitalasset.canton.tracing.{Spanning, TraceContext}
 import com.digitalasset.canton.util.HexString
-import com.digitalasset.canton.version.ProtocolVersion
 import com.google.protobuf.ByteString
 import io.grpc.{Status, StatusRuntimeException}
 import io.opentelemetry.api.trace.Tracer
@@ -238,11 +238,15 @@ class HttpValidatorAdminHandler(
     withSpan(s"$workflowId.generateExternalPartyTopology") { _ => _ =>
       requireWalletEnabled { _ =>
         val publicKey = ValidatorUtil.signingPublicKeyFromHexEd25119(body.publicKey)
-        ValidatorUtil
-          .createTopologyMappings(
-            partyHint = body.partyHint,
-            publicKey = publicKey,
-            participantAdminConnection = participantAdminConnection,
+        getAmuletRulesDomain()(tracedContext)
+          .flatMap(synchronizerId =>
+            ValidatorUtil
+              .createTopologyMappings(
+                partyHint = body.partyHint,
+                publicKey = publicKey,
+                participantAdminConnection = participantAdminConnection,
+                synchronizerId = synchronizerId,
+              )
           )
           .map { case (partyId, topologyTxs) =>
             v0.ValidatorAdminResource.GenerateExternalPartyTopologyResponse.OK(
@@ -276,6 +280,8 @@ class HttpValidatorAdminHandler(
   ): GenericSignedTopologyTransaction = {
     val tx = TopologyTransaction
       .fromTrustedByteString(
+        TopologyTransactionDeserializationContext(SynchronizerLimits.default)
+      )(
         ByteString.copyFrom(Base64.getDecoder.decode(topologyTx.topologyTx))
       )
       .valueOr(error =>
@@ -308,7 +314,7 @@ class HttpValidatorAdminHandler(
           ),
         ),
         isProposal = true,
-        protocolVersion = ProtocolVersion.dev,
+        protocolVersion = tx.representativeProtocolVersion.representative,
       )
       .valueOr(error =>
         throw Status.INVALID_ARGUMENT
@@ -347,7 +353,7 @@ class HttpValidatorAdminHandler(
             txs = body.signedTopologyTxs.map(decodeSignedTopologyTx(publicKey, _)),
           )
           // The PartyToParticipant mapping requires both the external signature from the party namespace but also one from the participant which we create here
-          participantId <- participantAdminConnection.getParticipantId()
+          _ <- participantAdminConnection.getParticipantId()
           _ <- participantAdminConnection.proposeMapping(
             TopologyStoreId.Synchronizer(synchronizerId),
             partyToParticipant,
