@@ -2147,7 +2147,7 @@ template DsoRules with
         svOperatorRewardStateCids : TextMap (ContractId SvRewardState)
           -- ^ The `SvRewardState` contracts of the SV node operators, keyed by the operator's name.
         offboardedSvRewardStateCids : TextMap (ContractId SvRewardState)
-          -- ^ Leftover `SvRewardState` contracts of offboarded SVs to archive, keyed by the SV's name. Must be disjoint from `svOperatorRewardStateCids` and from the SV right owners of the instruction.
+          -- ^ Leftover `SvRewardState` contracts of offboarded SVs to archive, keyed by the SV's name. Must be disjoint from `svOperatorRewardStateCids`.
         svOperator : Party
       controller svOperator
       do
@@ -2167,8 +2167,6 @@ template DsoRules with
             any (\info -> info.name == svName) (Map.values offboardedSvs)
           require ("Leftover SvRewardState of offboarded SV " <> show svName <> " must not belong to a current SV node operator") $
             not (svName `Set.member` getSvOperatorNames this)
-          require ("Leftover SvRewardState of offboarded SV " <> show svName <> " must not belong to an SV right owner of the migration") $
-            not (svName `TextMap.member` instruction.svRightOwners)
           void $ fetchAndArchive (ForSv with dso; svName) rewardStateCid
         svRightOwners <- forA (TextMap.toList instruction.svRightOwners) $ \(name, info) -> do
           svRightOwner <- create SvRightOwner with dso; name; info

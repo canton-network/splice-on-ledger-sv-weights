@@ -47,3 +47,19 @@ test_shouldArchiveTheLeftoverRewardStateOfAnSvOffboardedBeforeMigration = withLe
   migratePurgingOffboarded net instruction rewardStates (TextMap.fromList [("sv4", sv4RewardState)]) >>= shouldSucceed
 
   expectArchived net sv4RewardState
+
+test_shouldArchiveTheLeftoverRewardStateOfAnOffboardedSvReturningAsAnOwner = withLegacyWeights $ \net -> do
+  sv4RewardState <- svRewardStateCidFor net "sv4"
+  offboardSvNodeOperator net net.sv4
+  owners <- svRightOwnerInfosFromOperators net.app
+  Some sv1 <- pure $ TextMap.lookup "sv1" owners
+  let sv4Weight = sv1.rewardWeight / 2
+      ownersWithSv4 = TextMap.insert "sv4" (svRightOwnerInfoFor net.sv4.party sv4Weight "sv1")
+        $ TextMap.insert "sv1" (sv1 with rewardWeight = sv1.rewardWeight - sv4Weight) owners
+  instruction <- instructionRecordedBy net $ requestMigration net ownersWithSv4 >>= shouldSucceed
+  rewardStates <- rewardStatesForSvOperators net
+
+  migratePurgingOffboarded net instruction rewardStates (TextMap.fromList [("sv4", sv4RewardState)]) >>= shouldSucceed
+
+  expectArchived net sv4RewardState
+  svRewardStateNames net `shouldReturn` ["sv1", "sv2", "sv3", "sv4"]
