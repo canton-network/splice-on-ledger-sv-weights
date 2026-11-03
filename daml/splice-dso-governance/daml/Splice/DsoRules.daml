@@ -10,14 +10,14 @@ import DA.Assert
 import DA.Either (partitionEithers)
 import DA.Foldable (forA_, all, sum)
 import DA.List as List hiding (all)
+import DA.Optional (isNone, fromSome, fromOptional, isSome)
 import DA.Map (Map)
 import qualified DA.Map as Map
-import DA.Optional (isNone, fromSome, fromOptional, isSome)
+import DA.TextMap (TextMap)
+import qualified DA.TextMap as TextMap
 import DA.Set (Set)
 import qualified DA.Set as Set
 import qualified DA.Text as T
-import DA.TextMap (TextMap)
-import qualified DA.TextMap as TextMap
 import DA.Time
 
 import Splice.Amulet
@@ -117,7 +117,7 @@ data DsoRules_ActionRequiringConfirmation
   | SRARC_UpdateSvRewardWeight DsoRules_UpdateSvRewardWeight
     -- ^ Voted action to update the reward weight of an SV node operator under legacy SV reward system.
     -- Obsolete after MigrateToOnLedgerSvRightOwners.
-    -- TODO(canton-network/splice#7117): Remove in phase 4.
+    -- TODO(canton-network/splice#7117): Deprecate in phase 4.
   | SRARC_CreateExternalPartyAmuletRules DsoRules_CreateExternalPartyAmuletRules
     -- ^ Create ExternalPartyAmuletRules contract if it has not been created as part of network bootstrapping.
   | SRARC_CreateTransferCommandCounter DsoRules_CreateTransferCommandCounter
@@ -264,7 +264,7 @@ data DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstructionResult = DsoRules_
     svRightOwners : TextMap (ContractId SvRightOwner, ContractId SvRewardState)
   deriving (Serializable)
 
-data DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstructionResult = DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstructionResult with
+data DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstructionResult = DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstructionResult
   deriving (Serializable)
 
 data DsoRules_AddSvRightOwnerResult = DsoRules_AddSvRightOwnerResult with
@@ -277,7 +277,7 @@ data DsoRules_ExecuteAddSvRightOwnerInstructionResult = DsoRules_ExecuteAddSvRig
     svRewardState : ContractId SvRewardState
   deriving (Serializable)
 
-data DsoRules_ExpireAddSvRightOwnerInstructionResult = DsoRules_ExpireAddSvRightOwnerInstructionResult with
+data DsoRules_ExpireAddSvRightOwnerInstructionResult = DsoRules_ExpireAddSvRightOwnerInstructionResult
   deriving (Serializable)
 
 data DsoRules_RemoveSvRightOwnerResult = DsoRules_RemoveSvRightOwnerResult with
@@ -288,7 +288,7 @@ data DsoRules_ExecuteRemoveSvRightOwnerInstructionResult = DsoRules_ExecuteRemov
     newDsoRules : ContractId DsoRules
   deriving (Serializable)
 
-data DsoRules_ExpireRemoveSvRightOwnerInstructionResult = DsoRules_ExpireRemoveSvRightOwnerInstructionResult with
+data DsoRules_ExpireRemoveSvRightOwnerInstructionResult = DsoRules_ExpireRemoveSvRightOwnerInstructionResult
   deriving (Serializable)
 
 data DsoRules_UpdateSvRightOwnerInfoResult = DsoRules_UpdateSvRightOwnerInfoResult with
@@ -299,7 +299,7 @@ data DsoRules_ExecuteUpdateSvRightOwnerInfoInstructionResult = DsoRules_ExecuteU
     svRightOwner : ContractId SvRightOwner
   deriving (Serializable)
 
-data DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult = DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult with
+data DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult = DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult
   deriving (Serializable)
 
 data DsoRules_UpdateSvRightOwnerBeneficiariesResult = DsoRules_UpdateSvRightOwnerBeneficiariesResult with
@@ -1502,6 +1502,7 @@ template DsoRules with
     ---------------------------------------------------------
 
     nonconsuming choice DsoRules_ReceiveSvRewardCoupon : DsoRules_ReceiveSvRewardCouponResult
+      -- ^ Legacy SV reward minting. Refused once SV right owners are on-ledger; `DsoRules_ReceiveSvRewardCouponV2` takes over.
       with
         sv : Party
         openRoundCid : ContractId OpenMiningRound
@@ -1551,6 +1552,9 @@ template DsoRules with
                 svRewardCoupons = couponCids
 
     nonconsuming choice DsoRules_ReceiveSvRewardCouponV2 : DsoRules_ReceiveSvRewardCouponV2Result
+      -- ^ Mint the SV reward coupons of one open round for the given SV right owners: one coupon per
+      -- beneficiary and the remainder to the owner. Only the SV node operator hosting them may exercise
+      -- it, once per round and owner.
       with
         svOperator : Party
         openRoundCid : ContractId OpenMiningRound
@@ -1994,7 +1998,7 @@ template DsoRules with
       with
         instructionCid : ContractId MigrateToOnLedgerSvRightOwnersInstruction
         openMiningRoundTriple : OpenMiningRoundTriple
-          -- ^ Determines the latest usable round. SV right owners without an SV node operator of the same name start collecting in the round thereafter, as that operator may already have minted for it.
+          -- ^ Determines the latest usable round. SV right owners without an SV node operator of the same name start collecting in the round after it, as the operator that hosted them before the migration may already have minted it for them.
         svOperatorRewardStateCids : TextMap (ContractId SvRewardState)
           -- ^ The `SvRewardState` contracts of the SV node operators, keyed by the operator's name.
         offboardedSvRewardStateCids : TextMap (ContractId SvRewardState)
@@ -2044,7 +2048,7 @@ template DsoRules with
         _ <- getAndValidateSvParty this (Some svOperator)
         instruction <- fetchAndArchive (ForDso with dso) instructionCid
         assertDeadlineExceeded "migrateToOnLedgerSvRightOwnersInstruction.expiresAt" instruction.expiresAt
-        pure DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstructionResult with
+        pure DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstructionResult
 
     nonconsuming choice DsoRules_AddSvRightOwner : DsoRules_AddSvRightOwnerResult
       with
