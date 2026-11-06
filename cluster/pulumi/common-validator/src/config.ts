@@ -75,6 +75,8 @@ export const ValidatorAppConfigSchema = z.object({
 });
 
 export const ParticipantConfigSchema = z.object({
+  enableKeyDownload: z.boolean().default(false),
+  enableRepairCommands: z.boolean().default(false),
   additionalEnvVars: z.array(EnvVarConfigSchema).default([]),
   additionalJvmOptions: z.string().optional(),
   resources: K8sResourceSchema.default({
@@ -95,6 +97,15 @@ export const WalletGatewayConfigSchema = z.object({
 });
 
 export type WalletGatewayConfig = z.infer<typeof WalletGatewayConfigSchema>;
+
+export const SweepConfigSchema = z.object({
+  fromParty: z.string(),
+  toParty: z.string(),
+  maxBalance: z.number(),
+  minBalance: z.number(),
+  useTransferPreapproval: z.boolean().optional(),
+  useTokenStandardTransfer: z.boolean().optional(),
+});
 
 export const ValidatorNodeConfigSchema = z.object({
   logging: z
@@ -146,6 +157,7 @@ export const ValidatorConfigSchema = z
     onboardingSecret: z.string().optional(),
     partyAllocator: PartyAllocatorConfigSchema.prefault({ enable: false }),
     version: z.string().optional(),
+    sweep: SweepConfigSchema.optional(),
   })
   .and(ValidatorNodeConfigSchema);
 
@@ -156,6 +168,16 @@ export type ValidatorConfig = z.infer<typeof ValidatorConfigSchema>;
 export const allValidatorsConfig: ValidatorsConfig = ValidatorsConfigSchema.parse(
   clusterSubConfig('validators')
 );
+
+// Runbook validators are served at <app>.<ingress name>.<cluster hostname>.
+// The ingress name is the namespace for now; keep that assumption here only.
+export function validatorIngressName(validator: ValidatorConfig): string {
+  return validator.namespace;
+}
+
+export const allValidatorIngressNames: string[] = [
+  ...new Set(Object.values(allValidatorsConfig).map(validatorIngressName)),
+];
 
 const allValidators = Object.keys(allValidatorsConfig);
 export const deployedValidators = DeployValidatorRunbook

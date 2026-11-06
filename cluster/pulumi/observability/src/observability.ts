@@ -30,7 +30,11 @@ import {
   extraSvConfigsBasic,
   standardSvConfigsBasic,
 } from '@canton-network/splice-pulumi-common-sv/src/svConfigsBasic';
-import { SweepConfig } from '@canton-network/splice-pulumi-common-validator';
+import {
+  allValidatorsConfig,
+  deployedValidators,
+  SweepConfig,
+} from '@canton-network/splice-pulumi-common-validator';
 import { installSplicePostgres, Postgres } from '@canton-network/splice-pulumi-common/src/postgres';
 import { StackReferences } from '@canton-network/splice-pulumi-common/src/stackReferences';
 import { local } from '@pulumi/command';
@@ -929,6 +933,7 @@ function createGrafanaAlerting(namespace: Input<string>) {
   const sweepConfigs: SweepConfig[] = extraSvConfigsBasic
     .concat(standardSvConfigsBasic)
     .map(sv => sv.sweep!)
+    .concat(deployedValidators.map(validator => allValidatorsConfig[validator].sweep!))
     .filter(e => e != undefined);
   const cantonBftEnabled =
     DecentralizedSynchronizerUpgradeConfig.active.sequencer.enableBftSequencer;
@@ -937,6 +942,16 @@ function createGrafanaAlerting(namespace: Input<string>) {
     .filter((retainBlocks): retainBlocks is number => retainBlocks !== undefined)
     .sort((a, b) => a - b)
     .pop();
+  const legacyMigrationIds = [
+    ...(DecentralizedSynchronizerUpgradeConfig.legacy
+      ? [DecentralizedSynchronizerUpgradeConfig.legacy]
+      : []),
+    ...DecentralizedSynchronizerUpgradeConfig.additionalLegacy,
+  ].map(m => m.id);
+  const legacyMigrationsJobFilter =
+    legacyMigrationIds.length > 0
+      ? `{job!~"global-domain-(${legacyMigrationIds.join('|')})-.*"}`
+      : '';
   new k8s.core.v1.ConfigMap(
     'grafana-alerting',
     {
@@ -1094,44 +1109,26 @@ function createGrafanaAlerting(namespace: Input<string>) {
             ),
             'sequencer_client_delay_alerts.yaml': readGrafanaAlertingFile(
               'sequencer_client_delay_alerts.yaml'
-            ).replaceAll(
-              '$SEQUENCER_CLIENT_DELAY_THRESHOLD_SECONDS',
-              monitoringConfig.alerting.alerts.sequencerClientDelay.seconds.toString()
+            )
+              .replaceAll(
+                '$SEQUENCER_CLIENT_DELAY_THRESHOLD_SECONDS',
+                monitoringConfig.alerting.alerts.sequencerClientDelay.seconds.toString()
+              )
+              .replaceAll('$LEGACY_MIGRATIONS_JOB_FILTER', legacyMigrationsJobFilter),
+            'acs_commitment_deleted_alerts.yaml': readGrafanaAlertingFile(
+              'acs_commitment_deleted.yaml'
             ),
-            ...(monitoringConfig.alerting.alerts.acsCommitments.usePv36Metrics
-              ? {
-                  'acs_commitment_deleted_alerts.yaml': readGrafanaAlertingFile(
-                    'acs_commitment_deleted.yaml'
-                  ),
-                  'acs_commitment_pv36_alerts.yaml': readGrafanaAlertingFile(
-                    'acs_commitment_pv36_alerts.yaml'
-                  )
-                    .replaceAll(
-                      '$ACS_COMMITMENT_CHECKPOINT_DELAY_THRESHOLD_SECONDS',
-                      monitoringConfig.alerting.alerts.acsCommitments.checkpointDelay.seconds.toString()
-                    )
-                    .replaceAll(
-                      '$ACS_COMMITMENT_DELAY_THRESHOLD_SECONDS',
-                      monitoringConfig.alerting.alerts.acsCommitments.completedDelay.seconds.toString()
-                    ),
-                }
-              : {
-                  'acs_commitment_alerts.yaml': readGrafanaAlertingFile(
-                    'acs_commitment_alerts.yaml'
-                  )
-                    .replaceAll(
-                      '$ACS_COMMITMENT_CHECKPOINT_DELAY_THRESHOLD_SECONDS',
-                      monitoringConfig.alerting.alerts.acsCommitments.checkpointDelay.seconds.toString()
-                    )
-                    .replaceAll(
-                      '$ACS_COMMITMENT_DELAY_THRESHOLD_SECONDS',
-                      monitoringConfig.alerting.alerts.acsCommitments.completedDelay.seconds.toString()
-                    )
-                    .replaceAll(
-                      '$ACS_COMMITMENT_COMPUTE_DURATION_THRESHOLD_SECONDS',
-                      monitoringConfig.alerting.alerts.acsCommitments.computeDuration.seconds.toString()
-                    ),
-                }),
+            'acs_commitment_pv36_alerts.yaml': readGrafanaAlertingFile(
+              'acs_commitment_pv36_alerts.yaml'
+            )
+              .replaceAll(
+                '$ACS_COMMITMENT_CHECKPOINT_DELAY_THRESHOLD_SECONDS',
+                monitoringConfig.alerting.alerts.acsCommitments.checkpointDelay.seconds.toString()
+              )
+              .replaceAll(
+                '$ACS_COMMITMENT_DELAY_THRESHOLD_SECONDS',
+                monitoringConfig.alerting.alerts.acsCommitments.completedDelay.seconds.toString()
+              ),
             'sequencer_connection_pool_alerts.yaml': readGrafanaAlertingFile(
               'sequencer_connection_pool_alerts.yaml'
             ),

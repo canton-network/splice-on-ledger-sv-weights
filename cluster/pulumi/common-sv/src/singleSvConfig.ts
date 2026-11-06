@@ -8,6 +8,7 @@ import {
   KmsConfigSchema,
   LogLevelSchema,
   K8sResourceSchema,
+  TopologyKeyMonitorConfigSchema,
 } from '@canton-network/splice-pulumi-common';
 import { ValidatorAppConfigSchema } from '@canton-network/splice-pulumi-common-validator/src/config';
 import { clusterYamlConfig } from '@canton-network/splice-pulumi-common/src/config/config';
@@ -16,6 +17,7 @@ import { CnChartVersionSchema } from '@canton-network/splice-pulumi-common/src/c
 import util from 'node:util';
 import { z } from 'zod';
 
+import { FlywayMigrationToWaitForSchema } from './bigQueryFlywayMigration';
 import { TopologySnapshotSchema } from './config';
 import {
   CloudSqlWithOverrideConfigSchema,
@@ -61,6 +63,7 @@ const SvParticipantConfigSchema = z
   .object({
     kms: KmsConfigSchema.optional(),
     bftSequencerConnection: z.boolean().optional(),
+    enableKeyDownload: z.boolean().optional(),
     additionalEnvVars: z.array(EnvVarConfigSchema).default([]),
     additionalJvmOptions: z.string().optional(),
     cloudSql: CloudSqlWithOverrideConfigSchema,
@@ -122,6 +125,7 @@ export const ScanBigQueryConfigSchema = z
         message: 'Value must be an exact number of days, expressed in seconds',
       })
       .default(7 * SECONDS_PER_DAY),
+    flywayMigrationToWaitFor: FlywayMigrationToWaitForSchema,
   })
   .strict(); // Keeps strict mode safe now that all known fields are explicitly defined
 
@@ -208,6 +212,7 @@ const SingleSvConfigSchema = z
       })
       .optional(),
     periodicSnapshots: z.object({ topology: TopologySnapshotSchema.optional() }).optional(),
+    topologyKeyMonitor: TopologyKeyMonitorConfigSchema.optional(),
     testing: z.object({ catchup: CatchupTestSchema.optional() }).optional(),
     versionOverride: CnChartVersionSchema.optional(),
   })

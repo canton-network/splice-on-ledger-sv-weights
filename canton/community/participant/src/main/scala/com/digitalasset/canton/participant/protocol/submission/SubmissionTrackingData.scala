@@ -11,7 +11,11 @@ import com.digitalasset.canton.data.CantonTimestamp
 import com.digitalasset.canton.error.TransactionError
 import com.digitalasset.canton.ledger.participant.state.Update.UnSequencedCommandRejected
 import com.digitalasset.canton.ledger.participant.state.{CompletionInfo, Update}
-import com.digitalasset.canton.logging.pretty.{Pretty, PrettyPrinting}
+import com.digitalasset.canton.logging.pretty.{
+  Pretty,
+  PrettyPrintingCompanion,
+  PrettyPrintingFromCompanion,
+}
 import com.digitalasset.canton.logging.{ErrorLoggingContext, HasLoggerName, NamedLoggingContext}
 import com.digitalasset.canton.participant.protocol.{TransactionProcessor, v30}
 import com.digitalasset.canton.participant.store.{
@@ -49,7 +53,7 @@ trait SubmissionTrackingData
     extends Product
     with Serializable
     with HasProtocolVersionedWrapper[SubmissionTrackingData]
-    with PrettyPrinting {
+    with PrettyPrintingFromCompanion {
 
   @transient override protected lazy val companionObj: SubmissionTrackingData.type =
     SubmissionTrackingData
@@ -87,7 +91,7 @@ object SubmissionTrackingData
 
   val versioningTable: VersioningTable = VersioningTable(
     ProtoVersion(30) -> VersionedProtoCodec
-      .storage(ReleaseProtocolVersion(ProtocolVersion.v34), v30.SubmissionTrackingData)(
+      .storage(ReleaseProtocolVersion(ProtocolVersion.v36), v30.SubmissionTrackingData)(
         supportedProtoVersion(_)(fromProtoV30),
         _.toProtoV30,
       )
@@ -101,7 +105,14 @@ object SubmissionTrackingData
     val v30.SubmissionTrackingData(tracking) = submissionTrackingP
     tracking match {
       case v30.SubmissionTrackingData.Tracking.Transaction(transactionSubmissionTracking) =>
-        TransactionSubmissionTrackingData.fromProtoV30(transactionSubmissionTracking)
+        for {
+          rpv <- SubmissionTrackingData.protocolVersionRepresentativeFor(ProtoVersion(30))
+          parsed <- TransactionSubmissionTrackingData.fromProtoV30(
+            transactionSubmissionTracking,
+            rpv,
+          )
+        } yield parsed
+
       case v30.SubmissionTrackingData.Tracking.Empty => Left(FieldNotSet("tracking"))
     }
   }
@@ -113,12 +124,12 @@ final case class TransactionSubmissionTrackingData(
     rejectionCause: TransactionSubmissionTrackingData.RejectionCause,
     synchronizerId: PhysicalSynchronizerId,
     transactionHash: Option[Hash],
+)(
+    override val representativeProtocolVersion: RepresentativeProtocolVersion[
+      SubmissionTrackingData.type
+    ]
 ) extends SubmissionTrackingData
     with HasLoggerName {
-
-  override val representativeProtocolVersion: RepresentativeProtocolVersion[
-    SubmissionTrackingData.type
-  ] = SubmissionTrackingData.protocolVersionRepresentativeFor(synchronizerId.protocolVersion)
 
   override def rejectionEvent(
       recordTime: CantonTimestamp,
@@ -154,7 +165,7 @@ final case class TransactionSubmissionTrackingData(
       this.copy(
         completionInfo = completionInfo.copy(paidTrafficCost = trafficCost),
         rejectionCause = TransactionSubmissionTrackingData.CauseWithTemplate(reason),
-      ),
+      )(representativeProtocolVersion),
     ).some
 
   protected def toProtoV30: v30.SubmissionTrackingData = {
@@ -169,15 +180,31 @@ final case class TransactionSubmissionTrackingData(
     v30.SubmissionTrackingData(v30.SubmissionTrackingData.Tracking.Transaction(transactionTracking))
   }
 
-  override protected def pretty: Pretty[TransactionSubmissionTrackingData] = prettyOfClass(
-    param("completion info", _.completionInfo),
-    param("rejection cause", _.rejectionCause),
-  )
+  override def prettyCompanion: PrettyPrintingCompanion[TransactionSubmissionTrackingData] =
+    TransactionSubmissionTrackingData
 }
 
-object TransactionSubmissionTrackingData {
+object TransactionSubmissionTrackingData
+    extends PrettyPrintingCompanion[TransactionSubmissionTrackingData] {
+
+  def create(
+      completionInfo: CompletionInfo,
+      rejectionCause: TransactionSubmissionTrackingData.RejectionCause,
+      synchronizerId: PhysicalSynchronizerId,
+      transactionHash: Option[Hash],
+  ): TransactionSubmissionTrackingData =
+    new TransactionSubmissionTrackingData(
+      completionInfo,
+      rejectionCause,
+      synchronizerId,
+      transactionHash,
+    )(SubmissionTrackingData.protocolVersionRepresentativeFor(synchronizerId.protocolVersion))
+
   def fromProtoV30(
-      tracking: v30.TransactionSubmissionTrackingData
+      tracking: v30.TransactionSubmissionTrackingData,
+      representativeProtocolVersion: RepresentativeProtocolVersion[
+        SubmissionTrackingData.type
+      ],
   ): ParsingResult[TransactionSubmissionTrackingData] = {
     val v30.TransactionSubmissionTrackingData(
       completionInfoP,
@@ -202,10 +229,10 @@ object TransactionSubmissionTrackingData {
       cause,
       synchronizerId,
       txHash,
-    )
+    )(representativeProtocolVersion)
   }
 
-  trait RejectionCause extends Product with Serializable with PrettyPrinting {
+  trait RejectionCause extends Product with Serializable with PrettyPrintingFromCompanion {
 
     def asFinalReason(implicit
         loggingContext: ErrorLoggingContext
@@ -246,11 +273,17 @@ object TransactionSubmissionTrackingData {
         cause = v30.TransactionSubmissionTrackingData.RejectionCause.Cause.Timeout(Empty())
       )
 
-    override protected def pretty: Pretty[TimeoutCause.type] = prettyOfObject[TimeoutCause.type]
+    override def prettyCompanion: PrettyPrintingCompanion[TimeoutCause.this.type] =
+      TimeoutCausePrettyPrintingCompanion
 
     def fromProtoV30(@unused _empty: Empty): ParsingResult[TimeoutCause.type] = Right(
       this
     )
+  }
+
+  private object TimeoutCausePrettyPrintingCompanion
+      extends PrettyPrintingCompanion[TimeoutCause.type] {
+    override protected val pretty: Pretty[TimeoutCause.type] = prettyOfObject[TimeoutCause.type]
   }
 
   final case class CauseWithTemplate(template: Update.CommandRejected.FinalReason)
@@ -266,12 +299,10 @@ object TransactionSubmissionTrackingData {
         )
       )
 
-    override protected def pretty: Pretty[CauseWithTemplate] = prettyOfClass(
-      unnamedParam(_.template.status)
-    )
+    override def prettyCompanion: PrettyPrintingCompanion[CauseWithTemplate] = CauseWithTemplate
   }
 
-  object CauseWithTemplate {
+  object CauseWithTemplate extends PrettyPrintingCompanion[CauseWithTemplate] {
 
     /** Log the `error` and then convert it into a
       * [[com.digitalasset.canton.ledger.participant.state.Update.CommandRejected.FinalReason]]
@@ -299,5 +330,14 @@ object TransactionSubmissionTrackingData {
       for {
         templateStatus <- SerializableRejectionReasonTemplate.fromProtoV30(templateP)
       } yield CauseWithTemplate(Update.CommandRejected.FinalReason(templateStatus))
+
+    override protected val pretty: Pretty[CauseWithTemplate] = prettyOfClass(
+      unnamedParam(_.template.status)
+    )
   }
+
+  override protected val pretty: Pretty[TransactionSubmissionTrackingData] = prettyOfClass(
+    param("completion info", _.completionInfo),
+    param("rejection cause", _.rejectionCause),
+  )
 }

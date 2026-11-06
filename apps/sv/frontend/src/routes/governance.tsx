@@ -40,6 +40,7 @@ export const Governance: React.FC = () => {
 
   const votesHooks = useVotesHooks();
   const dsoInfosQuery = votesHooks.useDsoInfos();
+  const svInfoQuery = votesHooks.useSvInfo();
   const listVoteRequestsQuery = votesHooks.useListDsoRulesVoteRequests();
   const voteResultsInfiniteQuery = useInfiniteVoteRequestResults();
   const voteResultsCountQuery = useVoteRequestResultsCount();
@@ -49,7 +50,7 @@ export const Governance: React.FC = () => {
     : [];
   const votesQuery = votesHooks.useListVotes(voteRequestIds);
 
-  const svPartyId = dsoInfosQuery.data?.svPartyId;
+  const svPartyId = svInfoQuery.data?.svPartyId;
   const votingThreshold = dsoInfosQuery.data?.votingThreshold;
   const svs = dsoInfosQuery.data?.dsoRules.payload.svs;
   const alreadyVotedRequestIds: Set<ContractId<VoteRequest>> = useMemo(() => {
@@ -286,23 +287,19 @@ export const Governance: React.FC = () => {
 };
 
 const EmptyStateSection: React.FC = () => (
-  <Stack mt={11} alignItems="center" gap="14px">
+  <Stack sx={{ mt: 11, alignItems: 'center', gap: '14px' }}>
     <InfoOutlined color="secondary" fontSize="large" />
-    <Typography fontSize={20} fontWeight="bold" mt={1}>
-      No data to show
-    </Typography>
-    <Typography fontSize={16}>
+    <Typography sx={{ fontSize: 20, fontWeight: 'bold', mt: 1 }}>No data to show</Typography>
+    <Typography sx={{ fontSize: 16 }}>
       This page will automatically update once there are in-flight proposals
     </Typography>
   </Stack>
 );
 
 const ErrorStateSection: React.FC = () => (
-  <Stack mt={11} alignItems="center" gap="14px">
+  <Stack sx={{ mt: 11, alignItems: 'center', gap: '14px' }}>
     <WarningAmberOutlined color="warning" fontSize="large" />
-    <Typography fontSize={20} fontWeight="bold" mt={1}>
-      Something went wrong
-    </Typography>
-    <Typography fontSize={16}>Please try to reload this page or contact support</Typography>
+    <Typography sx={{ fontSize: 20, fontWeight: 'bold', mt: 1 }}>Something went wrong</Typography>
+    <Typography sx={{ fontSize: 16 }}>Please try to reload this page or contact support</Typography>
   </Stack>
 );

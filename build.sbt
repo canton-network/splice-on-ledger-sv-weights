@@ -19,14 +19,11 @@ BuildCommon.sbtSettings
 lazy val `canton-community-app` = BuildCommon.`canton-community-app`
 lazy val `canton-community-app-base` = BuildCommon.`canton-community-app-base`
 lazy val `canton-community-base` = BuildCommon.`canton-community-base`
-lazy val `canton-community-common` = BuildCommon.`canton-community-common`
 lazy val `canton-community-synchronizer` = BuildCommon.`canton-community-synchronizer`
 lazy val `canton-community-participant` = BuildCommon.`canton-community-participant`
-lazy val `canton-community-admin-api` = BuildCommon.`canton-community-admin-api`
 lazy val `canton-community-integration-testing` = BuildCommon.`canton-community-integration-testing`
 lazy val `canton-community-testing` = BuildCommon.`canton-community-testing`
 lazy val `canton-wartremover-extension` = BuildCommon.`canton-wartremover-extension`
-lazy val `canton-util-observability` = BuildCommon.`canton-util-observability`
 lazy val `canton-ledger-api-value` = BuildCommon.`canton-ledger-api-value`
 lazy val `canton-ledger-json-api` = BuildCommon.`canton-ledger-json-api`
 lazy val `canton-sequencer-driver-api` = BuildCommon.`canton-sequencer-driver-api`
@@ -126,7 +123,6 @@ lazy val root: Project = (project in file("."))
     `splice-test-token-v2-test-daml`,
     `build-tools-dar-lock-checker`,
     `canton-community-base`,
-    `canton-community-common`,
     `canton-community-integration-testing`,
     `canton-community-testing`,
     `canton-wartremover-extension`,
@@ -1196,10 +1192,13 @@ lazy val `lf-value-json` =
 lazy val `canton-fork-community-common-test` =
   project
     .in(file("canton-fork/community-common-test"))
-    .dependsOn(`canton-community-common`, `canton-community-testing`)
+    .dependsOn(`canton-community-testing`)
     .settings(
       scalacOptions --= JvmRulesPlugin.scalacOptionsToDisableForTests,
-      libraryDependencies += CantonDependencies.pekko_stream_testkit,
+      libraryDependencies ++= Seq(
+        CantonDependencies.canton_community_common,
+        CantonDependencies.pekko_stream_testkit,
+      ),
       Headers.ApacheDAHeaderSettings,
     )
 
@@ -1212,8 +1211,11 @@ lazy val `canton-fork-base` =
 lazy val `canton-fork-common` =
   project
     .in(file("canton-fork/common"))
-    .dependsOn(`canton-community-common`)
-    .settings(Headers.ApacheDAHeaderSettings)
+    .dependsOn(`canton-community-base`)
+    .settings(
+      libraryDependencies += CantonDependencies.canton_community_common,
+      Headers.ApacheDAHeaderSettings,
+    )
 
 lazy val `canton-fork-testing` =
   project
@@ -1237,7 +1239,6 @@ lazy val `apps-common` =
   project
     .in(file("apps/common"))
     .dependsOn(
-      `canton-community-common`,
       `canton-community-app`,
       `canton-fork-app-base`,
       `canton-fork-base`,
@@ -1283,7 +1284,6 @@ lazy val `apps-common` =
           "com.google.api.grpc",
           "proto-google-common-protos",
         )),
-        kubernetes_client,
         Dependencies.daml_lf_validation,
         scalatestScalacheck % Test,
         CantonDependencies.pekko_http_testkit % Test,
@@ -1620,7 +1620,7 @@ lazy val `apps-common-frontend` = {
           (`splice-api-token-allocation-request-v2-daml` / Compile / damlBuild).value,
       damlTsCodegenDir := baseDirectory.value / "daml.js",
       damlTsCodegen := BuildCommon.damlTsCodegenTask.value,
-      npmInstallDeps := (baseDirectory.value / "package.json" +: damlTsCodegen.value) ++ (`splice-api-token-metadata-v1-daml` / Compile / npmInstall).value ++ (`token-standard-cli` / Compile / npmInstall).value,
+      npmInstallDeps := (baseDirectory.value / "package.json" +: baseDirectory.value / "generated-packages.json" +: baseDirectory.value / "scripts" / "link-generated-packages.mjs" +: damlTsCodegen.value) ++ (`splice-api-token-metadata-v1-daml` / Compile / npmInstall).value ++ (`token-standard-cli` / Compile / npmInstall).value,
       npmInstallOpenApiDeps :=
         Seq(
           (
@@ -1661,55 +1661,19 @@ lazy val `apps-common-frontend` = {
             // openapi-generator-cli only generates .ts files so we need to
             // compile to get .d.ts and .js files. We cannot run this as part of
             // apps-common-frontend-openapi/compile because that does not yet run
-            // npm install.
-            BuildCommon.TS.runWorkspaceCommand(
-              npmRootDir.value,
-              "build",
-              "scan/openapi-ts-client",
-              log,
-            )
-            BuildCommon.TS.runWorkspaceCommand(
-              npmRootDir.value,
-              "build",
-              "sv/openapi-ts-client",
-              log,
-            )
-            BuildCommon.TS.runWorkspaceCommand(
-              npmRootDir.value,
-              "build",
-              "validator/openapi-ts-client",
-              log,
-            )
-            BuildCommon.TS.runWorkspaceCommand(
-              npmRootDir.value,
-              "build",
-              "validator/external-openapi-ts-client",
-              log,
-            )
-            BuildCommon.TS.runWorkspaceCommand(
-              npmRootDir.value,
-              "build",
-              "validator/scan-proxy-openapi-ts-client",
-              log,
-            )
-            BuildCommon.TS.runWorkspaceCommand(
-              npmRootDir.value,
-              "build",
-              "wallet/openapi-ts-client",
-              log,
-            )
-            BuildCommon.TS.runWorkspaceCommand(
-              npmRootDir.value,
-              "build",
-              "wallet/external-openapi-ts-client",
-              log,
-            )
-            BuildCommon.TS.runWorkspaceCommand(
-              npmRootDir.value,
-              "build",
-              "splitwell/openapi-ts-client",
-              log,
-            )
+            // npm install. The clients are not npm workspaces (see
+            // apps/generated-packages.json), so they are compiled directly.
+            BuildCommon.TS.buildOpenApiClient(npmRootDir.value, "scan/openapi-ts-client", log)
+            BuildCommon.TS.buildOpenApiClient(npmRootDir.value, "sv/openapi-ts-client", log)
+            BuildCommon.TS.buildOpenApiClient(npmRootDir.value, "validator/openapi-ts-client", log)
+            BuildCommon.TS
+              .buildOpenApiClient(npmRootDir.value, "validator/external-openapi-ts-client", log)
+            BuildCommon.TS
+              .buildOpenApiClient(npmRootDir.value, "validator/scan-proxy-openapi-ts-client", log)
+            BuildCommon.TS.buildOpenApiClient(npmRootDir.value, "wallet/openapi-ts-client", log)
+            BuildCommon.TS
+              .buildOpenApiClient(npmRootDir.value, "wallet/external-openapi-ts-client", log)
+            BuildCommon.TS.buildOpenApiClient(npmRootDir.value, "splitwell/openapi-ts-client", log)
             BuildCommon.TS.runWorkspaceCommand(
               npmRootDir.value,
               "build",
@@ -2111,12 +2075,11 @@ def mergeStrategy(oldStrategy: String => MergeStrategy): String => MergeStrategy
     case PathList("org", "checkerframework", _ @_*) => MergeStrategy.first
     case PathList("google", "protobuf", _*) => MergeStrategy.first
     case path @ PathList("google", _*) if path.endsWith(".proto") => MergeStrategy.first
-    // we pull these in twice through community-common. Unfortunately we can't just get rid of our fork as some of the modifications do actually matter.
-    case PathList("db", "migration", "canton", _*) => MergeStrategy.first
     case PathList("org", "apache", "logging", _*) => MergeStrategy.first
     case PathList("ch", "qos", "logback", _*) => MergeStrategy.first
     case PathList("META-INF", "okhttp.kotlin_module") => MergeStrategy.first
     case PathList("META-INF", "okio.kotlin_module") => MergeStrategy.last
+    case PathList("META-INF", "kotlin-project-structure-metadata.json") => MergeStrategy.discard
     case PathList(
           "META-INF",
           "org",
@@ -2151,8 +2114,6 @@ def mergeStrategy(oldStrategy: String => MergeStrategy): String => MergeStrategy
       MergeStrategy.first
     // Multiple dependencies ship this GraalVM metadata with differing content.
     case PathList("META-INF", "native-image", "reflect-config.json") => MergeStrategy.first
-    // Copy-pasta from Canton (DACH-NY/canton#31788): Remove this merge strategy once zipkin exporter is removed
-    case PathList("okhttp3", _ @_*) => MergeStrategy.first
     // this file comes in multiple flavors, from io.get-coursier:interface and from org.scala-lang.modules:scala-collection-compat. Since the content differs it is resolve this explicitly with this MergeStrategy.
     case path if path.endsWith("scala-collection-compat.properties") => MergeStrategy.first
     // Don't really care about the notice file so just take any.
@@ -2484,7 +2445,6 @@ lazy val `apps-app`: Project =
       libraryDependencies += "org.seleniumhq.selenium" % "selenium-java" % "4.44.0" % "test",
       libraryDependencies += "eu.rekawek.toxiproxy" % "toxiproxy-java" % "2.1.4" % "test",
       libraryDependencies += auth0,
-      libraryDependencies += kubernetes_client,
       libraryDependencies += "com.monovore" %% "decline" % "2.5.0" % "test",
       // Force SBT to use the right version of opentelemetry libs.
       dependencyOverrides ++= Seq(
@@ -2493,7 +2453,6 @@ lazy val `apps-app`: Project =
         CantonDependencies.opentelemetry_sdk_autoconfigure,
         CantonDependencies.opentelemetry_sdk_autoconfigure,
         CantonDependencies.opentelemetry_prometheus,
-        CantonDependencies.opentelemetry_zipkin,
         CantonDependencies.opentelemetry_instrumentation_grpc,
         CantonDependencies.opentelemetry_instrumentation_runtime_metrics,
       ),
@@ -2573,6 +2532,17 @@ updateTestConfigForParallelRuns := {
       "BootstrapPackageConfigIntegrationTest",
       "SvOffboardingIntegrationTest",
       "ManualStartIntegrationTest",
+    ).exists(name.contains)
+  // These are tests that download private keys from participants (e.g., for identities dumps),
+  // which needs to be explicitly allowed in Canton (`start-canton.sh -k`).
+  def isKeyDownloadTest(name: String): Boolean =
+    Seq(
+      "CombinedDumpDirectoryExportIntegrationTest",
+      "PeriodicBackupIntegrationTest",
+      "ParticipantPlaintextIdentitiesIntegrationTest",
+      "SvIdentitiesDumpIntegrationTest",
+      "SvReonboardingIntegrationTest",
+      "ValidatorReonboarding",
     ).exists(name.contains)
   def isManualSignatureIntegrationTest(name: String): Boolean =
     Seq(
@@ -2677,6 +2647,11 @@ updateTestConfigForParallelRuns := {
       "app upgrade tests",
       "test-full-class-names-app-upgrade.log",
       (t: String) => !isTimeBasedTest(t) && isAppUpgradeTest(t),
+    ),
+    (
+      "tests that download participant keys",
+      "test-full-class-names-key-download.log",
+      (t: String) => isKeyDownloadTest(t),
     ),
     (
       "resource intensive tests",

@@ -93,13 +93,14 @@ object ConfigValidations extends NamedLogging {
       sessionSigningKeysOnlyWithKmsAndSchemesAreSupported,
       sessionSigningKeysParamsValidation,
       distinctScopesAndAudiencesOnAuthServices,
-      engineAdditionalConsistencyChecksParticipants,
+      engineExperimentalExecutionConductorParticipants,
       dbLockFeaturesRequireUsingLockSupportingStorage,
       highlyAvailableSequencerTotalNodeCount,
       noDuplicateStorageUnlessReplicated,
       atLeastOneNode,
       sequencerClientRetryDelays,
       awsKmsDisableSSLVerificationRequiresNonStandard,
+      gcpKmsDestroyScheduledDurationRangeValidation,
       defaultUpdatesPageSizeMustBeLeqMaximalPageSize,
       defaultAcsPageSizeMustBeLeqMaxPageSize,
       validateLegacyContractsV11Enabled,
@@ -386,9 +387,9 @@ object ConfigValidations extends NamedLogging {
   ): Validated[NonEmpty[Seq[String]], Unit] = {
     val errors = config.participants.toSeq.mapFilter { case (name, participantConfig) =>
       Option.when(
-        !config.parameters.nonStandardConfig && (participantConfig.ledgerApi.adminTokenConfig != AdminTokenConfig())
+        !config.parameters.nonStandardConfig && (participantConfig.ledgerApi.adminTokenConfig.fixedAdminToken.isDefined || participantConfig.ledgerApi.adminTokenConfig.actAsAnyPartyClaim)
       )(
-        s"Modifying ledger-api.admin-token-config.* " +
+        s"Setting a ledger-api.admin-token-config.fixed-admin-token or ledger-api.admin-token-config.act-as-any-party-claim " +
           s"for participant ${name.unwrap} requires you to explicitly set canton.parameters.non-standard-config = yes"
       )
     }
@@ -422,14 +423,14 @@ object ConfigValidations extends NamedLogging {
     toValidated(errors)
   }
 
-  private def engineAdditionalConsistencyChecksParticipants(
+  private def engineExperimentalExecutionConductorParticipants(
       config: CantonConfig
   ): Validated[NonEmpty[Seq[String]], Unit] = {
     val errors = config.participants.toSeq.mapFilter { case (name, participantConfig) =>
       Option.when(
-        participantConfig.parameters.engine.enableAdditionalConsistencyChecks && !config.parameters.nonStandardConfig
+        participantConfig.parameters.engine.enableExperimentalExecutionConductor && !config.parameters.nonStandardConfig
       )(
-        s"Enabling additional consistency checks on the Daml Engine for participant ${name.unwrap} requires to explicitly set canton.parameters.non-standard-config = true"
+        s"Enabling experimental execution conductor on the Daml Engine for participant ${name.unwrap} requires to explicitly set canton.parameters.non-standard-config = true"
       )
     }
     toValidated(errors)
@@ -980,6 +981,26 @@ object ConfigValidations extends NamedLogging {
 
   def awsKmsDisableSSLVerificationRequiresNonStandardError(nodeType: String, nodeName: String) =
     s"Disabling SSL verification for AWS KMS on $nodeType $nodeName requires you to explicitly set canton.parameters.non-standard-config = yes"
+
+  private def gcpKmsDestroyScheduledDurationRangeValidation(
+      config: CantonConfig
+  ): Validated[NonEmpty[Seq[String]], Unit] = {
+    val min = PositiveFiniteDuration.ofHours(24)
+    val max = PositiveFiniteDuration.ofDays(120)
+
+    val errors = config.allLocalNodes.toSeq.flatMap { case (nodeName, nodeConfig) =>
+      nodeConfig.crypto.kms.collect { case gcp: KmsConfig.Gcp =>
+        Option.when(
+          gcp.destroyScheduledDuration.duration < min.duration ||
+            gcp.destroyScheduledDuration.duration > max.duration
+        )(
+          s"${nodeConfig.nodeTypeName} $nodeName: GCP KMS destroyScheduledDuration must be between 24 hours and 120 days, but is ${gcp.destroyScheduledDuration}."
+        )
+      }.flatten
+    }
+
+    toValidated(errors)
+  }
 
   private def defaultUpdatesPageSizeMustBeLeqMaximalPageSize(
       config: CantonConfig
