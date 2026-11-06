@@ -1,0 +1,36 @@
+-- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+module Splice.Scripts.SvRightOwners.Migration.TestOffboardedHosts where
+
+import Splice.Scripts.SvRightOwners.Util.Fixture
+import Splice.Scripts.SvRightOwners.Util.Governance
+import Splice.Scripts.SvRightOwners.Util.Rewards (mintThrough)
+
+test_shouldPreventAnOffboardedHostFromMintingForItsOwners = withLegacyWeights $ \net -> do
+  migrateDefault net
+  owner <- newSvRightOwner "hosted-owner" net.sv2
+  addSvRightOwner net owner
+  offboardSvNodeOperator net net.sv2
+
+  mintThrough net net.sv2 owner.name >>= shouldBeRejected "Not a sv"
+
+test_shouldKeepHostedOwnersRewardStatesWhenTheirOperatorIsOffboarded = withLegacyWeights $ \net -> do
+  migrateDefault net
+  owner <- newSvRightOwner "hosted-owner" net.sv2
+  addSvRightOwner net owner
+  rewardState <- svRewardStateCidFor net owner.name
+  offboardSvNodeOperator net net.sv2
+
+  expectActive net rewardState
+  svRewardStateNames net `shouldReturn` ["hosted-owner", "sv1", "sv2", "sv3", "sv4"]
+
+test_shouldNotRepairAnOffboardedHostingLinkWithoutAGovernanceVote = withLegacyWeights $ \net -> do
+  migrateDefault net
+  owner <- newSvRightOwner "hosted-owner" net.sv2
+  addSvRightOwner net owner
+  offboardSvNodeOperator net net.sv2
+
+  ownerCid <- svRightOwnerCidFor net owner.name
+  currentOwner <- contractPayload net ownerCid
+  pure currentOwner.info `shouldReturn` svRightOwnerInfo owner

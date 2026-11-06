@@ -1750,6 +1750,7 @@ trait AmuletTransferUtil { self: StoreTestBase =>
       ),
       Collections.emptyMap(),
       true,
+      Optional.empty(),
     )
     contract(
       identifier = templateId,
