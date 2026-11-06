@@ -3,6 +3,7 @@ package org.lfdecentralizedtrust.splice.integration.tests
 import com.digitalasset.canton.concurrent.Threading
 import com.digitalasset.canton.data.CantonTimestamp
 import com.digitalasset.canton.{HasActorSystem, HasExecutionContext}
+import org.lfdecentralizedtrust.splice.codegen.java.splice.amulet.Amulet
 import org.lfdecentralizedtrust.splice.codegen.java.splice.api.token.transferinstructionv2.transferinstructionresult_output.TransferInstructionResult_Completed
 import org.lfdecentralizedtrust.splice.codegen.java.splice.api.token.{
   holdingv2,
@@ -24,7 +25,13 @@ import org.lfdecentralizedtrust.splice.scan.automation.{
   AcsSnapshotTrigger,
 }
 import org.lfdecentralizedtrust.splice.store.ChoiceContextContractFetcher
-import org.lfdecentralizedtrust.splice.util.WalletTestUtil
+import org.lfdecentralizedtrust.splice.util.{
+  SynchronizerFeesTestUtil,
+  TokenStandardMetadata,
+  TriggerTestUtil,
+  WalletTestUtil,
+}
+import org.lfdecentralizedtrust.splice.validator.automation.TopupMemberTrafficTrigger
 import org.lfdecentralizedtrust.splice.wallet.automation.CollectRewardsAndMergeAmuletsTrigger
 import org.lfdecentralizedtrust.splice.wallet.store.{
   BalanceChangeTxLogEntry,
@@ -33,6 +40,8 @@ import org.lfdecentralizedtrust.splice.wallet.store.{
   TxLogEntry,
 }
 import org.lfdecentralizedtrust.tokenstandard.transferinstruction
+import org.scalatest.Tag
+import com.digitalasset.canton.topology.PartyId
 
 import java.time.Instant
 import java.util.UUID
@@ -47,7 +56,8 @@ class TokenStandardV2TransferIntegrationTest
     with HasActorSystem
     with HasExecutionContext
     with TokenStandardTest
-    with TokenStandardV2TestUtil {
+    with TokenStandardV2TestUtil
+    with SynchronizerFeesTestUtil {
 
   override def environmentDefinition: EnvironmentDefinition = {
     EnvironmentDefinition
@@ -123,7 +133,7 @@ class TokenStandardV2TransferIntegrationTest
         }
       }
 
-      inside(cids.toList) { case toReject :: toWithdraw :: toAccept :: _toIgnore :: Nil =>
+      inside(cids.toList) { case toReject :: toWithdraw :: toAccept :: _ :: Nil =>
         actAndCheck(
           "Bob rejects one transfer offer",
           bobWalletClient.rejectTokenStandardTransferV2(toReject),
@@ -167,7 +177,7 @@ class TokenStandardV2TransferIntegrationTest
         )
       }
 
-      val (aliceTxs, bobTxs) = clue("Alice and Bob parse all tx log entries") {
+      clue("Alice and Bob parse all tx log entries") {
         eventually() {
           val aliceTxs = aliceWalletClient.listTransactions(None, 1000)
           // tap + 4 transfer instructions + accept + withdraw + reject
@@ -315,7 +325,7 @@ class TokenStandardV2TransferIntegrationTest
       )
       aliceWalletClient.withdrawTokenStandardTransferV2(offer)
 
-      val (aliceTxs, bobTxs) = clue("Alice and Bob parse all tx log entries") {
+      clue("Alice and Bob parse all tx log entries") {
         eventually() {
           val aliceTxs = aliceWalletClient.listTransactions(None, 1000)
           // tap + transfer instruction + unlock + withdraw
@@ -551,6 +561,99 @@ class TokenStandardV2TransferIntegrationTest
       )
     }
 
+    "buy traffic through a transfer to the traffic purchase receiver" taggedAs Tag(
+      "org.lfdecentralizedtrust.splice.util.scalatesttags.SpliceAmulet_0_1_25"
+    ) in { implicit env =>
+      val aliceParty = onboardWalletUser(aliceWalletClient, aliceValidatorBackend)
+
+      val memberId = aliceValidatorBackend.participantClient.id
+      val synchronizerId = activeSynchronizerId
+      val minimumTrafficAmount = Math.max(
+        sv1ScanBackend
+          .getAmuletConfigAsOf(env.environment.clock.now)
+          .decentralizedSynchronizer
+          .fees
+          .minTopupAmount
+          .toLong,
+        1_000_000L,
+      )
+      val (_, minimumCostAmulet) = computeSynchronizerFees(minimumTrafficAmount)
+      val spentAmuletAmount = minimumCostAmulet * 2
+      val purchasedTrafficAmount = computeTrafficForAmuletAmount(spentAmuletAmount)
+      val memo =
+        s"splice/memo:member-id=${memberId.toProtoPrimitive}" +
+          s"&synchronizer-id=${synchronizerId.toProtoPrimitive}" +
+          s"&migration-id=${sv1ScanBackend.getMigrationId()}"
+      val topupMemberTrafficTrigger =
+        aliceValidatorBackend.appState.automation.trigger[TopupMemberTrafficTrigger]
+
+      val (result, balanceBefore) =
+        TriggerTestUtil.setTriggersWithin(triggersToPauseAtStart = Seq(topupMemberTrafficTrigger)) {
+          // Wait for this tap to reach SV1 participant before taking the
+          // baseline. Both reads use SV1 participant's ACS, so observing this
+          // later tap confirms eventual, earlier top-ups from the top-up trigger are included.
+          actAndCheck(
+            "Alice taps after automatic top-ups are paused",
+            aliceWalletClient.tap(100),
+          )(
+            "The DSO sees Alice's amulet",
+            tapCid =>
+              sv1Backend.participantClientWithAdminToken.ledger_api_extensions.acs
+                .filterJava(Amulet.COMPANION)(
+                  dsoParty,
+                  _.id.contractId == tapCid.contractId,
+                ) should not be empty,
+          )
+          val purchasedTrafficBefore = getTotalPurchasedTraffic(memberId, synchronizerId)
+          val balanceBefore = aliceWalletClient.balance().unlockedQty
+          val (result, _) = actAndCheck(
+            "Alice buys traffic via a V2 transfer to the traffic purchase receiver",
+            aliceWalletClient.createTokenStandardTransferV2(
+              PartyId.tryFromProtoPrimitive(TokenStandardMetadata.trafficPurchaseReceiver),
+              spentAmuletAmount,
+              memo,
+              CantonTimestamp.now().plusSeconds(3600L),
+              UUID.randomUUID().toString,
+            ),
+          )(
+            "The DSO sees the purchased traffic",
+            _ =>
+              getTotalPurchasedTraffic(
+                memberId,
+                synchronizerId,
+              ) shouldBe purchasedTrafficBefore + purchasedTrafficAmount,
+          )
+          (result, balanceBefore)
+        }
+      inside(result.output) { case members.TransferInstructionCompleted(value) =>
+        value.receiverHoldingCids shouldBe empty
+      }
+      balanceBefore - aliceWalletClient.balance().unlockedQty shouldBe spentAmuletAmount
+
+      clue("Alice's validator gets a validator reward coupon for the purchase") {
+        eventually() {
+          aliceValidatorWalletClient
+            .listValidatorRewardCoupons()
+            .filter(_.payload.user == aliceParty.toProtoPrimitive)
+            .map(coupon => BigDecimal(coupon.payload.amount)) should contain(spentAmuletAmount)
+        }
+      }
+
+      checkTxHistory(
+        aliceWalletClient,
+        Seq(
+          { case logEntry: TransferTxLogEntry =>
+            logEntry.subtype.value shouldBe TxLogEntry.TransferTransactionSubtype.ExtraTrafficPurchase.toProto
+            logEntry.description shouldBe memo
+            logEntry.receivers shouldBe empty
+            logEntry.sender.value.amount shouldBe -spentAmuletAmount
+          },
+          { case logEntry: BalanceChangeTxLogEntry =>
+            logEntry.subtype.value shouldBe TxLogEntry.BalanceChangeTransactionSubtype.Tap.toProto
+          },
+        ),
+      )
+    }
   }
 
 }

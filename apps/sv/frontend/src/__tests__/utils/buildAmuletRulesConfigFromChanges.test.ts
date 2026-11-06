@@ -248,6 +248,42 @@ describe('buildAmuletRulesConfigFromChanges', () => {
         currentValue: '0.5',
         newValue: '1.0',
       },
+      {
+        fieldName: 'governanceLockConfigMinimumLockAmount',
+        label: 'Governance lock config: Minimum governance lock amount in Amulet',
+        currentValue: '',
+        newValue: '20000',
+      },
+      {
+        fieldName: 'governanceLockConfigSuperValidatorLockVestingDuration',
+        label: 'Governance lock config: SV lock vesting duration (microseconds)',
+        currentValue: '3600000000',
+        newValue: '7200000000',
+      },
+      {
+        fieldName: 'governanceLockConfigFeaturedAppLockVestingDuration',
+        label: 'Governance lock config: Featured app lock vesting duration (microseconds)',
+        currentValue: '7200000000',
+        newValue: '3600000000',
+      },
+      {
+        fieldName: 'rewardConfigExtraFeaturedAssetActivityWeight',
+        label: 'Reward config: Extra featured asset activity weight per transaction',
+        currentValue: '0.2',
+        newValue: '0.3',
+      },
+      {
+        fieldName: 'rewardConfigMaxExtraFeaturedAssetActivityWeightPerAsset',
+        label: 'Reward config: Max extra featured asset activity weight per asset',
+        currentValue: '0.1',
+        newValue: '0.15',
+      },
+      {
+        fieldName: 'rewardConfigDsoAppActivityWeight',
+        label: 'Reward config: DSO app activity weight',
+        currentValue: '0.5',
+        newValue: '0.6',
+      },
     ];
 
     const result = buildAmuletRulesConfigFromChanges(changes);
@@ -301,7 +337,75 @@ describe('buildAmuletRulesConfigFromChanges', () => {
       batchSize: '200',
       rewardCouponTimeToLive: { microseconds: '259200000000' },
       appRewardCouponThreshold: '1.0',
+      extraFeaturedAssetActivityWeight: '0.3',
+      maxExtraFeaturedAssetActivityWeightPerAsset: '0.15',
+      dsoAppActivityWeight: '0.6',
     });
+
+    expect(result.governanceLockConfig).toEqual({
+      minimumLockAmount: '20000',
+      superValidatorLockVestingDuration: { microseconds: '7200000000' },
+      featuredAppLockVestingDuration: { microseconds: '3600000000' },
+    });
+  });
+
+  test('should map blank optional RewardConfig weight fields to null (None)', () => {
+    const changes: ConfigChange[] = [
+      {
+        fieldName: 'rewardConfigMintingVersion',
+        label: 'Reward config: Minting scheme',
+        currentValue: 'RewardVersion_TrafficBasedAppRewards',
+        newValue: 'RewardVersion_TrafficBasedAppRewards',
+      },
+      {
+        fieldName: 'rewardConfigDryRunVersion',
+        label: 'Reward config: Dry-run minting scheme',
+        currentValue: '',
+        newValue: '',
+      },
+      {
+        fieldName: 'rewardConfigBatchSize',
+        label: 'Reward config: Merkle tree batch size',
+        currentValue: '100',
+        newValue: '100',
+      },
+      {
+        fieldName: 'rewardConfigRewardCouponTimeToLive',
+        label: 'Reward config: Reward coupon time to live (microseconds)',
+        currentValue: '129600000000',
+        newValue: '129600000000',
+      },
+      {
+        fieldName: 'rewardConfigAppRewardCouponThreshold',
+        label: 'Reward config: App reward coupon threshold ($)',
+        currentValue: '0.5',
+        newValue: '0.5',
+      },
+      {
+        fieldName: 'rewardConfigExtraFeaturedAssetActivityWeight',
+        label: 'Reward config: Extra featured asset activity weight per transaction',
+        currentValue: '0.2',
+        newValue: '',
+      },
+      {
+        fieldName: 'rewardConfigMaxExtraFeaturedAssetActivityWeightPerAsset',
+        label: 'Reward config: Max extra featured asset activity weight per asset',
+        currentValue: '0.1',
+        newValue: '',
+      },
+      {
+        fieldName: 'rewardConfigDsoAppActivityWeight',
+        label: 'Reward config: DSO app activity weight',
+        currentValue: '0.5',
+        newValue: '',
+      },
+    ];
+
+    const result = buildAmuletRulesConfigFromChanges(changes);
+
+    expect(result.rewardConfig?.extraFeaturedAssetActivityWeight).toBeNull();
+    expect(result.rewardConfig?.maxExtraFeaturedAssetActivityWeightPerAsset).toBeNull();
+    expect(result.rewardConfig?.dsoAppActivityWeight).toBeNull();
   });
 
   test('should handle multiple transfer fee steps', () => {
@@ -479,6 +583,33 @@ describe('buildAmuletRulesConfigFromChanges', () => {
         optDevelopmentFundPercentage: '0.06',
       },
     });
+  });
+
+  test('should map empty governance lock configs to null', () => {
+    const changes: ConfigChange[] = [
+      {
+        fieldName: 'governanceLockConfigMinimumLockAmount',
+        label: 'Governance lock config: Minimum governance lock amount in Amulet',
+        currentValue: '20000',
+        newValue: '',
+      },
+      {
+        fieldName: 'governanceLockConfigSuperValidatorLockVestingDuration',
+        label: 'Governance lock config: SV lock vesting duration (microseconds)',
+        currentValue: '7200000000',
+        newValue: '',
+      },
+      {
+        fieldName: 'governanceLockConfigFeaturedAppLockVestingDuration',
+        label: 'Governance lock config: Featured app lock vesting duration (microseconds)',
+        currentValue: '3600000000',
+        newValue: '',
+      },
+    ];
+
+    const result = buildAmuletRulesConfigFromChanges(changes);
+
+    expect(result.governanceLockConfig).toBeNull();
   });
 });
 

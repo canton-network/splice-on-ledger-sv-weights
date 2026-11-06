@@ -4,7 +4,7 @@
 package com.digitalasset.canton.protocol.messages
 
 import com.digitalasset.canton.data.{CantonTimestamp, ViewType}
-import com.digitalasset.canton.logging.pretty.{Pretty, PrettyPrinting}
+import com.digitalasset.canton.logging.pretty.{Pretty, PrettyPrintingCompanion}
 import com.digitalasset.canton.protocol.messages.SignedProtocolMessageContent.SignedMessageContentCast
 import com.digitalasset.canton.protocol.{RequestId, RootHash, v30}
 import com.digitalasset.canton.serialization.ProtoConverter.ParsingResult
@@ -37,16 +37,15 @@ case class ConfirmationResultMessage private (
     verdict: Verdict,
 )(
     override val deserializedFrom: Option[ByteString]
+)(
+    override val representativeProtocolVersion: RepresentativeProtocolVersion[
+      ConfirmationResultMessage.type
+    ]
 ) extends ProtocolVersionedMemoizedEvidence
     with HasPhysicalSynchronizerId
     with HasRequestId
     with SignedProtocolMessageContent
-    with HasProtocolVersionedWrapper[ConfirmationResultMessage]
-    with PrettyPrinting {
-
-  override val representativeProtocolVersion: RepresentativeProtocolVersion[
-    ConfirmationResultMessage.type
-  ] = ConfirmationResultMessage.protocolVersionRepresentativeFor(psid.protocolVersion)
+    with HasProtocolVersionedWrapper[ConfirmationResultMessage] {
 
   override def signingTimestamp: Option[CantonTimestamp] = Some(requestId.unwrap)
 
@@ -59,7 +58,7 @@ case class ConfirmationResultMessage private (
   ): ConfirmationResultMessage =
     ConfirmationResultMessage(synchronizerId, viewType, requestId, rootHash, verdict)(
       None
-    )
+    )(representativeProtocolVersion)
 
   override protected[this] def toByteStringUnmemoized: ByteString =
     super[HasProtocolVersionedWrapper].toByteString
@@ -82,8 +81,19 @@ case class ConfirmationResultMessage private (
       getCryptographicEvidence
     )
 
+  override def prettyCompanion: PrettyPrintingCompanion[ConfirmationResultMessage] =
+    ConfirmationResultMessage
+}
+
+object ConfirmationResultMessage
+    extends VersioningCompanionMemoization[
+      ConfirmationResultMessage
+    ]
+    with PrettyPrintingCompanion[ConfirmationResultMessage] {
+  override val name: String = "ConfirmationResultMessage"
+
   @VisibleForTesting
-  override def pretty: Pretty[ConfirmationResultMessage] =
+  override protected val pretty: Pretty[ConfirmationResultMessage] =
     prettyOfClass(
       param("psid", _.psid),
       param("viewType", _.viewType),
@@ -91,16 +101,9 @@ case class ConfirmationResultMessage private (
       param("rootHash", _.rootHash),
       param("verdict", _.verdict),
     )
-}
-
-object ConfirmationResultMessage
-    extends VersioningCompanionMemoization[
-      ConfirmationResultMessage
-    ] {
-  override val name: String = "ConfirmationResultMessage"
 
   val versioningTable: VersioningTable = VersioningTable(
-    ProtoVersion(30) -> VersionedProtoCodec(ProtocolVersion.v34)(
+    ProtoVersion(30) -> VersionedProtoCodec(ProtocolVersion.v36)(
       v30.ConfirmationResultMessage
     )(
       supportedProtoVersionMemoizedPVV(_)(fromProtoV30),
@@ -114,8 +117,11 @@ object ConfirmationResultMessage
       requestId: RequestId,
       rootHash: RootHash,
       verdict: Verdict,
+      protocolVersion: ProtocolVersion,
   ): ConfirmationResultMessage =
-    ConfirmationResultMessage(synchronizerId, viewType, requestId, rootHash, verdict)(None)
+    ConfirmationResultMessage(synchronizerId, viewType, requestId, rootHash, verdict)(None)(
+      protocolVersionRepresentativeFor(protocolVersion)
+    )
 
   private def fromProtoV30(
       pvv: ProtocolVersionValidation,
@@ -145,13 +151,14 @@ object ConfirmationResultMessage
         "verdict",
         verdictPO,
       )
+      rpv <- ConfirmationResultMessage.protocolVersionRepresentativeFor(ProtoVersion(30))
     } yield ConfirmationResultMessage(
       synchronizerId,
       viewType,
       requestId,
       rootHash,
       verdict,
-    )(Some(bytes))
+    )(Some(bytes))(rpv)
   }
 
   implicit val confirmationResultMessageCast: SignedMessageContentCast[ConfirmationResultMessage] =

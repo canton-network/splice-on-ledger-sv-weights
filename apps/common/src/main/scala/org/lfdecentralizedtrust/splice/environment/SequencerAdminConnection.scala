@@ -40,10 +40,7 @@ import com.digitalasset.canton.topology.{
   SequencerId,
   SynchronizerId,
 }
-import com.digitalasset.canton.topology.admin.v30.{
-  GenesisStateV2Response,
-  SequencerLsuStateResponse,
-}
+import com.digitalasset.canton.topology.admin.v30.SequencerLsuStateResponse
 import com.digitalasset.canton.topology.MediatorGroup.MediatorGroupIndex
 import com.digitalasset.canton.topology.store.StoredTopologyTransactions.GenericStoredTopologyTransactions
 import com.digitalasset.canton.topology.transaction.SequencerSynchronizerState
@@ -121,20 +118,6 @@ class SequencerAdminConnection(
 
   def getSequencerId(implicit traceContext: TraceContext): Future[SequencerId] =
     getId().map(SequencerId(_))
-
-  def getGenesisState(timestamp: CantonTimestamp)(implicit
-      traceContext: TraceContext
-  ): Future[Seq[ByteString]] = {
-    val responseObserver = new SeqAccumulatingObserver[GenesisStateV2Response]()
-    runCmd(
-      TopologyAdminCommands.Read
-        .GenesisStateV2(
-          timestamp = Some(timestamp),
-          synchronizerStore = None,
-          observer = responseObserver,
-        )
-    ).flatMap(_ => responseObserver.resultFuture.map(_.map(_.chunk)))
-  }
 
   def getLsuState(file: File, ts: Option[CantonTimestamp])(implicit
       traceContext: TraceContext
@@ -267,6 +250,7 @@ class SequencerAdminConnection(
                 ConfigFactory.parseMap(
                   Map[String, AnyRef](
                     "provider" -> "service-account",
+                    "scopes" -> scopes,
                     "service-account" ->
                       Map[String, AnyRef](
                         "private-key" -> Base64.getEncoder.encodeToString(
@@ -274,7 +258,6 @@ class SequencerAdminConnection(
                         ),
                         "client-email" -> x.getClientEmail,
                         "project-id" -> bucketConfig.projectId,
-                        "scopes" -> scopes,
                       ).asJava,
                   ).asJava
                 )

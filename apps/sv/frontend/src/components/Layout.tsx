@@ -47,9 +47,9 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const featureSupport = useFeatureSupport();
 
   const votesHooks = useVotesHooks();
-  const dsoInfosQuery = votesHooks.useDsoInfos();
+  const svInfoQuery = votesHooks.useSvInfo();
   const listVoteRequestsQuery = votesHooks.useListDsoRulesVoteRequests();
-  const svPartyId = dsoInfosQuery.data?.svPartyId;
+  const svPartyId = svInfoQuery.data?.svPartyId;
   const actionsPending = listVoteRequestsQuery.data?.filter(
     vr => vr.payload.votes.entriesArray().find(e => e[1].sv === svPartyId) === undefined
   );
@@ -73,7 +73,14 @@ const Layout: React.FC<LayoutProps> = ({ children }) => {
   const pageName = pathnameToPageName(location.pathname, config.spliceInstanceNames.amuletName);
 
   return (
-    <Box bgcolor={layoutTokens.page} display="flex" flexDirection="column" minHeight="100vh">
+    <Box
+      sx={{
+        bgcolor: layoutTokens.page,
+        display: 'flex',
+        flexDirection: 'column',
+        minHeight: '100vh',
+      }}
+    >
       <GlobalStyles styles={partyIdScrollGlobalStyles} />
       <PartyIdScrollTracks />
       <NetworkBanner />

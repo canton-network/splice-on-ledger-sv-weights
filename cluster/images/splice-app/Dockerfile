@@ -1,8 +1,8 @@
 # Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
 
-# full-1.0.14@sha256:89a281f5e0949de5053ab9f92181edbb7102a70d6a14e5401b4cf3bcffe0b093
-FROM europe-docker.pkg.dev/da-images/public/docker/da-base-image@sha256:89a281f5e0949de5053ab9f92181edbb7102a70d6a14e5401b4cf3bcffe0b093
+# full-1.0.19@sha256:48cca37f4c0ec2b85fe54b9b572877444fe84ad78387858cfcdc2b14adf56f83
+FROM europe-docker.pkg.dev/da-images/public/docker/da-base-image@sha256:48cca37f4c0ec2b85fe54b9b572877444fe84ad78387858cfcdc2b14adf56f83
 
 WORKDIR /app
 

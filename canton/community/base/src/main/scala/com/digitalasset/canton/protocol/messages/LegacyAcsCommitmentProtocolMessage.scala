@@ -4,7 +4,7 @@
 package com.digitalasset.canton.protocol.messages
 
 import com.digitalasset.canton.crypto.Signature
-import com.digitalasset.canton.protocol.{v30, v31, v32}
+import com.digitalasset.canton.protocol.{v30, v32}
 import com.digitalasset.canton.serialization.ProtoConverter
 import com.digitalasset.canton.serialization.ProtoConverter.ParsingResult
 import com.digitalasset.canton.topology.PhysicalSynchronizerId
@@ -15,9 +15,8 @@ import com.digitalasset.canton.version.{
   ProtocolVersion,
   ProtocolVersionValidation,
   RepresentativeProtocolVersion,
-  UnsupportedProtoCodec,
   VersionedProtoCodec,
-  VersioningCompanionContext,
+  VersioningCompanion,
 }
 import com.digitalasset.nonempty.NonEmpty
 
@@ -33,9 +32,13 @@ import com.digitalasset.nonempty.NonEmpty
   * TODO(#30888): Make `AcsCommitmentProtocolMessage` the default and get rid of
   * `SignedProtocolMessage[AcsCommitment]`
   */
-final case class LegacyAcsCommitmentProtocolMessage(
+final case class LegacyAcsCommitmentProtocolMessage private (
     acsCommitment: LegacyAcsCommitment,
     signatures: NonEmpty[Seq[Signature]],
+)(
+    override val representativeProtocolVersion: RepresentativeProtocolVersion[
+      LegacyAcsCommitmentProtocolMessage.type
+    ]
 ) extends UnsignedProtocolMessage
     with HasProtocolVersionedWrapper[LegacyAcsCommitmentProtocolMessage] {
 
@@ -44,25 +47,11 @@ final case class LegacyAcsCommitmentProtocolMessage(
 
   override def psid: PhysicalSynchronizerId = acsCommitment.psid
 
-  override val representativeProtocolVersion: RepresentativeProtocolVersion[
-    LegacyAcsCommitmentProtocolMessage.type
-  ] = LegacyAcsCommitmentProtocolMessage.protocolVersionRepresentativeFor(psid.protocolVersion)
-
   protected def toProtoV30: v30.AcsCommitmentProtocolMessage =
     v30.AcsCommitmentProtocolMessage(
       acsCommitment = acsCommitment.toByteString,
       signatures = signatures.map(_.toProtoV30),
     )
-
-  override protected[messages] def toProtoSomeEnvelopeContentV30
-      : v30.EnvelopeContent.SomeEnvelopeContent =
-    throw new UnsupportedOperationException(
-      s"${this.getClass.getSimpleName} cannot be serialized to envelope content v30"
-    )
-
-  override protected[messages] def toProtoSomeEnvelopeContentV31
-      : v31.EnvelopeContent.SomeEnvelopeContent =
-    v31.EnvelopeContent.SomeEnvelopeContent.AcsCommitmentProtocolMessage(toProtoV30)
 
   override protected[messages] def toProtoSomeEnvelopeContentV32
       : v32.EnvelopeContent.SomeEnvelopeContent =
@@ -70,35 +59,44 @@ final case class LegacyAcsCommitmentProtocolMessage(
 }
 
 object LegacyAcsCommitmentProtocolMessage
-    extends VersioningCompanionContext[
-      LegacyAcsCommitmentProtocolMessage,
-      ProtocolVersion,
-    ] {
+    extends VersioningCompanion[LegacyAcsCommitmentProtocolMessage] {
 
   override def name: String = "LegacyAcsCommitmentProtocolMessage"
 
+  def apply(
+      acsCommitment: LegacyAcsCommitment,
+      signatures: NonEmpty[Seq[Signature]],
+      protocolVersion: ProtocolVersion,
+  ): LegacyAcsCommitmentProtocolMessage =
+    LegacyAcsCommitmentProtocolMessage(
+      acsCommitment,
+      signatures,
+    )(LegacyAcsCommitmentProtocolMessage.protocolVersionRepresentativeFor(protocolVersion))
+
   val versioningTable: VersioningTable = VersioningTable(
-    ProtoVersion(-1) -> UnsupportedProtoCodec(),
-    ProtoVersion(30) -> VersionedProtoCodec(ProtocolVersion.v35)(
+    ProtoVersion(30) -> VersionedProtoCodec(ProtocolVersion.v36)(
       v30.AcsCommitmentProtocolMessage
     )(
-      supportedProtoVersion(_)(fromProtoV30),
+      supportedProtoVersionPVV(_)(fromProtoV30),
       _.toProtoV30,
-    ),
+    )
   )
 
   private[messages] def fromProtoV30(
-      expectedProtocolVersion: ProtocolVersion,
+      pvv: ProtocolVersionValidation,
       message: v30.AcsCommitmentProtocolMessage,
   ): ParsingResult[LegacyAcsCommitmentProtocolMessage] = {
     val v30.AcsCommitmentProtocolMessage(acsCommitmentP, signaturesP) = message
     for {
-      acsCommitment <- LegacyAcsCommitment.fromByteString(expectedProtocolVersion, acsCommitmentP)
+      acsCommitment <- LegacyAcsCommitment.fromByteString(
+        pvv,
+        acsCommitmentP,
+      )
       signaturesSeqP <- ProtoValidation
         .validateLength(
           signaturesP,
           "signatures",
-          ProtocolVersionValidation.PV(expectedProtocolVersion),
+          pvv,
           ProtoValidation.MaxCollectionSize,
         )
       signatures <- ProtoConverter.parseRequiredNonEmpty(
@@ -106,7 +104,8 @@ object LegacyAcsCommitmentProtocolMessage
         "signatures",
         signaturesSeqP,
       )
-    } yield LegacyAcsCommitmentProtocolMessage(acsCommitment, signatures)
+      rpv <- LegacyAcsCommitmentProtocolMessage.protocolVersionRepresentativeFor(ProtoVersion(30))
+    } yield LegacyAcsCommitmentProtocolMessage(acsCommitment, signatures)(rpv)
   }
 
 }
