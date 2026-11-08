@@ -147,29 +147,33 @@ test_shouldLetAnUpdateThatCanNoLongerSucceedOnlyExpireFromTheDeadline = withTwoS
   expectArchived net genesisUpdate
   svRightOwners net `shouldReturn` [net.genesisOwner]
 
-test_shouldGovernSvRightOwnersOfTheSameSvNodeOperatorIndependently = withTwoSvRightOwners $ \net newcomer -> do
+test_shouldApplyEveryPassedUpdateAndGovernCoHostedSvRightOwnersIndependently = withTwoSvRightOwners $ \net newcomer -> do
   cotenant <- newSvRightOwner "cotenant" net.sv2
   addSvRightOwner net cotenant
   successor <- allocateParty "successor"
-  let raised = newcomer with rewardWeight = tier1RewardWeight
+  let base = svRightOwnerInfo newcomer
+      raised = newcomer with rewardWeight = tier1RewardWeight
+      moved = raised with hostedBy = net.sv3
       rotated = cotenant with party = successor
-  raise <- voteToUpdate net newcomer.name (svRightOwnerInfo newcomer) (svRightOwnerInfo raised)
+  raise <- voteToUpdate net newcomer.name base (svRightOwnerInfo raised)
+  move <- voteToUpdate net newcomer.name base (base with rewardNodeOperatorName = net.sv3.name)
   rotation <- voteToUpdate net cotenant.name (svRightOwnerInfo cotenant) (svRightOwnerInfo rotated)
   removal <- voteToRemove net cotenant.name
 
   executeUpdate net net.sv3.party raise >>= shouldSucceed
   executeUpdate net net.sv4.party rotation >>= shouldSucceed
+  executeUpdate net net.sv1.party move >>= shouldSucceed
 
-  svRightOwners net `shouldReturn` [rotated, raised, net.genesisOwner]
+  svRightOwners net `shouldReturn` [rotated, moved, net.genesisOwner]
   newcomerCid <- svRightOwnerCidFor net newcomer.name
   newcomerState <- svRewardStateCidFor net newcomer.name
-  stateBefore <- rewardStateOf net raised
+  stateBefore <- rewardStateOf net moved
   executeRemoval net net.sv1.party removal >>= shouldSucceed
 
   expectActive net newcomerCid
   expectActive net newcomerState
-  rewardStateOf net raised `shouldReturn` stateBefore
-  svRightOwners net `shouldReturn` [raised, net.genesisOwner]
+  rewardStateOf net moved `shouldReturn` stateBefore
+  svRightOwners net `shouldReturn` [moved, net.genesisOwner]
   svRewardStateNames net `shouldReturn` [newcomer.name, net.genesisOwner.name]
 
 test_shouldRefuseUpdatingAnSvRightOwnerUnderLegacyWeightManagement = withLegacyWeights $ \net -> do

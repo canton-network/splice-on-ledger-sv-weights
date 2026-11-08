@@ -4,9 +4,9 @@
 module Splice.DsoBootstrap where
 
 import qualified DA.Map as Map
-import DA.Optional (fromOptional, isSome)
 import qualified DA.Set as Set
 import DA.Time
+import DA.Optional (fromOptional, isSome)
 
 import Splice.Amulet.SvRightOwner
 import Splice.AmuletConfig
@@ -64,14 +64,12 @@ template DsoBootstrap with
           amuletPrice
           initialRound
         -- create the DSO rules with the SV1 as the sole sv
-        let
-          joinedAsOfRound = fromOptional (Round 0) result.initialRound
-          sv1SvInfo = SvInfo with
+        let sv1SvInfo = SvInfo with
               name = sv1Name
               joinedAsOfRound = fromOptional (Round 0) result.initialRound
               svRewardWeight = if isSome sv1RightOwnerName then 0 else sv1RewardWeight
               participantId = sv1ParticipantId
-          dsoRules = DsoRules with
+        let dsoRules = DsoRules with
               dso
               epoch = 0
               svs = Map.fromList [(sv1Party, sv1SvInfo)]
@@ -91,8 +89,8 @@ template DsoBootstrap with
                     rewardNodeOperatorName = sv1Name
                     beneficiaries = Map.empty
             create SvRightOwner with dso; name = rightOwnerName; info
-            createSvRewardState dso rightOwnerName joinedAsOfRound
+            createSvRewardState dso rightOwnerName sv1SvInfo.joinedAsOfRound
           None ->
-            createSvRewardState dso sv1Name joinedAsOfRound
+            createSvRewardState dso sv1Name sv1SvInfo.joinedAsOfRound
         createPerSvPartyContracts dso sv1Party sv1Name sv1SynchronizerNodes (Some amuletPrice) (getVoteCooldownTime config)
         return DsoBootstrap_BootstrapResult

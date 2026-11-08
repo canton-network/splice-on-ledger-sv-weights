@@ -87,7 +87,7 @@ testOnboardValidator = do
   now <- getTime
 
   -- after advancing time we can report active again, report active also ensures sponsor = validator
-  validatorLicenseCid <- submit dso $
+  validatorLicenseCid <- submit dso $ 
     archiveCmd validatorLicenseCid *>
     createCmd validatorLicense
       with
