@@ -603,6 +603,9 @@ object SpliceConfig {
       deriveReader[InitialRewardConfig]
     implicit val initialGovernanceLockConfigReader: ConfigReader[InitialGovernanceLockConfig] =
       deriveReader[InitialGovernanceLockConfig]
+    implicit val onLedgerSvRightOwnersConfigReader
+        : ConfigReader[SvOnboardingConfig.OnLedgerSvRightOwnersConfig] =
+      deriveReader[SvOnboardingConfig.OnLedgerSvRightOwnersConfig]
     implicit val svOnboardingFoundDsoReader: ConfigReader[SvOnboardingConfig.FoundDso] =
       deriveReader[SvOnboardingConfig.FoundDso]
     implicit val svOnboardingJoinWithKeyReader: ConfigReader[SvOnboardingConfig.JoinWithKey] =
@@ -732,6 +735,13 @@ object SpliceConfig {
           checkFoundDsoConfig((_, foundDsoConf) =>
             validateInitialPackageConfigDependencies(foundDsoConf.initialPackageConfig)
           )
+        val onLedgerSvRightOwnersSupported =
+          checkFoundDsoConfig((_, foundDsoConf) =>
+            foundDsoConf.onLedgerSvRightOwners.isEmpty ||
+              SvOnboardingConfig.OnLedgerSvRightOwnersConfig.isSupportedBy(
+                foundDsoConf.initialPackageConfig
+              )
+          )
         for {
           _ <- Either.cond(
             sv1NodeHasNoSequencerUrl,
@@ -750,6 +760,13 @@ object SpliceConfig {
             (),
             ConfigValidationFailed(
               "initialPackageConfig is not valid due to inconsistent dependencies"
+            ),
+          )
+          _ <- Either.cond(
+            onLedgerSvRightOwnersSupported,
+            (),
+            ConfigValidationFailed(
+              s"on-ledger-sv-right-owners requires initialPackageConfig with amulet >= ${DarResources.amulet_0_1_26.metadata.version} and dso-governance >= ${DarResources.dsoGovernance_0_1_32.metadata.version}"
             ),
           )
         } yield conf
@@ -1154,6 +1171,9 @@ object SpliceConfig {
       deriveWriter[InitialRewardConfig]
     implicit val initialGovernanceLockConfigWriter: ConfigWriter[InitialGovernanceLockConfig] =
       deriveWriter[InitialGovernanceLockConfig]
+    implicit val onLedgerSvRightOwnersConfigWriter
+        : ConfigWriter[SvOnboardingConfig.OnLedgerSvRightOwnersConfig] =
+      deriveWriter[SvOnboardingConfig.OnLedgerSvRightOwnersConfig]
     implicit val svOnboardingFoundDsoWriter: ConfigWriter[SvOnboardingConfig.FoundDso] =
       deriveWriter[SvOnboardingConfig.FoundDso]
     implicit val svOnboardingJoinWithKeyWriter: ConfigWriter[SvOnboardingConfig.JoinWithKey] =
