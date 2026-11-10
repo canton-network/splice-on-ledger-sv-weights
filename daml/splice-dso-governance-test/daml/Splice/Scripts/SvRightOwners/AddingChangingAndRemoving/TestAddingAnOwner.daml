@@ -19,7 +19,7 @@ test_shouldAddAnSvRightOwnerThatFirstCollectsInTheNextRound = withOnLedgerWeight
   newcomer <- newSvRightOwner "newcomer" net.sv2
   let unknownOperator = Operator with name = "no-such-operator"; party = net.sv2.party
   addAs net net.app.dso (newcomer with hostedBy = unknownOperator) >>= shouldBeRejected "SV right owner's node operator must exist"
-  addAs net net.app.dso (newcomer with name = net.genesisOwner.name) >>= shouldBeRejected "SV right owner \"sv1\" does not exist"
+  addAs net net.app.dso (newcomer with svRightsMintingShardId = net.genesisOwner.svRightsMintingShardId) >>= shouldBeRejected "SV right owner \"sv1\" does not exist"
   addAs net net.app.dso (newcomer with rewardWeight = -1) >>= shouldBeRejected "SV right owner's reward weight is non-negative"
   votedAt <- getTime
   (_, rules) <- currentDsoRules net
@@ -27,7 +27,7 @@ test_shouldAddAnSvRightOwnerThatFirstCollectsInTheNextRound = withOnLedgerWeight
   instruction <- voteToAdd net newcomer
 
   contractPayload net instruction `shouldReturn` AddSvRightOwnerInstruction with
-    dso = net.app.dso; name = newcomer.name; info = svRightOwnerInfo newcomer; expiresAt = addRelTime votedAt rules.config.actionConfirmationTimeout
+    dso = net.app.dso; svRightsMintingShardId = newcomer.svRightsMintingShardId; info = svRightOwnerInfo newcomer; expiresAt = addRelTime votedAt rules.config.actionConfirmationTimeout
   svRightOwners net `shouldReturn` [net.genesisOwner]
 
   stranger <- allocateParty "stranger"
@@ -37,13 +37,13 @@ test_shouldAddAnSvRightOwnerThatFirstCollectsInTheNextRound = withOnLedgerWeight
 
   expectArchived net instruction
   svRightOwners net `shouldReturn` [newcomer, net.genesisOwner]
-  svRightOwnerNamesInDsoRules net `shouldReturn` [newcomer.name, net.genesisOwner.name]
+  svRightOwnerNamesInDsoRules net `shouldReturn` [newcomer.svRightsMintingShardId, net.genesisOwner.svRightsMintingShardId]
   rewardStateOf net newcomer `shouldReturn` RewardState with
     lastRoundCollected = latestUsableRound.round; numRoundsCollected = 0; numRoundsMissed = 0; numCouponsIssued = 0
 
-  mintThrough net net.sv2 newcomer.name >>= shouldBeRejected "is greater than the last round a reward has been received for"
+  mintThrough net net.sv2 newcomer.svRightsMintingShardId >>= shouldBeRejected "is greater than the last round a reward has been received for"
   runNextIssuance net.app
-  mintThrough net net.sv2 newcomer.name >>= shouldSucceed
+  mintThrough net net.sv2 newcomer.svRightsMintingShardId >>= shouldSucceed
 
   unpaid <- (\owner -> owner with rewardWeight = 0) <$> newSvRightOwner "unpaid" net.sv3
   addSvRightOwner net unpaid

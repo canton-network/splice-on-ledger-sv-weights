@@ -25,7 +25,7 @@ test_shouldIssueTheExpectedAmuletToTheOwnerAndItsBeneficiariesAndExpireWhatNobod
   setBeneficiaries net newcomer (sharingWith [(shared, 0.25), (idle, 0.1)])
   nextIssuance
   (_, openRound) <- last <$> getOpenRoundsSorted net.app
-  mintThrough net net.sv2 newcomer.name >>= shouldSucceed
+  mintThrough net net.sv2 newcomer.svRightsMintingShardId >>= shouldSucceed
   sharedCoupon <- couponOf net newcomer shared openRound.round
   ownerCoupon <- couponOf net newcomer newcomer.party openRound.round
   idleCoupon <- couponOf net newcomer idle openRound.round

@@ -18,15 +18,15 @@ test_shouldLetOnlyTheCurrentSvNodeOperatorUnderTheHostNameMintForItsOwners = wit
   onboard net returning >>= shouldSucceed
   runNextIssuance net.app
 
-  mintThrough net net.sv2 owner.name >>= shouldBeRejected "Not a sv"
-  mintThrough net returning owner.name >>= shouldSucceed
+  mintThrough net net.sv2 owner.svRightsMintingShardId >>= shouldBeRejected "Not a sv"
+  mintThrough net returning owner.svRightsMintingShardId >>= shouldSucceed
   svRightOwners net `shouldReturn` [if hosted.hostedBy == net.sv2 then hosted with hostedBy = returning else hosted | hosted <- hostedBefore]
 
 test_shouldKeepHostedOwnersRewardStatesWhenTheirOperatorIsOffboarded = withLegacyWeights $ \net -> do
   migrateDefault net
   owner <- newSvRightOwner "hosted-owner" net.sv2
   addSvRightOwner net owner
-  rewardState <- svRewardStateCidFor net owner.name
+  rewardState <- svRewardStateCidFor net owner.svRightsMintingShardId
   offboardSvNodeOperator net net.sv2
 
   expectActive net rewardState
@@ -38,6 +38,6 @@ test_shouldNotRepairAnOffboardedHostingLinkWithoutAGovernanceVote = withLegacyWe
   addSvRightOwner net owner
   offboardSvNodeOperator net net.sv2
 
-  ownerCid <- svRightOwnerCidFor net owner.name
+  ownerCid <- svRightOwnerCidFor net owner.svRightsMintingShardId
   currentOwner <- contractPayload net ownerCid
   pure currentOwner.info `shouldReturn` svRightOwnerInfo owner

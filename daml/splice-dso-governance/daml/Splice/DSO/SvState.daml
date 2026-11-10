@@ -20,7 +20,7 @@ data ForSv = ForSv with
   deriving (Eq, Show, Serializable)
 
 instance HasCheckedFetch SvRightOwner ForSv where
-  contractGroupId SvRightOwner{..} = ForSv with dso; svName = name
+  contractGroupId SvRightOwner{..} = ForSv with dso; svName = svRightsMintingShardId
 
 data ForSvNode = ForSvNode with
     dso : Party
@@ -48,7 +48,7 @@ data RewardState = RewardState with
 template SvRewardState with
     dso : Party
     svName : Text
-      -- ^ Name of the SV right owner collecting the rewards; the name of the SV node operator
+      -- ^ Minting shard ID of the SV right owner collecting the rewards; the name of the SV node operator
       -- before the migration to on-ledger SV right owners.
     state : RewardState
   where

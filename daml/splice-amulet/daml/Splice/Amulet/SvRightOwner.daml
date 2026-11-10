@@ -19,7 +19,7 @@ import Splice.Util (HasCheckedFetch(..), Patchable(..), patchScalar, require)
 template SvRightOwner
   with
     dso : Party
-    name : Text -- ^ Human-readable name; unique among all SV right owners.
+    svRightsMintingShardId : Text -- ^ Human-readable ID of this SV rights minting shard; unique among all SV right owners.
     info : SvRightOwnerInfo
   where
     signatory dso
