@@ -1631,6 +1631,7 @@ template DsoRules with
                 beneficiary
                 weight
                 round = openRound.round
+                svRightsMintingShardId = None
 
             return DsoRules_ReceiveSvRewardCouponResult with
                 svRewardState = newRewardStateCid
@@ -1683,6 +1684,7 @@ template DsoRules with
               beneficiary
               weight
               round = openRound.round
+              svRightsMintingShardId = Some svRightsMintingShardId
             pure (beneficiary, couponCid)
 
           pure (svRightsMintingShardId, newRewardStateCid, Map.fromList couponCids)

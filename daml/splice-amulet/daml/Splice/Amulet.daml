@@ -597,6 +597,8 @@ template SvRewardCoupon with
     beneficiary : Party -- ^ The beneficiary allowed to receive the reward.
     round : Round
     weight : Int -- ^ Coupons receive a share of the SV issuance proportional to their weight.
+    svRightsMintingShardId : Optional Text
+      -- ^ Minting shard the reward is issued for; not set before SV right owners are tracked on-ledger.
   where
     ensure weight > 0
 

@@ -88,6 +88,7 @@ template DsoBootstrap with
                     rewardWeight = sv1RewardWeight
                     rewardNodeOperatorName = sv1Name
                     beneficiaries = Map.empty
+                    svRightsOwnerName = None
             create SvRightOwner with dso; svRightsMintingShardId; info
             createSvRewardState dso svRightsMintingShardId sv1SvInfo.joinedAsOfRound
           None ->

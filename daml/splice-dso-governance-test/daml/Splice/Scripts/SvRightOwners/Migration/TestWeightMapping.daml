@@ -27,8 +27,8 @@ test_shouldMigrateOneLegacyOperatorToSeveralRightOwners = withLegacyWeights $ \n
   firstOwner <- allocateParty "sv2-first-owner"
   let firstWeight = sv2.rewardWeight / 2
       secondWeight = sv2.rewardWeight - firstWeight
-      splitOwners = TextMap.insert "sv2-a" (sv2 with rightOwnerParty = firstOwner; rewardWeight = firstWeight)
-        $ TextMap.insert "sv2-b" (sv2 with rewardWeight = secondWeight)
+      splitOwners = TextMap.insert "sv2-a" (sv2 with rightOwnerParty = firstOwner; rewardWeight = firstWeight; svRightsOwnerName = Some "sv2")
+        $ TextMap.insert "sv2-b" (sv2 with rewardWeight = secondWeight; svRightsOwnerName = Some "sv2")
         $ TextMap.delete "sv2" owners
   instruction <- migrationRequestedFor net splitOwners
   rewardStates <- rewardStatesForSvOperators net

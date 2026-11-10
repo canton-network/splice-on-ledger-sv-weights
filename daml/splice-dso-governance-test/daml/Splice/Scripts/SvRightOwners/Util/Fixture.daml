@@ -36,6 +36,7 @@ data SvRightOwner = SvRightOwner with
     hostedBy : Operator
     rewardWeight : Int
     beneficiaries : Map.Map Party Amulet.BeneficiaryInfo
+    svRightsOwnerName : Optional Text
   deriving (Eq, Show)
 
 data Network = Network with
@@ -143,6 +144,7 @@ runOn initNetwork test = do
       hostedBy = sv1
       rewardWeight = tier1RewardWeight
       beneficiaries = Map.empty
+      svRightsOwnerName = None
   DsoTestUtils.checkSvContractInvariants app
 
 tier1RewardWeight : Int
@@ -155,7 +157,7 @@ newSvRightOwner : Text -> Operator -> Script SvRightOwner
 newSvRightOwner svRightsMintingShardId hostedBy = do
   party <- allocateParty (svRightsMintingShardId <> "-party")
   pure SvRightOwner with
-    svRightsMintingShardId; party; hostedBy; rewardWeight = tier2RewardWeight; beneficiaries = Map.empty
+    svRightsMintingShardId; party; hostedBy; rewardWeight = tier2RewardWeight; beneficiaries = Map.empty; svRightsOwnerName = None
 
 newSvNodeOperator : Text -> Script Operator
 newSvNodeOperator name = do
@@ -180,6 +182,7 @@ svRightOwnerInfo owner = Amulet.SvRightOwnerInfo with
   rewardWeight = owner.rewardWeight
   rewardNodeOperatorName = owner.hostedBy.name
   beneficiaries = owner.beneficiaries
+  svRightsOwnerName = owner.svRightsOwnerName
 
 svRightOwnerInfoFor : Party -> Int -> Text -> Amulet.SvRightOwnerInfo
 svRightOwnerInfoFor rightOwner weight operatorName = Amulet.SvRightOwnerInfo with
@@ -187,6 +190,7 @@ svRightOwnerInfoFor rightOwner weight operatorName = Amulet.SvRightOwnerInfo wit
   rewardWeight = weight
   rewardNodeOperatorName = operatorName
   beneficiaries = Map.empty
+  svRightsOwnerName = None
 
 svRightOwnerInfosFromOperators : AmuletScripts.AmuletApp -> Script (TextMap.TextMap Amulet.SvRightOwnerInfo)
 svRightOwnerInfosFromOperators app = do
@@ -261,6 +265,7 @@ svRightOwners net = do
       hostedBy
       rewardWeight = contract.info.rewardWeight
       beneficiaries = contract.info.beneficiaries
+      svRightsOwnerName = contract.info.svRightsOwnerName
 
 totalSvRightOwnerWeight : Network -> Script Int
 totalSvRightOwnerWeight net = sum . map (.rewardWeight) <$> svRightOwners net

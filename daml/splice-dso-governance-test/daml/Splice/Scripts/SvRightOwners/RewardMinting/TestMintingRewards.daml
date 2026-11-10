@@ -10,6 +10,7 @@ import qualified DA.TextMap as TextMap
 
 import Daml.Script
 
+import Splice.Amulet (SvRewardCoupon(..))
 import Splice.DSO.SvState (RewardState(..))
 
 import Splice.Testing.Registries.AmuletRegistry (getActiveOpenRoundsSorted)
@@ -35,6 +36,8 @@ test_shouldLetOnlyTheHostMintForAllItsSvRightOwnersInOneBatchWhateverTheirConfig
   mint net net.sv2.party roundCid cotenants >>= shouldSucceed
 
   couponsMintedFor net newcomer openRound.round `shouldReturn` sort [(beneficiary, 3000), (newcomer.party, 27000)]
+  coupons <- queryFilter @SvRewardCoupon net.app.dso (\coupon -> coupon.round == openRound.round)
+  [coupon.svRightsMintingShardId | (_, coupon) <- coupons] === [Some newcomer.svRightsMintingShardId, Some newcomer.svRightsMintingShardId]
   couponsMintedFor net unpaid openRound.round `shouldReturn` []
   rewardStateOf net unpaid `shouldReturn` RewardState with
     lastRoundCollected = openRound.round; numRoundsCollected = 1; numRoundsMissed = 0; numCouponsIssued = 0
