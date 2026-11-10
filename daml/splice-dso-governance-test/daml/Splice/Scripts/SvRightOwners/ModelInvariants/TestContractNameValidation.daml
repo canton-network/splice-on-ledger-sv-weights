@@ -19,7 +19,7 @@ test_shouldRejectMigrationWithAReusedRewardState = withLegacyWeights $ \net -> d
 test_shouldRejectMigrationWithAnArchivedRewardState = withLegacyWeights $ \net -> do
   owners <- svRightOwnerInfosFromOperators net.app
   instruction <- migrationRequestedFor net $ TextMap.fromList
-    [("hosted-" <> name, info) | (name, info) <- TextMap.toList owners]
+    [("hosted-" <> svRightsMintingShardId, info) | (svRightsMintingShardId, info) <- TextMap.toList owners]
   rewardStates <- rewardStatesForSvOperators net
 
   swapRewardStateNames net rewardStates >>= migrate net instruction >>= shouldBeRejected contractNameMismatch

@@ -31,7 +31,7 @@ data Operator = Operator with
   deriving (Eq, Ord, Show)
 
 data SvRightOwner = SvRightOwner with
-    name : Text
+    svRightsMintingShardId : Text
     party : Party
     hostedBy : Operator
     rewardWeight : Int
@@ -91,9 +91,9 @@ disclosureOf net cid = do
   pure disclosure
 
 servedByScan : Network -> Text -> Script [Disclosure]
-servedByScan net name = do
+servedByScan net svRightsMintingShardId = do
   dsoRulesDisclosure <- dsoRules net >>= disclosureOf net
-  ownerDisclosure <- svRightOwnerCidFor net name >>= disclosureOf net
+  ownerDisclosure <- svRightOwnerCidFor net svRightsMintingShardId >>= disclosureOf net
   pure [dsoRulesDisclosure, ownerDisclosure]
 
 refusedFor : Network -> Party -> Text -> Commands a -> Script ()
@@ -138,7 +138,7 @@ runOn initNetwork test = do
     -- On an on-ledger network the sv1 operator acts as its own right owner. Under legacy weights
     -- there is no such contract and sv1 holds the weight itself.
     genesisOwner = SvRightOwner with
-      name = "sv1"
+      svRightsMintingShardId = "sv1"
       party = sv1Party
       hostedBy = sv1
       rewardWeight = tier1RewardWeight
@@ -152,10 +152,10 @@ tier2RewardWeight : Int
 tier2RewardWeight = 3 * DsoTestUtils.bpsMultiplier
 
 newSvRightOwner : Text -> Operator -> Script SvRightOwner
-newSvRightOwner name hostedBy = do
-  party <- allocateParty (name <> "-party")
+newSvRightOwner svRightsMintingShardId hostedBy = do
+  party <- allocateParty (svRightsMintingShardId <> "-party")
   pure SvRightOwner with
-    name; party; hostedBy; rewardWeight = tier2RewardWeight; beneficiaries = Map.empty
+    svRightsMintingShardId; party; hostedBy; rewardWeight = tier2RewardWeight; beneficiaries = Map.empty
 
 newSvNodeOperator : Text -> Script Operator
 newSvNodeOperator name = do
@@ -220,7 +220,7 @@ amuletRules net = do
   pure amuletRulesCid
 
 svRightOwnerCidFor : Network -> Text -> Script (ContractId Amulet.SvRightOwner)
-svRightOwnerCidFor net name = DsoTestUtils.getSvRightOwnerCid net.app name
+svRightOwnerCidFor net svRightsMintingShardId = DsoTestUtils.getSvRightOwnerCid net.app svRightsMintingShardId
 
 svRewardStateCidFor : Network -> Text -> Script (ContractId SvRewardState)
 svRewardStateCidFor net name = DsoTestUtils.getSvRewardStateCid net.app name
@@ -250,13 +250,13 @@ svRightOwners : Network -> Script [SvRightOwner]
 svRightOwners net = do
   operators <- svNodeOperators net
   contracts <- query @Amulet.SvRightOwner net.app.dso
-  forA (sortOn (\(_, contract) -> contract.name) contracts) $ \(_, contract) -> do
+  forA (sortOn (\(_, contract) -> contract.svRightsMintingShardId) contracts) $ \(_, contract) -> do
     let hostName = contract.info.rewardNodeOperatorName
     hostedBy <- case [operator | operator <- operators, operator.name == hostName] of
       [operator] -> pure operator
       _ -> fail $ "no SV node operator is named " <> hostName
     pure SvRightOwner with
-      name = contract.name
+      svRightsMintingShardId = contract.svRightsMintingShardId
       party = contract.info.rightOwnerParty
       hostedBy
       rewardWeight = contract.info.rewardWeight
@@ -274,7 +274,7 @@ svRightOwnerNamesInDsoRules net = do
 
 rewardStateOf : Network -> SvRightOwner -> Script RewardState
 rewardStateOf net owner = do
-  [(_, contract)] <- queryFilter @SvRewardState net.app.dso (\c -> c.svName == owner.name)
+  [(_, contract)] <- queryFilter @SvRewardState net.app.dso (\c -> c.svName == owner.svRightsMintingShardId)
   pure contract.state
 
 shouldReturn : (Eq a, Show a) => Script a -> a -> Script ()

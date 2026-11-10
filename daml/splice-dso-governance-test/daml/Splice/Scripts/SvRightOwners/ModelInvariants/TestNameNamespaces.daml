@@ -15,15 +15,15 @@ test_shouldRejectAddingAnSvNodeOperatorWhoseNameIsAlreadyTaken = withOnLedgerWei
 
 test_shouldPreserveTheRightOwnersRewardStateWhenAddingAnSvNodeOperatorWithItsName = withOnLedgerWeights $ \net -> do
   owner <- newSvRightOwner "hosted-sv" net.sv1
-  operator <- newSvNodeOperator owner.name
+  operator <- newSvNodeOperator owner.svRightsMintingShardId
   instruction <- voteToAdd net owner
 
   execute net net.sv1.party instruction >>= shouldSucceed
-  ownerCidBefore <- svRightOwnerCidFor net owner.name
-  rewardStateCidBefore <- svRewardStateCidFor net owner.name
+  ownerCidBefore <- svRightOwnerCidFor net owner.svRightsMintingShardId
+  rewardStateCidBefore <- svRewardStateCidFor net owner.svRightsMintingShardId
 
   onboard net operator >>= shouldSucceed
 
   svNodeOperators net `shouldReturn` [operator, net.sv1, net.sv2, net.sv3, net.sv4]
-  svRightOwnerCidFor net owner.name `shouldReturn` ownerCidBefore
-  svRewardStateCidFor net owner.name `shouldReturn` rewardStateCidBefore
+  svRightOwnerCidFor net owner.svRightsMintingShardId `shouldReturn` ownerCidBefore
+  svRewardStateCidFor net owner.svRightsMintingShardId `shouldReturn` rewardStateCidBefore

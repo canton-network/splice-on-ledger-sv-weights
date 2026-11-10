@@ -141,7 +141,7 @@ initDecentralizedSynchronizerWithAmuletPrice isDevNet initialRound amuletPrice o
       initialTrafficState = Map.empty
       isDevNet
       initialRound = Some initialRound
-      sv1RightOwnerName = if onLedgerSvRightOwners then Some "sv1" else None
+      sv1SvRightsMintingShardId = if onLedgerSvRightOwners then Some "sv1" else None
     DsoBootstrap_Bootstrap
 
   dsoUserId <- validateUserId "dso-user"
@@ -175,10 +175,10 @@ getSvRewardStateCid app svName = do
   [(rewardStateCid, _)] <- queryFilter @SvRewardState app.dso (\state -> state.svName == svName)
   pure rewardStateCid
 
--- | The SV right owner with the given name.
+-- | The SV right owner with the given minting shard ID.
 getSvRightOwnerCid : AmuletApp -> Text -> Script (ContractId SvRightOwner)
-getSvRightOwnerCid app name = do
-  [(svRightOwnerCid, _)] <- queryFilter @SvRightOwner app.dso (\owner -> owner.name == name)
+getSvRightOwnerCid app svRightsMintingShardId = do
+  [(svRightOwnerCid, _)] <- queryFilter @SvRightOwner app.dso (\owner -> owner.svRightsMintingShardId == svRightsMintingShardId)
   pure svRightOwnerCid
 
 -- | The reward states of all SV node operators, keyed by the operator's name.
@@ -489,7 +489,7 @@ checkSvRewardStates : AmuletApp -> Script ()
 checkSvRewardStates app = do
   rewardStates <- query @SvRewardState app.dso
   [(_, dsoRules)] <- query @DsoRules app.dso
-  -- Reward states are keyed by SV right owner name once weights are tracked on-ledger, and by
+  -- Reward states are keyed by minting shard ID once weights are tracked on-ledger, and by
   -- SV node operator name before that.
   let expectedNames =
         if onLedgerSvRightOwners dsoRules

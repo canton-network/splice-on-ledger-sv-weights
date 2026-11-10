@@ -31,7 +31,7 @@ test_shouldAllowChangingTheTotalSvRightOwnerWeight = withOnLedgerWeights $ \net 
   updateRightOwnerWeight net owner (owner.rewardWeight - 1)
   totalSvRightOwnerWeight net `shouldReturn` initialTotal + owner.rewardWeight - 1
 
-  removal <- voteToRemove net owner.name
+  removal <- voteToRemove net owner.svRightsMintingShardId
   executeRemoval net net.sv1.party removal >>= shouldSucceed
   totalSvRightOwnerWeight net `shouldReturn` initialTotal
 

@@ -41,5 +41,5 @@ test_shouldSplitTheWeightExactlyAndMintTheRemainderToTheOwnerInTheSameRound = wi
     mintNextRound net owner = do
       runNextIssuance net.app
       (openRoundCid, openRound) <- last <$> getOpenRoundsSorted net.app
-      mint net owner.hostedBy.party openRoundCid [owner.name] >>= shouldSucceed
+      mint net owner.hostedBy.party openRoundCid [owner.svRightsMintingShardId] >>= shouldSucceed
       pure openRound.round

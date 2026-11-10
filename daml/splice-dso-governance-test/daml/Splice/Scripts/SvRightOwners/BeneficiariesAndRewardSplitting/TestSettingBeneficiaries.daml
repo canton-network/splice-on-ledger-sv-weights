@@ -35,15 +35,15 @@ test_shouldLetAnSvRightOwnerWithoutAnSvNodeSetItsBeneficiariesFromDisclosedContr
   beneficiary <- allocateParty "beneficiary"
   let split = sharingWith [(beneficiary, 0.2)]
   dsoRulesCid <- dsoRules net
-  ownerCid <- svRightOwnerCidFor net newcomer.name
-  [dsoRulesDisclosure, ownerDisclosure] <- servedByScan net newcomer.name
+  ownerCid <- svRightOwnerCidFor net newcomer.svRightsMintingShardId
+  [dsoRulesDisclosure, ownerDisclosure] <- servedByScan net newcomer.svRightsMintingShardId
 
   setBeneficiariesAs net newcomer.party newcomer split >>= shouldNotFindDisclosing [] dsoRulesCid
   setBeneficiariesAs net newcomer.party newcomer split >>= shouldNotFindDisclosing [dsoRulesDisclosure] ownerCid
   setBeneficiariesAs net newcomer.party newcomer split >>= shouldSucceedDisclosing [dsoRulesDisclosure, ownerDisclosure]
 
   svRightOwners net `shouldReturn` [(newcomer with beneficiaries = split), net.genesisOwner]
-  newOwnerCid <- svRightOwnerCidFor net newcomer.name
+  newOwnerCid <- svRightOwnerCidFor net newcomer.svRightsMintingShardId
   queryContractId newcomer.party newOwnerCid `shouldReturn` None
 
 test_shouldLetOnlyTheNewPartySetTheBeneficiariesAfterAVotedPartyRotation = withTwoSvRightOwners $ \net newcomer -> do
@@ -51,14 +51,14 @@ test_shouldLetOnlyTheNewPartySetTheBeneficiariesAfterAVotedPartyRotation = withT
   successor <- allocateParty "successor"
   let split = sharingWith [(beneficiary, 0.2)]
       rotated = newcomer with party = successor
-  rotation <- voteToUpdate net newcomer.name (svRightOwnerInfo newcomer) (svRightOwnerInfo rotated)
+  rotation <- voteToUpdate net newcomer.svRightsMintingShardId (svRightOwnerInfo newcomer) (svRightOwnerInfo rotated)
   executeUpdate net net.sv1.party rotation >>= shouldSucceed
 
-  disclosures <- servedByScan net newcomer.name
+  disclosures <- servedByScan net newcomer.svRightsMintingShardId
   setBeneficiariesAs net newcomer.party newcomer split >>= shouldBeRejectedDisclosing disclosures "Beneficiaries are set by the SV right owner itself"
   setBeneficiariesAs net successor rotated split >>= shouldSucceedDisclosing disclosures
   svRightOwners net `shouldReturn` [(rotated with beneficiaries = split), net.genesisOwner]
 
 test_shouldRefuseSettingBeneficiariesUnderLegacyWeightManagement = withLegacyWeights $ \net -> do
   noSvRightOwner <- coerceContractId <$> dsoRules net
-  setBeneficiariesWith net net.genesisOwner.party net.genesisOwner.name (sharingWith []) noSvRightOwner >>= shouldBeRejected "svRightOwners are tracked on-ledger"
+  setBeneficiariesWith net net.genesisOwner.party net.genesisOwner.svRightsMintingShardId (sharingWith []) noSvRightOwner >>= shouldBeRejected "svRightOwners are tracked on-ledger"

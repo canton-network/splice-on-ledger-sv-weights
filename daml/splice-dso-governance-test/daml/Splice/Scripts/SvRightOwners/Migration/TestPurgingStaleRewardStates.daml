@@ -27,17 +27,17 @@ test_shouldPurgeTheStaleRewardStateOfAnOffboardedSvOnlyAfterMigration = withLega
 test_shouldRefusePurgingTheRewardStateOfALiveRightOwnerWhoseOperatorWasOffboarded = withOnLedgerWeights $ \net -> do
   let owner = net.genesisOwner
       movedOwner = owner with hostedBy = net.sv2
-  update <- voteToUpdate net owner.name (svRightOwnerInfo owner) (svRightOwnerInfo movedOwner)
+  update <- voteToUpdate net owner.svRightsMintingShardId (svRightOwnerInfo owner) (svRightOwnerInfo movedOwner)
   executeUpdate net net.sv2.party update >>= shouldSucceed
   offboardSvNodeOperator net net.sv1
 
-  rewardState <- svRewardStateCidFor net owner.name
+  rewardState <- svRewardStateCidFor net owner.svRightsMintingShardId
   attempt net net.sv2.party (\dsoRulesCid ->
     exerciseCmd dsoRulesCid DsoRules_PurgeStaleSvRewardStates with
-      offboardedSvRewardStateCids = TextMap.fromList [(owner.name, rewardState)]
+      offboardedSvRewardStateCids = TextMap.fromList [(owner.svRightsMintingShardId, rewardState)]
       sv = Some net.sv2.party) >>= shouldBeRejected "SvRewardState must not belong to a live SV right owner"
 
-  svRewardStateNames net `shouldReturn` [owner.name]
+  svRewardStateNames net `shouldReturn` [owner.svRightsMintingShardId]
 
 purge : Network -> Text -> ContractId SvRewardState -> Script Attempt
 purge net name rewardStateCid = attempt net net.sv1.party $ \dsoRulesCid ->
