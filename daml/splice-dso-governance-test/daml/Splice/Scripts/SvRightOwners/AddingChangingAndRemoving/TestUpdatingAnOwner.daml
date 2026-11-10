@@ -152,7 +152,7 @@ test_shouldApplyEveryPassedUpdateAndGovernCoHostedSvRightOwnersIndependently = w
   addSvRightOwner net cotenant
   successor <- allocateParty "successor"
   let base = svRightOwnerInfo newcomer
-      raised = newcomer with rewardWeight = tier1RewardWeight
+      raised = newcomer with rewardWeight = tier1RewardWeight; svRightsOwnerName = Some net.genesisOwner.svRightsMintingShardId
       moved = raised with hostedBy = net.sv3
       rotated = cotenant with party = successor
   raise <- voteToUpdate net newcomer.svRightsMintingShardId base (svRightOwnerInfo raised)

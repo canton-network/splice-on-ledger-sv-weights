@@ -233,4 +233,4 @@ rewardCoupon net mapKey svRightsMintingShardId rewardStateName = do
 
 addOwnerNamed : Network -> Text -> Script ()
 addOwnerNamed net svRightsMintingShardId = addSvRightOwner net SvRightOwner with
-  svRightsMintingShardId; party = net.sv2.party; hostedBy = (net.sv2 with name = svRightsMintingShardId); rewardWeight = tier2RewardWeight; beneficiaries = Map.empty
+  svRightsMintingShardId; party = net.sv2.party; hostedBy = (net.sv2 with name = svRightsMintingShardId); rewardWeight = tier2RewardWeight; beneficiaries = Map.empty; svRightsOwnerName = None

@@ -31,7 +31,7 @@ test_shouldStartAnOwnerWithoutALegacyPredecessorAfterTheLatestUsableRound = with
 
   migrate net instruction rewardStates >>= shouldSucceed
 
-  rewardStateOf net (SvRightOwner with svRightsMintingShardId = "new-owner"; party = newcomer; hostedBy = net.sv2; rewardWeight = sv2.rewardWeight; beneficiaries = sv2.beneficiaries)
+  rewardStateOf net (SvRightOwner with svRightsMintingShardId = "new-owner"; party = newcomer; hostedBy = net.sv2; rewardWeight = sv2.rewardWeight; beneficiaries = sv2.beneficiaries; svRightsOwnerName = None)
     `shouldReturn` RewardState with lastRoundCollected = latestUsableRound.round; numRoundsCollected = 0; numRoundsMissed = 0; numCouponsIssued = 0
 
 test_shouldAllowMigratedSvToMintAfterMigration = withLegacyWeights $ \net -> do

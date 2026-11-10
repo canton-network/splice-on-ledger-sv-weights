@@ -865,6 +865,7 @@ abstract class StoreTestBase
         beneficiary.toProtoPrimitive,
         new Round(round),
         weight,
+        Optional.empty(),
       ),
     )
 

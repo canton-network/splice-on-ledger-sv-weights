@@ -40,6 +40,8 @@ data SvRightOwnerInfo = SvRightOwnerInfo
     beneficiaries : Map Party BeneficiaryInfo
       -- ^ Map of beneficiaries and their percentages for reward distribution. Must not include the right owner's party. Remainder goes to right owner.
       -- At most 20 beneficiaries are allowed to bound the number of coupons minted per round.
+    svRightsOwnerName : Optional Text
+      -- ^ Name of the organization that owns this shard; if not set, the `svRightsMintingShardId` is used.
   deriving (Eq, Show, Serializable)
 
 instance Patchable SvRightOwnerInfo where
@@ -49,6 +51,7 @@ instance Patchable SvRightOwnerInfo where
       rewardWeight = patch new.rewardWeight base.rewardWeight current.rewardWeight
       rewardNodeOperatorName = patch new.rewardNodeOperatorName base.rewardNodeOperatorName current.rewardNodeOperatorName
       beneficiaries = patch new.beneficiaries base.beneficiaries current.beneficiaries
+      svRightsOwnerName = patchScalar new.svRightsOwnerName base.svRightsOwnerName current.svRightsOwnerName
 
 -- | Information about a beneficiary.
 data BeneficiaryInfo = BeneficiaryInfo
