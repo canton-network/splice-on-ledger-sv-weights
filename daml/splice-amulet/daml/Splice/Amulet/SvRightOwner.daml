@@ -20,17 +20,18 @@ template SvRightOwner
   with
     dso : Party
     name : Text -- ^ Human-readable name; unique among all SV right owners.
-    info : SvRightOwnerInfo
+    shards : [SvRightsMintingShard]
   where
     signatory dso
-    ensure validSvRightOwnerInfo info
+    ensure all validSvRightsMintingShard shards && uniqueShardIds shards
 
 instance HasCheckedFetch SvRightOwner ForDso where
   contractGroupId SvRightOwner{dso} = ForDso with dso
 
 -- | Information about a super validator right owner.
-data SvRightOwnerInfo = SvRightOwnerInfo
+data SvRightsMintingShard = SvRightsMintingShard
   with
+    id : Text
     rightOwnerParty : Party
       -- ^ The party of the SV right owner; receives the rewards not shared with beneficiaries.
     rewardWeight : Int
@@ -42,9 +43,10 @@ data SvRightOwnerInfo = SvRightOwnerInfo
       -- At most 20 beneficiaries are allowed to bound the number of coupons minted per round.
   deriving (Eq, Show, Serializable)
 
-instance Patchable SvRightOwnerInfo where
-  patch new base current = SvRightOwnerInfo
+instance Patchable SvRightsMintingShard where
+  patch new base current = SvRightsMintingShard
     with
+      id = patch new.id base.id current.id
       rightOwnerParty = patch new.rightOwnerParty base.rightOwnerParty current.rightOwnerParty
       rewardWeight = patch new.rewardWeight base.rewardWeight current.rewardWeight
       rewardNodeOperatorName = patch new.rewardNodeOperatorName base.rewardNodeOperatorName current.rewardNodeOperatorName
@@ -62,28 +64,38 @@ instance Patchable BeneficiaryInfo where
     with
       rewardRatio = patchScalar new.rewardRatio base.rewardRatio current.rewardRatio
 
-svRightOwnerInfoChecks : [(SvRightOwnerInfo -> Bool, Text)]
-svRightOwnerInfoChecks =
-  [ (\SvRightOwnerInfo{..} -> rewardWeight >= 0, "SV right owner's reward weight is non-negative")
-  , (\SvRightOwnerInfo{..} -> all ((> 0.0) . rewardRatio) beneficiaries, "Beneficiary reward ratios are positive")
-  , (\SvRightOwnerInfo{..} -> sum (fmap (.rewardRatio) beneficiaries) <= 1.0, "Beneficiary reward ratios add up to at most 1.0")
-  , (\SvRightOwnerInfo{..} -> not $ Map.member rightOwnerParty beneficiaries, "SV right owner is not a beneficiary")
-  , (\SvRightOwnerInfo{..} -> Map.size beneficiaries <= 20, "There are at most 20 beneficiaries")
+svRightsMintingShardChecks : [(SvRightsMintingShard -> Bool, Text)]
+svRightsMintingShardChecks =
+  [ (\SvRightsMintingShard{..} -> rewardWeight >= 0, "SV right owner's reward weight is non-negative")
+  , (\SvRightsMintingShard{..} -> all ((> 0.0) . rewardRatio) beneficiaries, "Beneficiary reward ratios are positive")
+  , (\SvRightsMintingShard{..} -> sum (fmap (.rewardRatio) beneficiaries) <= 1.0, "Beneficiary reward ratios add up to at most 1.0")
+  , (\SvRightsMintingShard{..} -> not $ Map.member rightOwnerParty beneficiaries, "SV right owner is not a beneficiary")
+  , (\SvRightsMintingShard{..} -> Map.size beneficiaries <= 20, "There are at most 20 beneficiaries")
   ]
 
-validSvRightOwnerInfo : SvRightOwnerInfo -> Bool
-validSvRightOwnerInfo info = all (\(check, _) -> check info) svRightOwnerInfoChecks
+uniqueShardIds : [SvRightsMintingShard] -> Bool
+uniqueShardIds shards = Map.size (Map.fromList [(shard.id, ()) | shard <- shards]) == length shards
 
-requireValidSvRightOwnerInfo : SvRightOwnerInfo -> Update ()
-requireValidSvRightOwnerInfo info =
-  forA_ svRightOwnerInfoChecks $ \(check, message) -> require message (check info)
+validSvRightsMintingShard : SvRightsMintingShard -> Bool
+validSvRightsMintingShard info = all (\(check, _) -> check info) svRightsMintingShardChecks
+
+requireValidSvRightsMintingShard : SvRightsMintingShard -> Update ()
+requireValidSvRightsMintingShard info =
+  forA_ svRightsMintingShardChecks $ \(check, message) -> require message (check info)
 
 -- | The absolute reward weight for each party that receives rewards in the context of this SV Right Owner.
-svRewardCouponWeights : SvRightOwnerInfo -> Map Party Int
-svRewardCouponWeights SvRightOwnerInfo{..} =
+svRewardCouponWeights : SvRightsMintingShard -> Map Party Int
+svRewardCouponWeights SvRightsMintingShard{..} =
   if remainingWeight > 0
   then Map.insert rightOwnerParty remainingWeight beneficiaryWeights
   else beneficiaryWeights
   where
     remainingWeight = rewardWeight - sum beneficiaryWeights
     beneficiaryWeights = fmap (\BeneficiaryInfo{rewardRatio} -> floor (intToDecimal rewardWeight * rewardRatio)) beneficiaries
+
+-- | Find the shard selected by its stable identifier.
+lookupSvRightsMintingShard : Text -> [SvRightsMintingShard] -> Update SvRightsMintingShard
+lookupSvRightsMintingShard shardId shards =
+  case filter (\shard -> shard.id == shardId) shards of
+    [shard] -> pure shard
+    _ -> abort "SV rights minting shard does not exist or is not unique"

@@ -141,7 +141,7 @@ data DsoRules_ActionRequiringConfirmation
     -- ^ Voted action to add an SV right owner.
   | SRARC_RemoveSvRightOwner DsoRules_RemoveSvRightOwner
     -- ^ Voted action to remove an SV right owner.
-  | SRARC_UpdateSvRightOwnerInfo DsoRules_UpdateSvRightOwnerInfo
+  | SRARC_UpdateSvRightsMintingShard DsoRules_UpdateSvRightsMintingShard
     -- ^ Voted action to update the info of an SV right owner.
   deriving (Eq, Show, Serializable)
 
@@ -158,7 +158,7 @@ data SvInfo = SvInfo with
     joinedAsOfRound : Round -- ^ Round in which the SV joined
     svRewardWeight : Int
       -- ^ Weight of the SV in the SV reward distribution.
-      -- Deprecated in favor of `SvRightOwnerInfo.rewardWeight`: this is required to be zero
+      -- Deprecated in favor of `SvRightsMintingShard.rewardWeight`: this is required to be zero
       -- once SV right owners are tracked on-ledger, as SV node operators do not earn rewards
       -- in their own right.
     participantId : Text -- ^ Participant ID of the SV, stored here as PartyToParticipant mappings are tracked via state on the DsoRules + SvOnboardingConfirmed contracts.
@@ -278,7 +278,7 @@ data DsoRules_MigrateToOnLedgerSvRightOwnersResult = DsoRules_MigrateToOnLedgerS
 
 data DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstructionResult = DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstructionResult with
     newDsoRules : ContractId DsoRules
-    svRightOwners : TextMap (ContractId SvRightOwner, ContractId SvRewardState)
+    svRightOwners : TextMap (ContractId SvRightOwner, TextMap (ContractId SvRewardState))
   deriving (Serializable)
 
 data DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstructionResult = DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstructionResult
@@ -291,7 +291,7 @@ data DsoRules_AddSvRightOwnerResult = DsoRules_AddSvRightOwnerResult with
 data DsoRules_ExecuteAddSvRightOwnerInstructionResult = DsoRules_ExecuteAddSvRightOwnerInstructionResult with
     newDsoRules : ContractId DsoRules
     svRightOwner : ContractId SvRightOwner
-    svRewardState : ContractId SvRewardState
+    svRewardStates : TextMap (ContractId SvRewardState)
   deriving (Serializable)
 
 data DsoRules_ExpireAddSvRightOwnerInstructionResult = DsoRules_ExpireAddSvRightOwnerInstructionResult
@@ -308,15 +308,15 @@ data DsoRules_ExecuteRemoveSvRightOwnerInstructionResult = DsoRules_ExecuteRemov
 data DsoRules_ExpireRemoveSvRightOwnerInstructionResult = DsoRules_ExpireRemoveSvRightOwnerInstructionResult
   deriving (Serializable)
 
-data DsoRules_UpdateSvRightOwnerInfoResult = DsoRules_UpdateSvRightOwnerInfoResult with
-    instruction : ContractId UpdateSvRightOwnerInfoInstruction
+data DsoRules_UpdateSvRightsMintingShardResult = DsoRules_UpdateSvRightsMintingShardResult with
+    instruction : ContractId UpdateSvRightsMintingShardInstruction
   deriving (Serializable)
 
-data DsoRules_ExecuteUpdateSvRightOwnerInfoInstructionResult = DsoRules_ExecuteUpdateSvRightOwnerInfoInstructionResult with
+data DsoRules_ExecuteUpdateSvRightsMintingShardInstructionResult = DsoRules_ExecuteUpdateSvRightsMintingShardInstructionResult with
     svRightOwner : ContractId SvRightOwner
   deriving (Serializable)
 
-data DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult = DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult
+data DsoRules_ExpireUpdateSvRightsMintingShardInstructionResult = DsoRules_ExpireUpdateSvRightsMintingShardInstructionResult
   deriving (Serializable)
 
 data DsoRules_UpdateSvRightOwnerBeneficiariesResult = DsoRules_UpdateSvRightOwnerBeneficiariesResult with
@@ -699,6 +699,7 @@ template DsoRules with
     initialTrafficState: Map.Map Text TrafficState -- ^ Map from participant/mediator ID to its traffic state at the time of synchronizer bootstrapping. Used for testing, empty in prod.
     isDevNet : Bool
     svRightOwners : Optional (Set Text)
+    svRightsMintingShardIds : Set Text -- ^ IDs of all active minting shards.
   where
     ensure and
       [ config.numUnclaimedRewardsThreshold > 0
@@ -759,6 +760,7 @@ template DsoRules with
               initialTrafficState
               isDevNet
               svRightOwners
+              svRightsMintingShardIds
 
             return DsoRules_OffboardSvResult with ..
 
@@ -1643,9 +1645,9 @@ template DsoRules with
       with
         svOperator : Party
         openRoundCid : ContractId OpenMiningRound
-        svRightOwnerRewardInputs : TextMap (ContractId SvRightOwner, ContractId SvRewardState)
-          -- ^ The SV right owners to mint rewards for, keyed by their name. They must all be
-          -- hosted by `svOperator`.
+        svRightMintingShardInputs : TextMap (ContractId SvRightOwner, ContractId SvRewardState)
+          -- ^ Shards keyed by id, paired with their owner and reward state. Each must be
+          -- hosted by `svOperator`. Shard ids in a single batch must be distinct.
       controller svOperator
       do
         requireOnLedgerSvRightOwners this
@@ -1654,42 +1656,37 @@ template DsoRules with
         openRound <- fetchReferenceData (ForDso with dso) openRoundCid
         require "OpenRound is open" (openRound.opensAt <= now)
 
-        outputs <- forA (TextMap.toList svRightOwnerRewardInputs) $ \(name, (svRightOwnerCid, rewardStateCid)) -> do
-          let forSv = ForSv with dso; svName = name
-          svRightOwner <- fetchChecked forSv svRightOwnerCid
-          rewardState <- fetchAndArchive forSv rewardStateCid
-          let info = svRightOwner.info
-              state = rewardState.state
-          require "SV Right Owner mints through this SV Node Operator" $
-            info.rewardNodeOperatorName == svOperatorInfo.name
+        outputs <- forA (TextMap.toList svRightMintingShardInputs) $ \(shardId, (svRightOwnerCid, rewardStateCid)) -> do
+          svRightOwner <- fetchChecked (ForDso with dso) svRightOwnerCid
+          requireSvRightOwnerExists this svRightOwner.name
+          shard <- lookupSvRightsMintingShard shardId svRightOwner.shards
+          require "Shard mints through this SV Node Operator" $
+            shard.rewardNodeOperatorName == svOperatorInfo.name
+          rewardState <- fetchAndArchive (ForSv with dso; svName = shardId) rewardStateCid
+          let state = rewardState.state
           require
             ("Round " <> show openRound.round <> " is greater than the last round a reward has been received for " <> show state.lastRoundCollected)
             (state.lastRoundCollected < openRound.round)
-
-          -- the filtering prevents zero weights that can happen due to floor operation in svRewardCouponWeights
-          let couponWeights = Map.filter (> 0) (svRewardCouponWeights info)
+          let couponWeights = Map.filter (> 0) (svRewardCouponWeights shard)
           newRewardStateCid <- create rewardState with
             state = RewardState with
               lastRoundCollected = openRound.round
               numRoundsCollected = state.numRoundsCollected + 1
-              numRoundsMissed =
-                state.numRoundsMissed + (openRound.round.number - state.lastRoundCollected.number - 1)
+              numRoundsMissed = state.numRoundsMissed + (openRound.round.number - state.lastRoundCollected.number - 1)
               numCouponsIssued = state.numCouponsIssued + Map.size couponWeights
-
-          couponCids <- forA (Map.toList couponWeights) $ \(beneficiary, weight) -> do
+          coupons <- forA (Map.toList couponWeights) $ \(beneficiary, weight) -> do
             couponCid <- create SvRewardCoupon with
               dso
-              sv = info.rightOwnerParty
+              sv = shard.rightOwnerParty
               beneficiary
               weight
               round = openRound.round
             pure (beneficiary, couponCid)
-
-          pure (name, newRewardStateCid, Map.fromList couponCids)
+          pure (shardId, newRewardStateCid, Map.fromList coupons)
 
         return DsoRules_ReceiveSvRewardCouponV2Result with
-          svRewardStates = TextMap.fromList [(name, stateCid) | (name, stateCid, _) <- outputs]
-          svRewardCoupons = TextMap.fromList [(name, coupons) | (name, _, coupons) <- outputs]
+          svRewardStates = TextMap.fromList [(shardId, stateCid) | (shardId, stateCid, _) <- outputs]
+          svRewardCoupons = TextMap.fromList [(shardId, coupons) | (shardId, _, coupons) <- outputs]
 
     -- Batch expiry of unclaimed rewards for a specific claimed round
     -----------------------------------------------------------------
@@ -1976,8 +1973,8 @@ template DsoRules with
         forA_ (TextMap.toList offboardedSvRewardStateCids) $ \(svName, rewardStateCid) -> do
           require ("Leftover SvRewardState of offboarded SV " <> show svName <> " must belong to an SV in offboardedSvs") $
             any (\info -> info.name == svName) (Map.values offboardedSvs)
-          require "SvRewardState must not belong to a live SV right owner" $
-            svName `Set.notMember` getSvRightOwners this
+          require "SvRewardState must not belong to a live minting shard" $
+            svName `Set.notMember` svRightsMintingShardIds
           void $ fetchAndArchive (ForSv with dso; svName) rewardStateCid
         pure DsoRules_PurgeStaleSvRewardStatesResult
 
@@ -2131,7 +2128,7 @@ template DsoRules with
 
     nonconsuming choice DsoRules_MigrateToOnLedgerSvRightOwners : DsoRules_MigrateToOnLedgerSvRightOwnersResult
       with
-        svRightOwners : TextMap SvRightOwnerInfo
+        svRightOwners : TextMap [SvRightsMintingShard]
           -- ^ The complete set of SV right owners, keyed by their name.
       controller dso
       do
@@ -2162,28 +2159,29 @@ template DsoRules with
         require "Reward states are provided for exactly the SV node operators" $
           Set.fromList (map fst $ TextMap.toList svOperatorRewardStateCids) == getSvOperatorNames this
         validatedRounds <- validateOpenMiningRoundTriple dso openMiningRoundTriple
-        -- Archive only the reward states of SV node operators that do not continue as an SV right owner of the same name.
-        forA_ (TextMap.toList svOperatorRewardStateCids) $ \(svName, rewardStateCid) ->
-          unless (svName `TextMap.member` instruction.svRightOwners) $
-            void $ fetchAndArchive (ForSv with dso; svName) rewardStateCid
+        -- Archive legacy states and retain their collection history for shards of the same owner.
+        legacyStates <- forA (TextMap.toList svOperatorRewardStateCids) $ \(svName, rewardStateCid) -> do
+          state <- fetchAndArchive (ForSv with dso; svName) rewardStateCid
+          pure (svName, state)
+        let legacyStatesByName = TextMap.fromList legacyStates
         forA_ (TextMap.toList offboardedSvRewardStateCids) $ \(svName, rewardStateCid) -> do
           require ("Leftover SvRewardState of offboarded SV " <> show svName <> " must belong to an SV in offboardedSvs") $
             any (\info -> info.name == svName) (Map.values offboardedSvs)
           require ("Leftover SvRewardState of offboarded SV " <> show svName <> " must not belong to a current SV node operator") $
             not (svName `Set.member` getSvOperatorNames this)
           void $ fetchAndArchive (ForSv with dso; svName) rewardStateCid
-        svRightOwners <- forA (TextMap.toList instruction.svRightOwners) $ \(name, info) -> do
-          svRightOwner <- create SvRightOwner with dso; name; info
-          -- Reuse the reward state of the SV node operator of the same name to preserve the round it last minted for.
-          svRewardState <- case TextMap.lookup name svOperatorRewardStateCids of
-            Some rewardStateCid -> do
-              void $ fetchChecked (ForSv with dso; svName = name) rewardStateCid
-              pure rewardStateCid
-            None -> createSvRewardState dso name (Round $ validatedRounds.latestUsableRound.round.number + 1)
-          pure (name, (svRightOwner, svRewardState))
+        svRightOwners <- forA (TextMap.toList instruction.svRightOwners) $ \(name, shards) -> do
+          svRightOwner <- create SvRightOwner with dso; name; shards
+          svRewardStates <- forA shards $ \shard -> do
+            cid <- case TextMap.lookup name legacyStatesByName of
+              Some legacy -> create legacy with svName = shard.id
+              None -> createSvRewardState dso shard.id (Round $ validatedRounds.latestUsableRound.round.number + 1)
+            pure (shard.id, cid)
+          pure (name, (svRightOwner, TextMap.fromList svRewardStates))
         newDsoRules <- create this with
           svs = fmap (\info -> info with svRewardWeight = 0) svs
           svRightOwners = Some $ Set.fromList $ map fst svRightOwners
+          svRightsMintingShardIds = Set.fromList [shard.id | (_, shards) <- TextMap.toList instruction.svRightOwners, shard <- shards]
         pure DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstructionResult with
           newDsoRules
           svRightOwners = TextMap.fromList svRightOwners
@@ -2202,18 +2200,19 @@ template DsoRules with
     nonconsuming choice DsoRules_AddSvRightOwner : DsoRules_AddSvRightOwnerResult
       with
         name : Text -- ^ The name of the SV right owner to add; must not be in use.
-        info : SvRightOwnerInfo
+        shards : [SvRightsMintingShard]
       controller dso
       do
         requireOnLedgerSvRightOwners this
         requireSvRightOwnerDoesNotExist this name
-        requireRewardNodeOperatorExists this info
-        requireValidSvRightOwnerInfo info
+        requireAvailableShardIds this shards
+        forA_ shards $ requireRewardNodeOperatorExists this
+        forA_ shards requireValidSvRightsMintingShard
         now <- getTime
         instruction <- create AddSvRightOwnerInstruction with
           dso
           name
-          info
+          shards
           expiresAt = now `addRelTime` config.actionConfirmationTimeout
         return DsoRules_AddSvRightOwnerResult with instruction
 
@@ -2229,13 +2228,18 @@ template DsoRules with
         _ <- getAndValidateSvParty this (Some svOperator)
         instruction <- fetchAndArchive (ForDso with dso) instructionCid
         requireSvRightOwnerDoesNotExist this instruction.name
-        requireRewardNodeOperatorExists this instruction.info
+        requireAvailableShardIds this instruction.shards
+        forA_ instruction.shards $ requireRewardNodeOperatorExists this
         assertWithinDeadline "addSvRightOwnerInstruction.expiresAt" instruction.expiresAt
         validatedRounds <- validateOpenMiningRoundTriple dso openMiningRoundTriple
-        svRightOwner <- create SvRightOwner with dso; name = instruction.name; info = instruction.info
-        svRewardState <- createSvRewardState dso instruction.name (Round $ validatedRounds.latestUsableRound.round.number + 1)
+        svRightOwner <- create SvRightOwner with dso; name = instruction.name; shards = instruction.shards
+        states <- forA instruction.shards $ \shard -> do
+          cid <- createSvRewardState dso shard.id (Round $ validatedRounds.latestUsableRound.round.number + 1)
+          pure (shard.id, cid)
+        let svRewardStates = TextMap.fromList states
         newDsoRules <- create this with
           svRightOwners = Set.insert instruction.name <$> svRightOwners
+          svRightsMintingShardIds = foldl (\ids shard -> Set.insert shard.id ids) svRightsMintingShardIds instruction.shards
         return DsoRules_ExecuteAddSvRightOwnerInstructionResult with ..
 
     nonconsuming choice DsoRules_ExpireAddSvRightOwnerInstruction : DsoRules_ExpireAddSvRightOwnerInstructionResult
@@ -2268,7 +2272,7 @@ template DsoRules with
       with
         instructionCid : ContractId RemoveSvRightOwnerInstruction
         svRightOwnerCid : ContractId SvRightOwner
-        svRewardStateCid : ContractId SvRewardState
+        svRewardStateCids : TextMap (ContractId SvRewardState)
         svOperator : Party
       controller svOperator
       do
@@ -2278,13 +2282,17 @@ template DsoRules with
         requireRemovableSvRightOwner this instruction.name
         assertWithinDeadline "removeSvRightOwnerInstruction.expiresAt" instruction.expiresAt
         let forSv = ForSv with dso; svName = instruction.name
-        _ <- fetchAndArchive forSv svRightOwnerCid
+        owner <- fetchAndArchive forSv svRightOwnerCid
+        require "Reward states are provided for exactly the owner shards" $
+          Set.fromList (map fst $ TextMap.toList svRewardStateCids) == Set.fromList (map (.id) owner.shards)
         -- We archive the reward state together with the SV right owner to avoid having to track
         -- removed SV right owners just to prevent them from minting the same round twice.
         -- A right owner re-added under the same name starts after the latest usable round, so it cannot mint a round twice.
-        _ <- fetchAndArchive forSv svRewardStateCid
+        forA_ (TextMap.toList svRewardStateCids) $ \(shardId, cid) -> do
+          void $ fetchAndArchive (ForSv with dso; svName = shardId) cid
         newDsoRules <- create this with
           svRightOwners = Set.delete instruction.name <$> svRightOwners
+          svRightsMintingShardIds = foldl (\ids shard -> Set.delete shard.id ids) svRightsMintingShardIds owner.shards
         return DsoRules_ExecuteRemoveSvRightOwnerInstructionResult with ..
 
     nonconsuming choice DsoRules_ExpireRemoveSvRightOwnerInstruction : DsoRules_ExpireRemoveSvRightOwnerInstructionResult
@@ -2299,14 +2307,14 @@ template DsoRules with
         assertDeadlineExceeded "removeSvRightOwnerInstruction.expiresAt" instruction.expiresAt
         return DsoRules_ExpireRemoveSvRightOwnerInstructionResult
 
-    nonconsuming choice DsoRules_UpdateSvRightOwnerInfo : DsoRules_UpdateSvRightOwnerInfoResult
+    nonconsuming choice DsoRules_UpdateSvRightsMintingShard : DsoRules_UpdateSvRightsMintingShardResult
       with
         name : Text -- ^ The name of the SV right owner to update; must be in use.
-        baseInfo : SvRightOwnerInfo
+        baseInfo : SvRightsMintingShard
           -- ^ The info that this vote was created against. Only the fields that differ between
           -- `baseInfo` and `newInfo` are updated, so that concurrent changes to the other
           -- fields are preserved.
-        newInfo : SvRightOwnerInfo
+        newInfo : SvRightsMintingShard
           -- ^ The target info.
           -- Beneficiaries can't be modified using this choice.
           -- SV Right Owners can use DsoRules_UpdateSvRightOwnerBeneficiaries instead.
@@ -2314,22 +2322,23 @@ template DsoRules with
       do
         requireOnLedgerSvRightOwners this
         requireSvRightOwnerExists this name
-        require "Beneficiaries cannot be changed through DsoRules_UpdateSvRightOwnerInfo" $
+        require "Shard id cannot be changed" (baseInfo.id == newInfo.id)
+        require "Beneficiaries cannot be changed through DsoRules_UpdateSvRightsMintingShard" $
           baseInfo.beneficiaries == newInfo.beneficiaries
         requireRewardNodeOperatorExists this newInfo
-        requireValidSvRightOwnerInfo newInfo
+        requireValidSvRightsMintingShard newInfo
         now <- getTime
-        instruction <- create UpdateSvRightOwnerInfoInstruction with
+        instruction <- create UpdateSvRightsMintingShardInstruction with
           dso
           name
           baseInfo
           newInfo
           expiresAt = now `addRelTime` config.actionConfirmationTimeout
-        return DsoRules_UpdateSvRightOwnerInfoResult with instruction
+        return DsoRules_UpdateSvRightsMintingShardResult with instruction
 
-    nonconsuming choice DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction : DsoRules_ExecuteUpdateSvRightOwnerInfoInstructionResult
+    nonconsuming choice DsoRules_ExecuteUpdateSvRightsMintingShardInstruction : DsoRules_ExecuteUpdateSvRightsMintingShardInstructionResult
       with
-        instructionCid : ContractId UpdateSvRightOwnerInfoInstruction
+        instructionCid : ContractId UpdateSvRightsMintingShardInstruction
         svRightOwnerCid : ContractId SvRightOwner
         svOperator : Party
       controller svOperator
@@ -2338,34 +2347,36 @@ template DsoRules with
         _ <- getAndValidateSvParty this (Some svOperator)
         instruction <- fetchAndArchive (ForDso with dso) instructionCid
         requireSvRightOwnerExists this instruction.name
-        assertWithinDeadline "updateSvRightOwnerInfoInstruction.expiresAt" instruction.expiresAt
+        assertWithinDeadline "updateSvRightsMintingShardInstruction.expiresAt" instruction.expiresAt
         currentSvRightOwner <- fetchAndArchive (ForSv with dso; svName = instruction.name) svRightOwnerCid
-        let info = patch instruction.newInfo instruction.baseInfo currentSvRightOwner.info
+        currentShard <- lookupSvRightsMintingShard instruction.baseInfo.id currentSvRightOwner.shards
+        let info = patch instruction.newInfo instruction.baseInfo currentShard
         requireRewardNodeOperatorExists this info
-        requireValidSvRightOwnerInfo info
-        svRightOwner <- create currentSvRightOwner with info
-        return DsoRules_ExecuteUpdateSvRightOwnerInfoInstructionResult with svRightOwner
+        requireValidSvRightsMintingShard info
+        svRightOwner <- create currentSvRightOwner with shards = map (\shard -> if shard.id == info.id then info else shard) currentSvRightOwner.shards
+        return DsoRules_ExecuteUpdateSvRightsMintingShardInstructionResult with svRightOwner
 
-    nonconsuming choice DsoRules_ExpireUpdateSvRightOwnerInfoInstruction : DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult
+    nonconsuming choice DsoRules_ExpireUpdateSvRightsMintingShardInstruction : DsoRules_ExpireUpdateSvRightsMintingShardInstructionResult
       with
-        instructionCid : ContractId UpdateSvRightOwnerInfoInstruction
+        instructionCid : ContractId UpdateSvRightsMintingShardInstruction
         svOperator : Party
       controller svOperator
       do
         requireOnLedgerSvRightOwners this
         _ <- getAndValidateSvParty this (Some svOperator)
         instruction <- fetchAndArchive (ForDso with dso) instructionCid
-        assertDeadlineExceeded "updateSvRightOwnerInfoInstruction.expiresAt" instruction.expiresAt
-        return DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult
+        assertDeadlineExceeded "updateSvRightsMintingShardInstruction.expiresAt" instruction.expiresAt
+        return DsoRules_ExpireUpdateSvRightsMintingShardInstructionResult
 
     nonconsuming choice DsoRules_UpdateSvRightOwnerBeneficiaries : DsoRules_UpdateSvRightOwnerBeneficiariesResult
       -- ^ Set the beneficiaries with which an SV right owner shares its rewards.
       --
-      -- In contrast to `DsoRules_UpdateSvRightOwnerInfo`, this does not require a vote, as
+      -- In contrast to `DsoRules_UpdateSvRightsMintingShard`, this does not require a vote, as
       -- right owners are free to share their own rewards as they see fit.
       with
         name : Text -- ^ The name of the SV right owner whose beneficiaries are set.
         svRightOwnerCid : ContractId SvRightOwner
+        shardId : Text
         beneficiaries : Map.Map Party BeneficiaryInfo
           -- ^ The complete new set of beneficiaries, replacing the existing ones.
         rightOwner : Party -- ^ The party of the SV right owner; must own `svRightOwnerCid`.
@@ -2374,11 +2385,12 @@ template DsoRules with
         requireOnLedgerSvRightOwners this
         requireSvRightOwnerExists this name
         currentSvRightOwner <- fetchAndArchive (ForSv with dso; svName = name) svRightOwnerCid
+        currentShard <- lookupSvRightsMintingShard shardId currentSvRightOwner.shards
         require "Beneficiaries are set by the SV right owner itself" $
-          currentSvRightOwner.info.rightOwnerParty == rightOwner
-        let info = currentSvRightOwner.info with beneficiaries
-        requireValidSvRightOwnerInfo info
-        svRightOwner <- create currentSvRightOwner with info
+          currentShard.rightOwnerParty == rightOwner
+        let info = currentShard with beneficiaries
+        requireValidSvRightsMintingShard info
+        svRightOwner <- create currentSvRightOwner with shards = map (\shard -> if shard.id == info.id then info else shard) currentSvRightOwner.shards
         return DsoRules_UpdateSvRightOwnerBeneficiariesResult with svRightOwner
 
     nonconsuming choice DsoRules_UpdateSvRightOwnerParty : DsoRules_UpdateSvRightOwnerPartyResult
@@ -2386,6 +2398,7 @@ template DsoRules with
       with
         name : Text -- ^ The name of the SV right owner whose party is rotated.
         svRightOwnerCid : ContractId SvRightOwner
+        shardId : Text
         newRightOwnerParty : Party -- ^ The new party; must not be one of the beneficiaries.
         currentRightOwnerParty : Party -- ^ The current party of the SV right owner; must own `svRightOwnerCid`.
       controller currentRightOwnerParty
@@ -2393,11 +2406,12 @@ template DsoRules with
         requireOnLedgerSvRightOwners this
         requireSvRightOwnerExists this name
         currentSvRightOwner <- fetchAndArchive (ForSv with dso; svName = name) svRightOwnerCid
+        currentShard <- lookupSvRightsMintingShard shardId currentSvRightOwner.shards
         require "The party is rotated by the SV right owner itself" $
-          currentSvRightOwner.info.rightOwnerParty == currentRightOwnerParty
-        let info = currentSvRightOwner.info with rightOwnerParty = newRightOwnerParty
-        requireValidSvRightOwnerInfo info
-        svRightOwner <- create currentSvRightOwner with info
+          currentShard.rightOwnerParty == currentRightOwnerParty
+        let info = currentShard with rightOwnerParty = newRightOwnerParty
+        requireValidSvRightsMintingShard info
+        svRightOwner <- create currentSvRightOwner with shards = map (\shard -> if shard.id == info.id then info else shard) currentSvRightOwner.shards
         return DsoRules_UpdateSvRightOwnerPartyResult with svRightOwner
 
 
@@ -2436,23 +2450,34 @@ requireRemovableSvRightOwner this name = do
   require "There is more than one SV right owner" $
     Set.size (getSvRightOwners this) > 1
 
-requireRewardNodeOperatorExists : DsoRules -> SvRightOwnerInfo -> Update ()
+requireRewardNodeOperatorExists : DsoRules -> SvRightsMintingShard -> Update ()
 requireRewardNodeOperatorExists this info =
   require "SV right owner's node operator must exist" $
     isSome $ lookupSvInfoByName info.rewardNodeOperatorName this
 
-requireMigratableToOnLedgerSvRightOwners : DsoRules -> TextMap SvRightOwnerInfo -> Update ()
+-- The registry is checked both when an instruction is proposed and when it is executed.
+requireAvailableShardIds : DsoRules -> [SvRightsMintingShard] -> Update ()
+requireAvailableShardIds rules shards = do
+  require "Minting shard IDs must be unique" (uniqueShardIds shards)
+  forA_ shards $ \shard -> do
+    require "Minting shard ID is already in use" (shard.id `Set.notMember` rules.svRightsMintingShardIds)
+    require "Minting shard ID must not collide with an offboarded SV reward state" $
+      not $ any (\info -> info.name == shard.id) (Map.values rules.offboardedSvs)
+
+requireMigratableToOnLedgerSvRightOwners : DsoRules -> TextMap [SvRightsMintingShard] -> Update ()
 requireMigratableToOnLedgerSvRightOwners this svRightOwners = do
   requireNoOnLedgerSvRightOwners this
   require "There is at least one SV right owner" (not $ TextMap.null svRightOwners)
-  forA_ svRightOwners requireValidSvRightOwnerInfo
+  let shards = concat (map snd $ TextMap.toList svRightOwners)
+  requireAvailableShardIds this shards
+  forA_ svRightOwners $ \ownerShards -> forA_ ownerShards requireValidSvRightsMintingShard
   require "The total SV reward weight is preserved" $
-    sum (fmap (.svRewardWeight) this.svs) == sum (fmap (.rewardWeight) svRightOwners)
-  forA_ svRightOwners $ requireRewardNodeOperatorExists this
+    sum (fmap (.svRewardWeight) this.svs) == sum (fmap (\shards -> sum (map (.rewardWeight) shards)) svRightOwners)
+  forA_ svRightOwners $ \shards -> forA_ shards $ requireRewardNodeOperatorExists this
 
 template MigrateToOnLedgerSvRightOwnersInstruction with
     dso : Party
-    svRightOwners : TextMap SvRightOwnerInfo
+    svRightOwners : TextMap [SvRightsMintingShard]
       -- ^ The complete set of SV right owners, keyed by their name.
     expiresAt : Time
       -- ^ When this contract can be archived.
@@ -2465,7 +2490,7 @@ instance HasCheckedFetch MigrateToOnLedgerSvRightOwnersInstruction ForDso where
 template AddSvRightOwnerInstruction with
     dso : Party
     name : Text -- ^ The name of the SV right owner to add.
-    info : SvRightOwnerInfo -- ^ The information of the SV right owner to add.
+    shards : [SvRightsMintingShard] -- ^ The minting shards of the SV right owner to add.
     expiresAt : Time -- ^ When this contract can be archived.
   where
     signatory dso
@@ -2483,16 +2508,16 @@ template RemoveSvRightOwnerInstruction with
 instance HasCheckedFetch RemoveSvRightOwnerInstruction ForDso where
   contractGroupId instr = ForDso instr.dso
 
-template UpdateSvRightOwnerInfoInstruction with
+template UpdateSvRightsMintingShardInstruction with
     dso : Party
     name : Text -- ^ The name of the SV right owner to update.
-    baseInfo : SvRightOwnerInfo -- ^ The info that the vote was created against.
-    newInfo : SvRightOwnerInfo -- ^ The target info; only fields that differ from `baseInfo` are updated.
+    baseInfo : SvRightsMintingShard -- ^ The info that the vote was created against.
+    newInfo : SvRightsMintingShard -- ^ The target info; only fields that differ from `baseInfo` are updated.
     expiresAt : Time -- ^ When this contract can be archived.
   where
     signatory dso
 
-instance HasCheckedFetch UpdateSvRightOwnerInfoInstruction ForDso where
+instance HasCheckedFetch UpdateSvRightsMintingShardInstruction ForDso where
   contractGroupId instr = ForDso instr.dso
 
 pruneAtLeastOne : Ord t => t -> Schedule t a -> Optional (Schedule t a)
@@ -2560,7 +2585,7 @@ executeActionRequiringConfirmation dso dsoRulesCid amuletRulesCid act = case act
       SRARC_MigrateToOnLedgerSvRightOwners choiceArg -> void $ exercise dsoRulesCid choiceArg
       SRARC_AddSvRightOwner choiceArg -> void $ exercise dsoRulesCid choiceArg
       SRARC_RemoveSvRightOwner choiceArg -> void $ exercise dsoRulesCid choiceArg
-      SRARC_UpdateSvRightOwnerInfo choiceArg -> void $ exercise dsoRulesCid choiceArg
+      SRARC_UpdateSvRightsMintingShard choiceArg -> void $ exercise dsoRulesCid choiceArg
   ARC_AnsEntryContext with .. -> do
     void $ fetchChecked (ForDso with dso) ansEntryContextCid
     case ansEntryContextAction of

@@ -79,17 +79,19 @@ template DsoBootstrap with
               initialTrafficState
               isDevNet
               svRightOwners = Set.singleton <$> sv1RightOwnerName
+              svRightsMintingShardIds = if isSome sv1RightOwnerName then Set.singleton "0" else Set.empty
         create dsoRules
         -- create initial per-sv and per-operator contracts for sv1
         case sv1RightOwnerName of
           Some rightOwnerName -> do
-            let info = SvRightOwnerInfo with
+            let shard = SvRightsMintingShard with
+                    id = "0"
                     rightOwnerParty = sv1Party
                     rewardWeight = sv1RewardWeight
                     rewardNodeOperatorName = sv1Name
                     beneficiaries = Map.empty
-            create SvRightOwner with dso; name = rightOwnerName; info
-            createSvRewardState dso rightOwnerName sv1SvInfo.joinedAsOfRound
+            create SvRightOwner with dso; name = rightOwnerName; shards = [shard]
+            createSvRewardState dso shard.id sv1SvInfo.joinedAsOfRound
           None ->
             createSvRewardState dso sv1Name sv1SvInfo.joinedAsOfRound
         createPerSvPartyContracts dso sv1Party sv1Name sv1SynchronizerNodes (Some amuletPrice) (getVoteCooldownTime config)
