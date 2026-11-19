@@ -278,7 +278,7 @@ data DsoRules_MigrateToOnLedgerSvRightOwnersResult = DsoRules_MigrateToOnLedgerS
 
 data DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstructionResult = DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstructionResult with
     newDsoRules : ContractId DsoRules
-    svRightOwners : TextMap (ContractId SvRightOwner, ContractId SvRewardState)
+    svRightOwners : TextMap (ContractId SvRightOwner, ContractId SvRightsOwnerRewardState)
   deriving (Serializable)
 
 data DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstructionResult = DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstructionResult
@@ -291,7 +291,7 @@ data DsoRules_AddSvRightOwnerResult = DsoRules_AddSvRightOwnerResult with
 data DsoRules_ExecuteAddSvRightOwnerInstructionResult = DsoRules_ExecuteAddSvRightOwnerInstructionResult with
     newDsoRules : ContractId DsoRules
     svRightOwner : ContractId SvRightOwner
-    svRewardState : ContractId SvRewardState
+    svRewardState : ContractId SvRightsOwnerRewardState
   deriving (Serializable)
 
 data DsoRules_ExpireAddSvRightOwnerInstructionResult = DsoRules_ExpireAddSvRightOwnerInstructionResult
@@ -404,7 +404,7 @@ data DsoRules_ReceiveSvRewardCouponResult = DsoRules_ReceiveSvRewardCouponResult
   deriving (Serializable)
 
 data DsoRules_ReceiveSvRewardCouponV2Result = DsoRules_ReceiveSvRewardCouponV2Result with
-    svRewardStates : TextMap (ContractId SvRewardState)
+    svRewardStates : TextMap (ContractId SvRightsOwnerRewardState)
     svRewardCoupons : TextMap (Map Party (ContractId SvRewardCoupon))
   deriving (Serializable)
 
@@ -698,7 +698,7 @@ template DsoRules with
     config : DsoRulesConfig
     initialTrafficState: Map.Map Text TrafficState -- ^ Map from participant/mediator ID to its traffic state at the time of synchronizer bootstrapping. Used for testing, empty in prod.
     isDevNet : Bool
-    svRightOwners : Optional (Set Text)
+    svRightOwners : Optional (Set Text) -- ^ The current SV rights owners.
   where
     ensure and
       [ config.numUnclaimedRewardsThreshold > 0
@@ -1643,7 +1643,7 @@ template DsoRules with
       with
         svOperator : Party
         openRoundCid : ContractId OpenMiningRound
-        svRightOwnerRewardInputs : TextMap (ContractId SvRightOwner, ContractId SvRewardState)
+        svRightOwnerRewardInputs : TextMap (ContractId SvRightOwner, ContractId SvRightsOwnerRewardState)
           -- ^ The SV right owners to mint rewards for, keyed by their name. They must all be
           -- hosted by `svOperator`.
       controller svOperator
@@ -2268,7 +2268,7 @@ template DsoRules with
       with
         instructionCid : ContractId RemoveSvRightOwnerInstruction
         svRightOwnerCid : ContractId SvRightOwner
-        svRewardStateCid : ContractId SvRewardState
+        svRewardStateCids : TextMap (ContractId SvRightsOwnerRewardState)
         svOperator : Party
       controller svOperator
       do
@@ -2331,6 +2331,8 @@ template DsoRules with
       with
         instructionCid : ContractId UpdateSvRightOwnerInfoInstruction
         svRightOwnerCid : ContractId SvRightOwner
+        removedSvRewardStateCids : TextMap (ContractId SvRightsOwnerRewardState)
+        openMiningRoundTriple : OpenMiningRoundTriple
         svOperator : Party
       controller svOperator
       do
@@ -2365,10 +2367,9 @@ template DsoRules with
       -- right owners are free to share their own rewards as they see fit.
       with
         name : Text -- ^ The name of the SV right owner whose beneficiaries are set.
-        svRightOwnerCid : ContractId SvRightOwner
-        beneficiaries : Map.Map Party BeneficiaryInfo
-          -- ^ The complete new set of beneficiaries, replacing the existing ones.
-        rightOwner : Party -- ^ The party of the SV right owner; must own `svRightOwnerCid`.
+        baseInfo : SvRightOwnerInfo
+        newInfo : SvRightOwnerInfo
+        rightOwner : Party -- ^ The party of the SV rights owner.
       controller rightOwner
       do
         requireOnLedgerSvRightOwners this
