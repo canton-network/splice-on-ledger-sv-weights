@@ -1659,10 +1659,10 @@ template DsoRules with
           let forSv = ForSv with dso; svName = name
           svRightOwner <- fetchChecked forSv svRightOwnerCid
           let info = svRightOwner.info
-          assignment <- case TextMap.lookup svOperatorInfo.name info.svNodeAssignments of
+          (svNodeAssignmentId, assignment) <- case find ((== svOperatorInfo.name) . (.svNodeName) . snd) (TextMap.toList info.svNodeAssignments) of
+            Some idAndAssignment -> pure idAndAssignment
             None -> fail "SV Right Owner mints through this SV Node Operator"
-            Some assignment -> pure assignment
-          rewardState <- fetchAndArchive (SvRightsOwnerRewardStateKey with dso; svRightsOwnerName = name; svNodeName = svOperatorInfo.name) rewardStateCid
+          rewardState <- fetchAndArchive (SvRightsOwnerRewardStateKey with dso; svRightsOwnerName = name; svNodeAssignmentId) rewardStateCid
           let state = rewardState.state
           require
             ("Round " <> show openRound.round <> " is greater than the last round a reward has been received for " <> show state.lastRoundCollected)
@@ -2171,12 +2171,12 @@ template DsoRules with
         svRightOwners <- forA (TextMap.toList instruction.svRightOwners) $ \(name, info) -> do
           svRightOwner <- create SvRightOwner with dso; name; info
           -- Carry over the reward state of the SV node operator to preserve the round it last minted for.
-          svRewardStates <- forA (map fst $ TextMap.toList info.svNodeAssignments) $ \svNodeName -> do
-            state <- case lookup svNodeName svOperatorRewardStates of
-              None -> fail ("Reward state of SV node operator " <> show svNodeName <> " is provided")
+          svRewardStates <- forA (TextMap.toList info.svNodeAssignments) $ \(svNodeAssignmentId, assignment) -> do
+            state <- case lookup assignment.svNodeName svOperatorRewardStates of
+              None -> fail ("Reward state of SV node operator " <> show assignment.svNodeName <> " is provided")
               Some state -> pure state
-            svRewardState <- create SvRightsOwnerRewardState with dso; svRightsOwnerName = name; svNodeName; state
-            pure (svNodeName, svRewardState)
+            svRewardState <- create SvRightsOwnerRewardState with dso; svRightsOwnerName = name; svNodeAssignmentId; state
+            pure (svNodeAssignmentId, svRewardState)
           pure (name, (svRightOwner, TextMap.fromList svRewardStates))
         newDsoRules <- create this with
           svs = fmap (\info -> info with svRewardWeight = 0) svs
@@ -2311,7 +2311,7 @@ template DsoRules with
       do
         requireOnLedgerSvRightOwners this
         requireSvRightOwnerExists this name
-        let beneficiariesUnchanged svNodeName newAssignment = case TextMap.lookup svNodeName baseInfo.svNodeAssignments of
+        let beneficiariesUnchanged svNodeAssignmentId newAssignment = case TextMap.lookup svNodeAssignmentId baseInfo.svNodeAssignments of
               None -> True
               Some baseAssignment ->
                 (baseAssignment.beneficiaries, baseAssignment.defaultBeneficiary) == (newAssignment.beneficiaries, newAssignment.defaultBeneficiary)
@@ -2349,11 +2349,11 @@ template DsoRules with
         requireRewardNodeOperatorExists this info
         requireValidSvRightOwnerInfo info
         svRightOwner <- create currentSvRightOwner with info
-        let removedAssignments = TextMap.filterWithKey (\svNodeName _ -> not $ TextMap.member svNodeName info.svNodeAssignments) currentSvRightOwner.info.svNodeAssignments
-            addedSvNodeNames = filter (\svNodeName -> not $ TextMap.member svNodeName currentSvRightOwner.info.svNodeAssignments) (map fst $ TextMap.toList info.svNodeAssignments)
+        let removedAssignments = TextMap.filterWithKey (\svNodeAssignmentId _ -> not $ TextMap.member svNodeAssignmentId info.svNodeAssignments) currentSvRightOwner.info.svNodeAssignments
+            addedSvNodeAssignmentIds = filter (\svNodeAssignmentId -> not $ TextMap.member svNodeAssignmentId currentSvRightOwner.info.svNodeAssignments) (map fst $ TextMap.toList info.svNodeAssignments)
         archiveSvRightsOwnerRewardStates dso instruction.name removedAssignments removedSvRewardStateCids
         validatedRounds <- validateOpenMiningRoundTriple dso openMiningRoundTriple
-        svRewardStates <- createSvRightsOwnerRewardStates dso instruction.name addedSvNodeNames (Round $ validatedRounds.latestUsableRound.round.number + 1)
+        svRewardStates <- createSvRightsOwnerRewardStates dso instruction.name addedSvNodeAssignmentIds (Round $ validatedRounds.latestUsableRound.round.number + 1)
         return DsoRules_ExecuteUpdateSvRightOwnerInfoInstructionResult with svRightOwner; svRewardStates
 
     nonconsuming choice DsoRules_ExpireUpdateSvRightOwnerInfoInstruction : DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult
@@ -2455,7 +2455,7 @@ requireRemovableSvRightOwner this name = do
 requireRewardNodeOperatorExists : DsoRules -> SvRightOwnerInfo -> Update ()
 requireRewardNodeOperatorExists this info =
   require "SV right owner's node operator must exist" $
-    all (\svNodeName -> isSome $ lookupSvInfoByName svNodeName this) (map fst $ TextMap.toList info.svNodeAssignments)
+    all (\assignment -> isSome $ lookupSvInfoByName assignment.svNodeName this) info.svNodeAssignments
 
 requireMigratableToOnLedgerSvRightOwners : DsoRules -> TextMap SvRightOwnerInfo -> Update ()
 requireMigratableToOnLedgerSvRightOwners this svRightOwners = do
@@ -2468,7 +2468,7 @@ requireMigratableToOnLedgerSvRightOwners this svRightOwners = do
   let assignments = [assignment | info <- TextMap.toList svRightOwners, assignment <- TextMap.toList (snd info).svNodeAssignments]
   forA_ this.svs $ \svInfo ->
     require ("The SV reward weight of SV node " <> show svInfo.name <> " is preserved") $
-      svInfo.svRewardWeight == sum [assignment.rewardWeight | (svNodeName, assignment) <- assignments, svNodeName == svInfo.name]
+      svInfo.svRewardWeight == sum [assignment.rewardWeight | (_, assignment) <- assignments, assignment.svNodeName == svInfo.name]
 
 template MigrateToOnLedgerSvRightOwnersInstruction with
     dso : Party
@@ -2717,25 +2717,25 @@ createSvRewardState dso svName joinedAsOfRound =
       numCouponsIssued = 0
 
 createSvRightsOwnerRewardStates : Party -> Text -> [Text] -> Round -> Update (TextMap (ContractId SvRightsOwnerRewardState))
-createSvRightsOwnerRewardStates dso svRightsOwnerName svNodeNames joinedAsOfRound =
-  fmap TextMap.fromList $ forA svNodeNames $ \svNodeName -> do
+createSvRightsOwnerRewardStates dso svRightsOwnerName svNodeAssignmentIds joinedAsOfRound =
+  fmap TextMap.fromList $ forA svNodeAssignmentIds $ \svNodeAssignmentId -> do
     svRewardState <- create SvRightsOwnerRewardState with
       dso
       svRightsOwnerName
-      svNodeName
+      svNodeAssignmentId
       state = RewardState with
         lastRoundCollected = Round (joinedAsOfRound.number - 1)
         numRoundsMissed = 0
         numRoundsCollected = 0
         numCouponsIssued = 0
-    pure (svNodeName, svRewardState)
+    pure (svNodeAssignmentId, svRewardState)
 
 archiveSvRightsOwnerRewardStates : Party -> Text -> TextMap SvNodeAssignment -> TextMap (ContractId SvRightsOwnerRewardState) -> Update ()
 archiveSvRightsOwnerRewardStates dso svRightsOwnerName svNodeAssignments svRewardStateCids = do
   require "Reward states are provided for exactly the SV node assignments" $
     map fst (TextMap.toList svRewardStateCids) == map fst (TextMap.toList svNodeAssignments)
-  forA_ (TextMap.toList svRewardStateCids) $ \(svNodeName, svRewardStateCid) ->
-    void $ fetchAndArchive (SvRightsOwnerRewardStateKey with dso; svRightsOwnerName; svNodeName) svRewardStateCid
+  forA_ (TextMap.toList svRewardStateCids) $ \(svNodeAssignmentId, svRewardStateCid) ->
+    void $ fetchAndArchive (SvRightsOwnerRewardStateKey with dso; svRightsOwnerName; svNodeAssignmentId) svRewardStateCid
 
 createPerSvPartyContracts : Party -> Party -> Text -> SynchronizerNodeConfigMap -> Optional Decimal -> RelTime -> Update ()
 createPerSvPartyContracts dso newSvParty newSvName synchronizerNodes amuletPrice voteCooldownTime = do
