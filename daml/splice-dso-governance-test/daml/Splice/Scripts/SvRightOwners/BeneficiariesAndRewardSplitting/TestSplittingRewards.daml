@@ -8,7 +8,9 @@ import DA.List (last, sort)
 
 import Daml.Script
 
+import Splice.Amulet.SvRightOwner (EscrowBeneficiary(..))
 import Splice.DSO.SvState (RewardState(..))
+import Splice.DsoRules (DsoRules_UpdateSvRightOwnerBeneficiaries(..))
 
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
@@ -43,3 +45,22 @@ test_shouldSplitTheWeightExactlyAndMintTheRemainderToTheOwnerInTheSameRound = wi
       (openRoundCid, openRound) <- last <$> getOpenRoundsSorted net.app
       mint net owner.hostedBy.party openRoundCid [owner.name] >>= shouldSucceed
       pure openRound.round
+
+test_shouldMintTheEscrowedWeightsSetByAVoteToTheEscrowBeneficiaries = withTwoSvRightOwners $ \net newcomer -> do
+  [escrow, otherEscrow, beneficiary] <- forA ["escrow", "other-escrow", "beneficiary"] allocateParty
+  newcomer.rewardWeight === 30000
+  setBeneficiaries net newcomer (sharingWith [(beneficiary, 0.5)])
+  let base = svRightOwnerInfo (newcomer with beneficiaries = sharingWith [(beneficiary, 0.5)])
+      escrowBeneficiaries = [EscrowBeneficiary escrow 10000, EscrowBeneficiary escrow 5000, EscrowBeneficiary otherEscrow 3000]
+      escrowed = base with svNodeAssignments = fmap (\assignment -> assignment with escrowBeneficiaries) base.svNodeAssignments
+
+  attempt net newcomer.party (\dsoRulesCid -> exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerBeneficiaries with
+    name = newcomer.name; baseInfo = base; newInfo = escrowed; rightOwner = newcomer.party)
+    >>= shouldBeRejected "Only beneficiaries are changed through DsoRules_UpdateSvRightOwnerBeneficiaries"
+  voteToUpdate net newcomer.name base escrowed >>= executeUpdate net net.sv1.party >>= shouldSucceed
+  runNextIssuance net.app
+  (openRoundCid, openRound) <- last <$> getOpenRoundsSorted net.app
+  mint net newcomer.hostedBy.party openRoundCid [newcomer.name] >>= shouldSucceed
+
+  -- The two escrowed parts of `escrow` make one coupon; the beneficiary gets half of the 12000 non-escrowed weight.
+  couponsMintedFor net newcomer openRound.round `shouldReturn` sort [(escrow, 15000), (otherEscrow, 3000), (beneficiary, 6000), (newcomer.party, 6000)]

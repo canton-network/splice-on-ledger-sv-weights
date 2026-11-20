@@ -4,7 +4,10 @@
 module Splice.Scripts.SvRightOwners.ModelInvariants.TestInfoValidation where
 
 import qualified DA.Map as Map
-import Splice.Amulet.SvRightOwner (BeneficiaryInfo(..))
+import qualified DA.TextMap as TextMap
+import Daml.Script
+import Splice.Amulet.SvRightOwner (BeneficiaryInfo(..), EscrowBeneficiary(..))
+import Splice.DsoRules (DsoRules_AddSvRightOwner(..))
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
 
@@ -13,6 +16,26 @@ test_shouldRejectAddingAnOwnerWhoseInfoIsInvalid = withOnLedgerWeights $ \net ->
 
   addAs net net.app.dso (owner with beneficiaries = Map.fromList [(net.sv3.party, BeneficiaryInfo 1.1)])
     >>= shouldBeRejected "Beneficiary reward ratios add up to at most 1.0"
+  escrow <- allocateParty "escrow"
+  let info = svRightOwnerInfo owner
+      assignment = onlyAssignment info
+      withAssignments assignments = info with svNodeAssignments = TextMap.fromList assignments
+      escrowing escrowBeneficiaries = withAssignments [(svNodeAssignmentIdOf owner.name, assignment with escrowBeneficiaries)]
+      addInfo newInfo = attempt net net.app.dso $ \dsoRulesCid ->
+        exerciseCmd dsoRulesCid DsoRules_AddSvRightOwner with name = owner.name; info = newInfo
+  addInfo (withAssignments []) >>= shouldBeRejected "SV rights owner has at least one SV node assignment"
+  addInfo (withAssignments [("a", assignment), ("b", assignment)]) >>= shouldBeRejected "SV rights owner has at most one SV node assignment per SV node"
+  addInfo (escrowing [EscrowBeneficiary escrow 0]) >>= shouldBeRejected "Escrowed reward weights are positive"
+  addInfo (escrowing [EscrowBeneficiary escrow assignment.rewardWeight, EscrowBeneficiary escrow 1])
+    >>= shouldBeRejected "Escrowed reward weights add up to at most the reward weight"
+  addInfo (escrowing [EscrowBeneficiary escrow 1 | _ <- [1 .. 21 : Int]]) >>= shouldBeRejected "There are at most 20 escrow beneficiaries"
+  addInfo (escrowing [EscrowBeneficiary owner.defaultBeneficiary 1])
+    >>= shouldBeRejected "Escrow beneficiaries are neither the default beneficiary nor beneficiaries"
+  addInfo (withAssignments [(svNodeAssignmentIdOf owner.name, assignment with
+    escrowBeneficiaries = [EscrowBeneficiary net.sv3.party 1]; beneficiaries = Map.fromList [(net.sv3.party, BeneficiaryInfo 0.25)])])
+    >>= shouldBeRejected "Escrow beneficiaries are neither the default beneficiary nor beneficiaries"
+  -- One escrow beneficiary may hold several escrowed parts, e.g., one per milestone.
+  addInfo (escrowing [EscrowBeneficiary escrow 1, EscrowBeneficiary escrow 1]) >>= shouldSucceed
 
 test_shouldRejectAnInfoUpdateWhoseInfoIsInvalid = withOnLedgerWeights $ \net -> do
   let info = svRightOwnerInfo net.genesisOwner
