@@ -3,16 +3,19 @@
 
 module Splice.Scripts.SvRightOwners.AddingChangingAndRemoving.TestUpdatingAnOwner where
 
+import DA.List (last, sort)
+import qualified DA.TextMap as TextMap
 import DA.Time (addRelTime)
 
 import Daml.Script
 
+import Splice.DSO.SvState (SvRightsOwnerRewardState(..))
 import Splice.DsoRules (UpdateSvRightOwnerInfoInstruction(..))
 
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
-import Splice.Scripts.SvRightOwners.Util.Rewards (mintThrough)
-import Splice.Scripts.Util (runNextIssuance)
+import Splice.Scripts.SvRightOwners.Util.Rewards (couponsMintedFor, mintThrough, mintWith)
+import Splice.Scripts.Util (getOpenRoundsSorted, runNextIssuance)
 
 test_shouldUpdateTheSvRightOwnerWeightAndKeepItsRewardState = withTwoSvRightOwners $ \net newcomer -> do
   firstBeneficiary <- allocateParty "first-beneficiary"
@@ -20,8 +23,10 @@ test_shouldUpdateTheSvRightOwnerWeightAndKeepItsRewardState = withTwoSvRightOwne
   let base = svRightOwnerInfo newcomer
       raised = newcomer with rewardWeight = tier1RewardWeight
   updateAs net net.app.dso "no-such-owner" base base >>= shouldBeRejected "SV right owner \"no-such-owner\" exists"
-  updateAs net net.app.dso newcomer.name base (base with rewardNodeOperatorName = "no-such-operator") >>= shouldBeRejected "SV right owner's node operator must exist"
-  updateAs net net.app.dso newcomer.name base (base with beneficiaries = sharingWith [(firstBeneficiary, 0.6), (secondBeneficiary, 0.5)])
+  updateAs net net.app.dso newcomer.name base (svRightOwnerInfo (newcomer with hostedBy = (newcomer.hostedBy with name = "no-such-operator"))) >>= shouldBeRejected "SV right owner's node operator must exist"
+  updateAs net net.app.dso newcomer.name base (svRightOwnerInfo (newcomer with beneficiaries = sharingWith [(firstBeneficiary, 0.6), (secondBeneficiary, 0.5)]))
+    >>= shouldBeRejected "Beneficiaries cannot be changed through DsoRules_UpdateSvRightOwnerInfo"
+  updateAs net net.app.dso newcomer.name base (svRightOwnerInfo (newcomer with defaultBeneficiary = firstBeneficiary))
     >>= shouldBeRejected "Beneficiaries cannot be changed through DsoRules_UpdateSvRightOwnerInfo"
   votedAt <- getTime
   (_, rules) <- currentDsoRules net
@@ -52,7 +57,7 @@ test_shouldMergeTheVotedFieldsWithTheSvRightOwnersConcurrentChanges = withTwoSvR
   addedLater <- allocateParty "added-later-beneficiary"
   setBeneficiaries net newcomer (sharingWith [(votedOn, 0.2)])
   let base = svRightOwnerInfo (newcomer with beneficiaries = sharingWith [(votedOn, 0.2)])
-  raise <- voteToUpdate net newcomer.name base (base with rewardWeight = tier1RewardWeight)
+  raise <- voteToUpdate net newcomer.name base (withRewardWeight tier1RewardWeight base)
 
   setBeneficiaries net newcomer (sharingWith [(votedOn, 0.2), (addedLater, 0.3)])
 
@@ -66,7 +71,7 @@ test_shouldMoveAnOrphanedSvRightOwnerToAnotherSvNodeOperatorAfterItsHostIsOffboa
   addition <- voteToAdd net latecomer
   let base = svRightOwnerInfo newcomer
       moved = newcomer with hostedBy = net.sv3
-  raise <- voteToUpdate net newcomer.name base (base with rewardWeight = tier1RewardWeight)
+  raise <- voteToUpdate net newcomer.name base (withRewardWeight tier1RewardWeight base)
   move <- voteToUpdate net newcomer.name base (svRightOwnerInfo moved)
 
   offboardSvNodeOperator net net.sv2
@@ -101,7 +106,8 @@ test_shouldLetTheSvRightOwnerRotateItsPartyAndThenOnlyTheNewPartyActForIt = with
   setBeneficiaries net newcomer (sharingWith [(beneficiary, 0.2)])
   runNextIssuance net.app
   mintThrough net net.sv2 newcomer.name >>= shouldSucceed
-  let rotated = newcomer with party = successor; beneficiaries = sharingWith [(beneficiary, 0.2)]
+  -- Rotating the party leaves the default beneficiary with the old party.
+  let rotated = newcomer with party = successor; beneficiaries = sharingWith [(beneficiary, 0.2)]; defaultBeneficiary = newcomer.party
       split = sharingWith [(beneficiary, 0.5)]
       notOwner = "The party is rotated by the SV right owner itself"
   genesisCid <- svRightOwnerCidFor net net.genesisOwner.name
@@ -121,7 +127,6 @@ test_shouldLetTheSvRightOwnerRotateItsPartyAndThenOnlyTheNewPartyActForIt = with
   rotatePartyAs net stranger rotated stranger >>= shouldBeRejected notOwner
   setBeneficiariesAs net newcomer.party rotated split >>= shouldBeRejected "Beneficiaries are set by the SV right owner itself"
   rotatePartyWith net successor newcomer.name stranger genesisCid >>= shouldBeRejected contractNameMismatch
-  rotatePartyAs net successor rotated beneficiary >>= shouldBeRejected "SV right owner is not a beneficiary"
   setBeneficiariesAs net successor rotated split >>= shouldSucceed
 
   svRightOwners net `shouldReturn` [cotenant, (rotated with beneficiaries = split), net.genesisOwner]
@@ -129,7 +134,7 @@ test_shouldLetTheSvRightOwnerRotateItsPartyAndThenOnlyTheNewPartyActForIt = with
 test_shouldLetAnUpdateThatCanNoLongerSucceedOnlyExpireFromTheDeadline = withTwoSvRightOwners $ \net newcomer -> do
   let genesisBase = svRightOwnerInfo net.genesisOwner
   raise <- voteToUpdate net newcomer.name (svRightOwnerInfo newcomer) (svRightOwnerInfo (newcomer with rewardWeight = tier1RewardWeight))
-  genesisUpdate <- voteToUpdate net net.genesisOwner.name genesisBase (genesisBase with rewardWeight = tier2RewardWeight)
+  genesisUpdate <- voteToUpdate net net.genesisOwner.name genesisBase (withRewardWeight tier2RewardWeight genesisBase)
   removal <- voteToRemove net newcomer.name
   removedCid <- svRightOwnerCidFor net newcomer.name
   stranger <- allocateParty "stranger"
@@ -156,7 +161,7 @@ test_shouldApplyEveryPassedUpdateAndGovernCoHostedSvRightOwnersIndependently = w
       moved = raised with hostedBy = net.sv3
       rotated = cotenant with party = successor
   raise <- voteToUpdate net newcomer.name base (svRightOwnerInfo raised)
-  move <- voteToUpdate net newcomer.name base (base with rewardNodeOperatorName = net.sv3.name)
+  move <- voteToUpdate net newcomer.name base (svRightOwnerInfo (newcomer with hostedBy = net.sv3))
   rotation <- voteToUpdate net cotenant.name (svRightOwnerInfo cotenant) (svRightOwnerInfo rotated)
   removal <- voteToRemove net cotenant.name
 
@@ -175,6 +180,55 @@ test_shouldApplyEveryPassedUpdateAndGovernCoHostedSvRightOwnersIndependently = w
   rewardStateOf net moved `shouldReturn` stateBefore
   svRightOwners net `shouldReturn` [moved, net.genesisOwner]
   svRewardStateNames net `shouldReturn` [newcomer.name, net.genesisOwner.name]
+
+test_shouldKeepOneRewardStatePerSvNodeAssignmentWhenSplittingAndRetiringSvNodes = withTwoSvRightOwners $ \net newcomer -> do
+  let base = svRightOwnerInfo newcomer
+      first = onlyAssignment base
+      firstId = svNodeAssignmentIdOf newcomer.name
+      secondId = newcomer.name <> "-2"
+      second = first with svNodeName = net.sv3.name; rewardWeight = 1000
+      -- The owner's weight at sv2 is split across sv2 and sv3; later its sv2 assignment is retired into sv3.
+      split = base with svNodeAssignments = TextMap.fromList [(firstId, first with rewardWeight = first.rewardWeight - 1000), (secondId, second)]
+      retired = base with svNodeAssignments = TextMap.fromList [(secondId, second with rewardWeight = first.rewardWeight)]
+      rewardStates = do
+        states <- queryFilter @SvRightsOwnerRewardState net.app.dso (\state -> state.svRightsOwnerName == newcomer.name)
+        pure $ sort [(state.svNodeAssignmentId, state.state.lastRoundCollected) | (_, state) <- states]
+      rewardStateCid svNodeAssignmentId = do
+        [(stateCid, _)] <- queryFilter @SvRightsOwnerRewardState net.app.dso (\state -> state.svRightsOwnerName == newcomer.name && state.svNodeAssignmentId == svNodeAssignmentId)
+        pure stateCid
+  firstStateCid <- rewardStateCid firstId
+  firstState <- rewardStateOf net newcomer
+  [_, (_, latestUsableRound)] <- getOpenRoundsSorted net.app
+
+  voteToUpdate net newcomer.name base split >>= executeUpdate net net.sv1.party >>= shouldSucceed
+
+  expectActive net firstStateCid
+  rewardStates `shouldReturn` [(firstId, firstState.lastRoundCollected), (secondId, latestUsableRound.round)]
+  runNextIssuance net.app
+  (openRoundCid, openRound) <- last <$> getOpenRoundsSorted net.app
+  ownerCid <- svRightOwnerCidFor net newcomer.name
+  secondStateCid <- rewardStateCid secondId
+  let mintFor svOperator stateCid = mintWith net svOperator openRoundCid (TextMap.fromList [(newcomer.name, (ownerCid, stateCid))])
+  mintFor net.sv3.party firstStateCid >>= shouldBeRejected contractNameMismatch
+  mintFor newcomer.hostedBy.party firstStateCid >>= shouldSucceed
+  mintFor net.sv3.party secondStateCid >>= shouldSucceed
+  couponsMintedFor net newcomer openRound.round `shouldReturn` [(newcomer.party, 1000), (newcomer.party, first.rewardWeight - 1000)]
+
+  retirement <- voteToUpdate net newcomer.name split retired
+  executeUpdate net net.sv1.party retirement >>= shouldBeRejected "Reward states are provided for exactly the SV node assignments"
+  firstStateCid <- rewardStateCid firstId
+  executeUpdateRemoving net net.sv1.party retirement ownerCid (TextMap.fromList [(firstId, firstStateCid)]) >>= shouldSucceed
+
+  expectArchived net firstStateCid
+  rewardStates `shouldReturn` [(secondId, openRound.round)]
+  runNextIssuance net.app
+  (nextRoundCid, nextRound) <- last <$> getOpenRoundsSorted net.app
+  ownerCid <- svRightOwnerCidFor net newcomer.name
+  secondStateCid <- rewardStateCid secondId
+  let mintNextFor svOperator = mintWith net svOperator nextRoundCid (TextMap.fromList [(newcomer.name, (ownerCid, secondStateCid))])
+  mintNextFor newcomer.hostedBy.party >>= shouldBeRejected "SV Right Owner mints through this SV Node Operator"
+  mintNextFor net.sv3.party >>= shouldSucceed
+  couponsMintedFor net newcomer nextRound.round `shouldReturn` [(newcomer.party, first.rewardWeight)]
 
 test_shouldRefuseUpdatingAnSvRightOwnerUnderLegacyWeightManagement = withLegacyWeights $ \net -> do
   let base = svRightOwnerInfo net.genesisOwner

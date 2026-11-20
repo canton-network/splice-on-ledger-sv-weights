@@ -48,11 +48,26 @@ data RewardState = RewardState with
 template SvRewardState with
     dso : Party
     svName : Text
-      -- ^ Name of the SV right owner collecting the rewards; the name of the SV node operator
-      -- before the migration to on-ledger SV right owners.
     state : RewardState
   where
     signatory dso
+
+data SvRightsOwnerRewardStateKey = SvRightsOwnerRewardStateKey with
+    dso : Party
+    svRightsOwnerName : Text
+    svNodeAssignmentId : Text
+  deriving (Eq, Show, Serializable)
+
+-- | State of reward collection for one SV node assignment of an SV rights owner.
+template SvRightsOwnerRewardState with
+    dso : Party
+    svRightsOwnerName : Text
+    svNodeAssignmentId : Text
+    state : RewardState
+  where
+    signatory dso
+    key (SvRightsOwnerRewardStateKey with dso; svRightsOwnerName; svNodeAssignmentId) : SvRightsOwnerRewardStateKey
+    maintainer key.dso
 
 
 -- Node State Management
@@ -121,6 +136,9 @@ template SvStatusReport with
 
 instance HasCheckedFetch SvRewardState ForSv where
   contractGroupId SvRewardState {..} = ForSv with dso; svName
+
+instance HasCheckedFetch SvRightsOwnerRewardState SvRightsOwnerRewardStateKey where
+  contractGroupId SvRightsOwnerRewardState {..} = SvRightsOwnerRewardStateKey with dso; svRightsOwnerName; svNodeAssignmentId
 
 instance HasCheckedFetch SvNodeState ForSvNode where
   contractGroupId SvNodeState {..} = ForSvNode with dso; sv; svName
