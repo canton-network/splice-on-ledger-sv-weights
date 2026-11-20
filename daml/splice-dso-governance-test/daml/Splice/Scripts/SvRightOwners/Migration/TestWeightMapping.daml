@@ -33,6 +33,8 @@ test_shouldMigrateOneLegacyOperatorToSeveralRightOwners = withLegacyWeights $ \n
       splitOwners = TextMap.insert "sv2-a" (svRightOwnerInfoFor "sv2-a" firstOwner firstWeight "sv2")
         $ TextMap.insert "sv2-b" (svRightOwnerInfoFor "sv2-b" sv2.rightOwnerParty secondWeight "sv2")
         $ TextMap.delete "sv2" owners
+  requestMigration net (TextMap.insert "sv2-a" (svRightOwnerInfoFor "sv2-a" firstOwner firstWeight "sv3") splitOwners)
+    >>= shouldBeRejected "The SV reward weight of SV node"
   instruction <- migrationRequestedFor net splitOwners
   rewardStates <- rewardStatesForSvOperators net
 
