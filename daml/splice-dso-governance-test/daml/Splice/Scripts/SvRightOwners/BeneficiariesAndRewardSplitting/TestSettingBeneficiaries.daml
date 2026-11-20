@@ -5,6 +5,7 @@ module Splice.Scripts.SvRightOwners.BeneficiariesAndRewardSplitting.TestSettingB
 
 import Daml.Script
 
+import Splice.DsoRules (DsoRules_UpdateSvRightOwnerBeneficiaries(..))
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
 
@@ -23,23 +24,26 @@ test_shouldLetOnlyTheSvRightOwnerReplaceItsBeneficiaries = withTwoSvRightOwners 
   setBeneficiariesAs net stranger newcomer ownSplit >>= shouldBeRejected notOwner
   setBeneficiariesAs net newcomer.party newcomer (sharingWith [(first, 0.6), (second, 0.5)]) >>= shouldBeRejected "Beneficiary reward ratios add up to at most 1.0"
   setBeneficiariesAs net newcomer.party newcomer (sharingWith [(first, 0.0)]) >>= shouldBeRejected "Beneficiary reward ratios are positive"
-  setBeneficiariesAs net newcomer.party newcomer (sharingWith [(newcomer.party, 0.1)]) >>= shouldBeRejected "SV right owner is not a beneficiary"
   setBeneficiariesAs net newcomer.party newcomer (sharingWith [(party, 0.01) | party <- crowd]) >>= shouldBeRejected "There are at most 20 beneficiaries"
   setBeneficiariesAs net newcomer.party newcomer (sharingWith [(party, 0.01) | party <- take 20 crowd]) >>= shouldSucceed
   
   setBeneficiariesAs net newcomer.party newcomer ownSplit >>= shouldSucceed
+  fallback <- allocateParty "fallback-beneficiary"
+  let ownInfo = svRightOwnerInfo (newcomer with beneficiaries = ownSplit)
+      redirected = ownInfo with svNodeAssignments = fmap (\assignment -> assignment with defaultBeneficiary = fallback) ownInfo.svNodeAssignments
+  attempt net newcomer.party (\dsoRulesCid -> exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerBeneficiaries with
+    name = newcomer.name; baseInfo = ownInfo; newInfo = redirected; rightOwner = newcomer.party) >>= shouldSucceed
 
-  svRightOwners net `shouldReturn` [cotenant, (newcomer with beneficiaries = ownSplit), net.genesisOwner]
+  svRightOwners net `shouldReturn` [cotenant, (newcomer with beneficiaries = ownSplit; defaultBeneficiary = fallback), net.genesisOwner]
 
 test_shouldLetAnSvRightOwnerWithoutAnSvNodeSetItsBeneficiariesFromDisclosedContracts = withTwoSvRightOwners $ \net newcomer -> do
   beneficiary <- allocateParty "beneficiary"
   let split = sharingWith [(beneficiary, 0.2)]
   dsoRulesCid <- dsoRules net
-  ownerCid <- svRightOwnerCidFor net newcomer.name
   [dsoRulesDisclosure, ownerDisclosure] <- servedByScan net newcomer.name
 
   setBeneficiariesAs net newcomer.party newcomer split >>= shouldNotFindDisclosing [] dsoRulesCid
-  setBeneficiariesAs net newcomer.party newcomer split >>= shouldNotFindDisclosing [dsoRulesDisclosure] ownerCid
+  setBeneficiariesAs net newcomer.party newcomer split >>= shouldBeRejectedDisclosing [dsoRulesDisclosure] "Could not find contract with given key"
   setBeneficiariesAs net newcomer.party newcomer split >>= shouldSucceedDisclosing [dsoRulesDisclosure, ownerDisclosure]
 
   svRightOwners net `shouldReturn` [(newcomer with beneficiaries = split), net.genesisOwner]
@@ -60,5 +64,4 @@ test_shouldLetOnlyTheNewPartySetTheBeneficiariesAfterAVotedPartyRotation = withT
   svRightOwners net `shouldReturn` [(rotated with beneficiaries = split), net.genesisOwner]
 
 test_shouldRefuseSettingBeneficiariesUnderLegacyWeightManagement = withLegacyWeights $ \net -> do
-  noSvRightOwner <- coerceContractId <$> dsoRules net
-  setBeneficiariesWith net net.genesisOwner.party net.genesisOwner.name (sharingWith []) noSvRightOwner >>= shouldBeRejected "svRightOwners are tracked on-ledger"
+  setBeneficiariesWith net net.genesisOwner.party net.genesisOwner.name (sharingWith []) (svRightOwnerInfo net.genesisOwner) >>= shouldBeRejected "svRightOwners are tracked on-ledger"
