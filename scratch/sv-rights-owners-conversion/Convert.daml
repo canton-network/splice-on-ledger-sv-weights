@@ -1,0 +1,98 @@
+-- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+-- | Converts approved-sv-id-values.yaml with `svRightsOwnerName` (configs#413) into the argument of
+-- `DsoRules_MigrateToOnLedgerSvRightOwners` and checks it with the production Daml.
+module Convert where
+
+import DA.Foldable (forA_)
+import DA.List (dedup, last)
+import DA.Map (Map)
+import qualified DA.Map as Map
+import qualified DA.Text as T
+import DA.TextMap (TextMap)
+import qualified DA.TextMap as TextMap
+import Daml.Script
+import Splice.Amulet.SvRightOwner
+
+-- The yaml, as `convert.sh` writes it.
+data Config = Config with
+    dso : Party
+    approvedSvIdentities : [ApprovedSv]
+
+data ApprovedSv = ApprovedSv with
+    name : Text
+    svParty : Party
+    svRightsOwnerName : Text
+    rewardWeightBps : Int
+    extraBeneficiaries : [ExtraBeneficiary]
+
+data ExtraBeneficiary = ExtraBeneficiary with
+    beneficiary : Party
+    svRightsOwnerName : Text
+    weight : Int
+    label : Text -- ^ The yaml comment up to the second `#`, e.g. `Ubyx CIP-0071`.
+    role : Text -- ^ The rest of the comment, e.g. `escrow party_id added to the GhostSV-validator-1`.
+
+isEscrow : ExtraBeneficiary -> Bool
+isEscrow b = "escrow party_id" `T.isPrefixOf` b.role || "unassigned weight" `T.isInfixOf` b.role
+
+-- | Rounded up, so that the mint floors `weight` back.
+ratio : Int -> Int -> Decimal
+ratio weight activeWeight = if floor (intToDecimal activeWeight * r) < weight then r + 0.0000000001 else r
+  where r = intToDecimal weight / intToDecimal activeWeight
+
+convert : Config -> TextMap SvRightOwnerInfo
+convert Config{..} = TextMap.fromList $ map (\o -> (o, owner o)) owners
+  where
+    owners = dedup $ concatMap (\sv -> sv.svRightsOwnerName :: map (.svRightsOwnerName) sv.extraBeneficiaries) approvedSvIdentities
+    owner o = SvRightOwnerInfo with
+        rightOwnerParty
+        description = T.intercalate "; " $ dedup $ filter (/= "") [b.label | sv <- svs, b <- entriesAt sv]
+        svNodeAssignments = TextMap.fromList $ zipWith (\i sv -> (o <> "-" <> show i, assignment sv)) [1 .. length svs] svs
+      where
+        entriesAt sv = filter ((== o) . (.svRightsOwnerName)) sv.extraBeneficiaries
+        svs = filter (\sv -> sv.svRightsOwnerName == o || not (null (entriesAt sv))) approvedSvIdentities
+        actives = [b.beneficiary | sv <- svs, b <- entriesAt sv, not (isEscrow b)]
+        -- The SV party of its own SV node, else its last active party, else none yet.
+        rightOwnerParty = case filter ((== o) . (.svRightsOwnerName)) svs of
+          sv :: _ -> sv.svParty
+          [] -> if null actives then dso else last actives
+        assignment sv = SvNodeAssignment with
+            svNodeName = sv.name
+            rewardWeight = total
+            escrowBeneficiaries = [EscrowBeneficiary with beneficiary = b.beneficiary; rewardWeight = b.weight | b <- escrow]
+            beneficiaries = Map.fromList [(p, BeneficiaryInfo with rewardRatio = ratio w activeWeight) | (p, w) <- Map.toList activeWeights]
+            defaultBeneficiary
+          where
+            own = sv.svRightsOwnerName == o
+            total = if own then sv.rewardWeightBps - sum [b.weight | b <- sv.extraBeneficiaries, b.svRightsOwnerName /= o]
+                    else sum $ map (.weight) $ entriesAt sv
+            defaultBeneficiary = if own then sv.svParty else rightOwnerParty
+            -- An escrow entry paid to a party that also gets active weight stays active: today that party claims both.
+            activeParties = defaultBeneficiary :: [b.beneficiary | b <- entriesAt sv, not (isEscrow b)]
+            (escrow, active) = partition (\b -> isEscrow b && b.beneficiary `notElem` activeParties) (entriesAt sv)
+            activeWeight = total - sum (map (.weight) escrow)
+            activeWeights = Map.fromListWithR (+) [(b.beneficiary, b.weight) | b <- active, b.beneficiary /= defaultBeneficiary]
+
+-- | Today's split (`SvUtil.weightDistributionForSv`): beneficiaries in order, the rest to the SV party.
+couponsV1 : ApprovedSv -> Map Party Int
+couponsV1 sv = Map.filter (> 0) $ Map.insertWith (+) sv.svParty rest weights
+  where
+    (rest, weights) = foldl step (sv.rewardWeightBps, Map.empty) sv.extraBeneficiaries
+    step (rest, acc) b = let w = min b.weight rest in (rest - w, Map.insertWith (+) b.beneficiary w acc)
+
+main : Config -> Script (TextMap SvRightOwnerInfo)
+main config = do
+  let owners = convert config
+      assignments = [a | (_, info) <- TextMap.toList owners, (_, a) <- TextMap.toList info.svNodeAssignments]
+  forA_ (TextMap.toList owners) $ \(name, info) ->
+    assertMsg ("Invalid SvRightOwnerInfo: " <> name) (validSvRightOwnerInfo info)
+  forA_ config.approvedSvIdentities $ \sv -> do
+    let here = filter ((== sv.name) . (.svNodeName)) assignments
+        coupons = Map.filter (> 0) $ foldl (Map.unionWith (+)) Map.empty $ map svRewardCouponWeights here
+    assertMsg ("Total weight changed at " <> sv.name) (sum (map (.rewardWeight) here) == sv.rewardWeightBps)
+    assertMsg ("Coupons changed at " <> sv.name <> ": " <> show coupons <> " /= " <> show (couponsV1 sv)) (coupons == couponsV1 sv)
+  debugRaw $ "OK: " <> show (TextMap.size owners) <> " owners, " <> show (length assignments) <> " assignments, "
+    <> show (length config.approvedSvIdentities) <> " SV nodes; total weight and coupons per SV node and party equal today"
+  pure owners
