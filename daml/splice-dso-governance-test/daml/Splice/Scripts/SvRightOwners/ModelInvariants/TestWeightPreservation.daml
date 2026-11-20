@@ -38,6 +38,6 @@ test_shouldAllowChangingTheTotalSvRightOwnerWeight = withOnLedgerWeights $ \net 
 migrationWithChangedTotalWeightIsRefused : Network -> Int -> Script ()
 migrationWithChangedTotalWeightIsRefused net weightDelta = do
   owners <- svRightOwnerInfosFromOperators net.app
-  let changedOwners = fmap (\info -> info with rewardWeight = info.rewardWeight + weightDelta) owners
+  let changedOwners = fmap (\info -> withRewardWeight ((onlyAssignment info).rewardWeight + weightDelta) info) owners
   attempt net net.app.dso (\dsoRulesCid -> exerciseCmd dsoRulesCid DsoRules_MigrateToOnLedgerSvRightOwners with
     svRightOwners = changedOwners) >>= shouldBeRejected "The total SV reward weight is preserved"
