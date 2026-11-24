@@ -35,9 +35,6 @@ template SvRightOwner
     key ( SvRightsOwnerKey with dso; name ) : SvRightsOwnerKey
     maintainer key.dso
 
-instance HasCheckedFetch SvRightOwner ForDso where
-  contractGroupId SvRightOwner{dso} = ForDso with dso
-
 -- | Information about a super validator right owner.
 data SvRightOwnerInfo = SvRightOwnerInfo
   with
@@ -48,13 +45,6 @@ data SvRightOwnerInfo = SvRightOwnerInfo
     svNodeAssignments : TextMap SvNodeAssignment
       -- ^ Keyed by a stable id, unique per SV rights owner, so the reward state of an assignment is kept when it moves to another SV node.
   deriving (Eq, Show, Serializable)
-
-instance Patchable SvRightOwnerInfo where
-  patch new base current = SvRightOwnerInfo
-    with
-      rightOwnerParty = patch new.rightOwnerParty base.rightOwnerParty current.rightOwnerParty
-      description = patch new.description base.description current.description
-      svNodeAssignments = patch new.svNodeAssignments base.svNodeAssignments current.svNodeAssignments
 
 data SvNodeAssignment = SvNodeAssignment
   with
@@ -71,15 +61,6 @@ data SvNodeAssignment = SvNodeAssignment
     defaultBeneficiary : Party
       -- ^ Receives the non-escrowed weight not paid to the beneficiaries.
   deriving (Eq, Show, Serializable)
-
-instance Patchable SvNodeAssignment where
-  patch new base current = SvNodeAssignment
-    with
-      svNodeName = patch new.svNodeName base.svNodeName current.svNodeName
-      rewardWeight = patch new.rewardWeight base.rewardWeight current.rewardWeight
-      escrowBeneficiaries = patchScalar new.escrowBeneficiaries base.escrowBeneficiaries current.escrowBeneficiaries
-      beneficiaries = patchListAsScalar new.beneficiaries base.beneficiaries current.beneficiaries
-      defaultBeneficiary = patch new.defaultBeneficiary base.defaultBeneficiary current.defaultBeneficiary
 
 -- | A part of the reward weight held in escrow, minted as a coupon to `beneficiary`.
 data EscrowBeneficiary = EscrowBeneficiary
@@ -138,3 +119,26 @@ svRewardCouponWeights assignment@SvNodeAssignment{..} =
     activeRewardWeight = rewardWeight - escrowedRewardWeight assignment
     remainingWeight = activeRewardWeight - sum beneficiaryWeights
     beneficiaryWeights = Map.fromListWithR (+) $ map (\BeneficiaryInfo{..} -> (beneficiary, floor (intToDecimal activeRewardWeight * rewardRatio))) beneficiaries
+
+
+-- instances
+------------
+
+instance HasCheckedFetch SvRightOwner ForDso where
+  contractGroupId SvRightOwner{dso} = ForDso with dso
+
+instance Patchable SvRightOwnerInfo where
+  patch new base current = SvRightOwnerInfo
+    with
+      rightOwnerParty = patch new.rightOwnerParty base.rightOwnerParty current.rightOwnerParty
+      description = patch new.description base.description current.description
+      svNodeAssignments = patch new.svNodeAssignments base.svNodeAssignments current.svNodeAssignments
+
+instance Patchable SvNodeAssignment where
+  patch new base current = SvNodeAssignment
+    with
+      svNodeName = patch new.svNodeName base.svNodeName current.svNodeName
+      rewardWeight = patch new.rewardWeight base.rewardWeight current.rewardWeight
+      escrowBeneficiaries = patchScalar new.escrowBeneficiaries base.escrowBeneficiaries current.escrowBeneficiaries
+      beneficiaries = patchListAsScalar new.beneficiaries base.beneficiaries current.beneficiaries
+      defaultBeneficiary = patch new.defaultBeneficiary base.defaultBeneficiary current.defaultBeneficiary
