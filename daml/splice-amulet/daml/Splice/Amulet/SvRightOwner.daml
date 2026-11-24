@@ -110,10 +110,10 @@ requireValidSvRightOwnerInfo info =
   forA_ svRightOwnerInfoChecks $ \(check, message) -> require message (check info)
 
 -- | The absolute reward weight for each party that receives rewards in the context of this SV node assignment,
--- including the escrowed weights for the escrow beneficiaries.
+-- including the escrowed weights for the escrow beneficiaries. Parties with a zero weight, e.g., due to rounding down, are left out.
 svRewardCouponWeights : SvNodeAssignment -> Map Party Int
 svRewardCouponWeights assignment@SvNodeAssignment{..} =
-  Map.unionWith (+) escrowWeights $ Map.insertWith (+) defaultBeneficiary remainingWeight beneficiaryWeights
+  Map.filter (> 0) $ Map.unionWith (+) escrowWeights $ Map.insertWith (+) defaultBeneficiary remainingWeight beneficiaryWeights
   where
     escrowWeights = Map.fromListWithR (+) $ map (\escrow -> (escrow.beneficiary, escrow.rewardWeight)) escrowBeneficiaries
     activeRewardWeight = rewardWeight - escrowedRewardWeight assignment

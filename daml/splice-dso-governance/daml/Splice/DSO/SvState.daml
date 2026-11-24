@@ -45,6 +45,9 @@ data RewardState = RewardState with
   deriving (Eq, Show, Serializable)
 
 -- | State of reward collection for a sv identified by their sv name.
+--
+-- Used only until the migration to on-ledger SV rights owners, which archives it and
+-- continues with one `SvRightsOwnerRewardState` per SV node assignment.
 template SvRewardState with
     dso : Party
     svName : Text
@@ -59,6 +62,9 @@ data SvRightsOwnerRewardStateKey = SvRightsOwnerRewardStateKey with
   deriving (Eq, Show, Serializable)
 
 -- | State of reward collection for one SV node assignment of an SV rights owner.
+--
+-- Replaces `SvRewardState` after the migration to on-ledger SV rights owners, which starts the state
+-- of each assignment from the `SvRewardState` of its SV node. Kept when the assignment moves to another SV node.
 template SvRightsOwnerRewardState with
     dso : Party
     svRightsOwnerName : Text
