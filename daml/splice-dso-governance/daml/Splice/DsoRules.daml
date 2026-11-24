@@ -158,7 +158,8 @@ data SvInfo = SvInfo with
     joinedAsOfRound : Round -- ^ Round in which the SV joined
     svRewardWeight : Int
       -- ^ Weight of the SV in the SV reward distribution.
-      -- Deprecated in favor of `SvNodeAssignment.rewardWeight`: this is required to be zero
+      -- Deprecated in favor of `SvNodeAssignment.rewardWeight`.
+      -- This field `SvInfo.svRewardWeight` is required to be zero
       -- once SV right owners are tracked on-ledger, as SV node operators do not earn rewards
       -- in their own right.
     participantId : Text -- ^ Participant ID of the SV, stored here as PartyToParticipant mappings are tracked via state on the DsoRules + SvOnboardingConfirmed contracts.
@@ -1645,8 +1646,8 @@ template DsoRules with
         svOperator : Party
         openRoundCid : ContractId OpenMiningRound
         svRightOwnerRewardInputs : TextMap (ContractId SvRightOwner, ContractId SvRightsOwnerRewardState)
-          -- ^ The SV right owners to mint rewards for, keyed by their name. They must all be
-          -- hosted by `svOperator`.
+-- ^ The SV right owners to mint rewards for, keyed by their name,
+-- together with the reward states for the assignments to this operator.
       controller svOperator
       do
         requireOnLedgerSvRightOwners this
@@ -2168,7 +2169,7 @@ template DsoRules with
           require ("Leftover SvRewardState of offboarded SV " <> show svName <> " must not belong to a current SV node operator") $
             not (svName `Set.member` getSvOperatorNames this)
           void $ fetchAndArchive (ForSv with dso; svName) rewardStateCid
-        svRightOwners <- forA (TextMap.toList instruction.svRightOwners) $ \(name, info) -> do
+        svRightOwners <- forA (TextMap.toList instruction.svRightOwners) $ \(svRightsOwnerName, info) -> do
           svRightOwner <- create SvRightOwner with dso; name; info
           -- Carry over the reward state of the SV node operator to preserve the round it last minted for.
           svRewardStates <- forA (TextMap.toList info.svNodeAssignments) $ \(svNodeAssignmentId, assignment) -> do
@@ -2344,12 +2345,12 @@ template DsoRules with
         requireSameBeneficiaries currentSvRightOwner.info info
         requireRewardNodeOperatorExists this info
         requireValidSvRightOwnerInfo info
-        svRightOwner <- create currentSvRightOwner with info
+        svRightOwner <- create currentSvRightsOwner with info
         let removedAssignments = TextMap.filterWithKey (\svNodeAssignmentId _ -> not $ TextMap.member svNodeAssignmentId info.svNodeAssignments) currentSvRightOwner.info.svNodeAssignments
             addedSvNodeAssignmentIds = filter (\svNodeAssignmentId -> not $ TextMap.member svNodeAssignmentId currentSvRightOwner.info.svNodeAssignments) (map fst $ TextMap.toList info.svNodeAssignments)
         archiveSvRightsOwnerRewardStates dso instruction.name removedAssignments removedSvRewardStateCids
         validatedRounds <- validateOpenMiningRoundTriple dso openMiningRoundTriple
-        svRewardStates <- createSvRightsOwnerRewardStates dso instruction.name addedSvNodeAssignmentIds (Round $ validatedRounds.latestUsableRound.round.number + 1)
+        svRightsOwnerRewardStates <- createSvRightsOwnerRewardStates dso instruction.name addedSvNodeAssignmentIds (Round $ validatedRounds.latestUsableRound.round.number + 1)
         return DsoRules_ExecuteUpdateSvRightOwnerInfoInstructionResult with svRightOwner; svRewardStates
 
     nonconsuming choice DsoRules_ExpireUpdateSvRightOwnerInfoInstruction : DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult
@@ -2375,7 +2376,7 @@ template DsoRules with
           -- ^ The info that this update was created against.
         newInfo : SvRightOwnerInfo
           -- ^ The target info; only the beneficiaries and default beneficiaries of existing SV node assignments may differ from `baseInfo`.
-        rightOwner : Party -- ^ The party of the SV rights owner.
+        rightOwnerParty : Party -- ^ The party of the SV rights owner.
       controller rightOwner
       do
         requireOnLedgerSvRightOwners this
