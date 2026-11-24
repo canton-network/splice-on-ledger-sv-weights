@@ -2383,7 +2383,7 @@ template DsoRules with
         (svRightOwnerCid, currentSvRightOwner) <- fetchByKey @SvRightOwner (SvRightsOwnerKey with dso; name)
         require "Beneficiaries are set by the SV right owner itself" $
           currentSvRightOwner.info.rightOwnerParty == rightOwner
-        let withoutBeneficiaries info = info with svNodeAssignments = fmap (\assignment -> assignment with beneficiaries = Map.empty; defaultBeneficiary = dso) info.svNodeAssignments
+        let withoutBeneficiaries info = info with svNodeAssignments = fmap (\assignment -> assignment with beneficiaries = []; defaultBeneficiary = dso) info.svNodeAssignments
         require "Only beneficiaries are changed through DsoRules_UpdateSvRightOwnerBeneficiaries" $
           withoutBeneficiaries baseInfo == withoutBeneficiaries newInfo
         let info = patch newInfo baseInfo currentSvRightOwner.info

@@ -90,7 +90,7 @@ template DsoBootstrap with
                     svNodeName = sv1Name
                     rewardWeight = sv1RewardWeight
                     escrowBeneficiaries = []
-                    beneficiaries = Map.empty
+                    beneficiaries = []
                     defaultBeneficiary = sv1Party
                 info = SvRightOwnerInfo with
                     rightOwnerParty = sv1Party

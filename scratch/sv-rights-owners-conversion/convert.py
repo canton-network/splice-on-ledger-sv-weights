@@ -60,7 +60,7 @@ def convert(owner):
                 weights[e['party']] += e['weight']
         return {'svNodeName': sv['name'], 'rewardWeight': total,
                 'escrowBeneficiaries': [{'beneficiary': e['party'], 'rewardWeight': e['weight']} for e in escrow],
-                'beneficiaries': [[p, {'rewardRatio': str(ratio(w, active_weight))}] for p, w in sorted(weights.items())],
+                'beneficiaries': [{'beneficiary': p, 'rewardRatio': str(ratio(w, active_weight))} for p, w in weights.items()],
                 'defaultBeneficiary': default}
 
     return {'rightOwnerParty': owner_party,
@@ -79,9 +79,10 @@ def check_valid(name, info):
     nodes = [a['svNodeName'] for a in assignments]
     assert nodes and len(nodes) == len(set(nodes)), name
     for a in assignments:
-        ratios = [Decimal(i['rewardRatio']) for _, i in a['beneficiaries']]
+        ratios = [Decimal(b['rewardRatio']) for b in a['beneficiaries']]
+        parties = [b['beneficiary'] for b in a['beneficiaries']]
         escrow = a['escrowBeneficiaries']
-        assert a['rewardWeight'] >= 0 and all(r > 0 for r in ratios) and sum(ratios) <= 1 and len(ratios) <= 20, name
+        assert a['rewardWeight'] >= 0 and all(r > 0 for r in ratios) and sum(ratios) <= 1 and len(set(parties)) == len(parties) <= 20, name
         assert all(e['rewardWeight'] > 0 for e in escrow) and sum(e['rewardWeight'] for e in escrow) <= a['rewardWeight'], name
         assert len(escrow) <= 20, name
 
@@ -103,9 +104,9 @@ def coupons_new(a):
         coupons[e['beneficiary']] += e['rewardWeight']
     active_weight = a['rewardWeight'] - sum(e['rewardWeight'] for e in a['escrowBeneficiaries'])
     rest = active_weight
-    for p, info in a['beneficiaries']:
-        w = int(active_weight * Decimal(info['rewardRatio']))
-        coupons[p] += w
+    for b in a['beneficiaries']:
+        w = int(active_weight * Decimal(b['rewardRatio']))
+        coupons[b['beneficiary']] += w
         rest -= w
     coupons[a['defaultBeneficiary']] += rest
     return +coupons

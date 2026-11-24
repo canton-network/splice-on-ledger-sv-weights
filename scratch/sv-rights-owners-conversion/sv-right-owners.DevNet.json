@@ -61,12 +61,10 @@
         "rewardWeight": 10000,
         "escrowBeneficiaries": [],
         "beneficiaries": [
-          [
-            "bitwave-devnet-2::1220eecc99dfcc432bbfb358380472523f2189c014f7c632dd60c5430581eda25bc3",
-            {
-              "rewardRatio": "1.0000000000"
-            }
-          ]
+          {
+            "beneficiary": "bitwave-devnet-2::1220eecc99dfcc432bbfb358380472523f2189c014f7c632dd60c5430581eda25bc3",
+            "rewardRatio": "1.0000000000"
+          }
         ],
         "defaultBeneficiary": "Bitwave-1::12200000000000000000000000000000000000000000000000000000000000000000"
       },
@@ -326,12 +324,10 @@
         "rewardWeight": 266000,
         "escrowBeneficiaries": [],
         "beneficiaries": [
-          [
-            "GSF-validator-1::12203b389175d5d9a67a443078b3867fb179fc730d5dfb6aca3c509c37e926a6e24b",
-            {
-              "rewardRatio": "0.3759398497"
-            }
-          ]
+          {
+            "beneficiary": "GSF-validator-1::12203b389175d5d9a67a443078b3867fb179fc730d5dfb6aca3c509c37e926a6e24b",
+            "rewardRatio": "0.3759398497"
+          }
         ],
         "defaultBeneficiary": "Global-Synchronizer-Foundation::12200000000000000000000000000000000000000000000000000000000000000000"
       }

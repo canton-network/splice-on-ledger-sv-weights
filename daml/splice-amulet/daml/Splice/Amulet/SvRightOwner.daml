@@ -12,7 +12,7 @@ import qualified DA.Map as Map
 import DA.TextMap (TextMap)
 import qualified DA.TextMap as TextMap
 import Splice.Types (ForDso(..))
-import Splice.Util (HasCheckedFetch(..), Patchable(..), patchScalar, require)
+import Splice.Util (HasCheckedFetch(..), Patchable(..), patchListAsScalar, patchScalar, require)
 
 data SvRightsOwnerKey = SvRightsOwnerKey with
     dso : Party
@@ -66,7 +66,7 @@ data SvNodeAssignment = SvNodeAssignment
       -- ^ The parts of `rewardWeight` held in escrow. Changed only by a vote.
       -- At most 20 escrow beneficiaries are allowed to bound the number of coupons minted per round.
     beneficiaries : [BeneficiaryInfo]
-      -- ^ Map of beneficiaries and their percentages of the non-escrowed `rewardWeight`.
+      -- ^ List of beneficiaries and their percentages of the non-escrowed `rewardWeight`.
       -- At most 20 beneficiaries are allowed, to bound the number of coupons minted per round.
     defaultBeneficiary : Party
       -- ^ Receives the non-escrowed weight not paid to the beneficiaries.
@@ -78,7 +78,7 @@ instance Patchable SvNodeAssignment where
       svNodeName = patch new.svNodeName base.svNodeName current.svNodeName
       rewardWeight = patch new.rewardWeight base.rewardWeight current.rewardWeight
       escrowBeneficiaries = patchScalar new.escrowBeneficiaries base.escrowBeneficiaries current.escrowBeneficiaries
-      beneficiaries = patch new.beneficiaries base.beneficiaries current.beneficiaries
+      beneficiaries = patchListAsScalar new.beneficiaries base.beneficiaries current.beneficiaries
       defaultBeneficiary = patch new.defaultBeneficiary base.defaultBeneficiary current.defaultBeneficiary
 
 -- | A part of the reward weight held in escrow, minted as a coupon to `beneficiary`.
@@ -93,15 +93,12 @@ data EscrowBeneficiary = EscrowBeneficiary
 -- | Information about a beneficiary.
 data BeneficiaryInfo = BeneficiaryInfo
   with
+    beneficiary : Party
+      -- ^ Receives the coupon for this share.
     rewardRatio : Decimal
-      -- ^ The proportion of the non-escrowed reward weight of the SV node assignment that is shared with this beneficiary. 
+      -- ^ The proportion of the non-escrowed reward weight of the SV node assignment that is shared with this beneficiary.
       -- MUST be >0.0 and <=1.0
   deriving (Eq, Show, Serializable)
-
-instance Patchable BeneficiaryInfo where
-  patch new base current = BeneficiaryInfo
-    with
-      rewardRatio = patchScalar new.rewardRatio base.rewardRatio current.rewardRatio
 
 svRightOwnerInfoChecks : [(SvRightOwnerInfo -> Bool, Text)]
 svRightOwnerInfoChecks =
@@ -114,7 +111,8 @@ svNodeAssignmentChecks =
   [ (\SvNodeAssignment{..} -> rewardWeight >= 0, "SV right owner's reward weight is non-negative")
   , (\SvNodeAssignment{..} -> all ((> 0.0) . rewardRatio) beneficiaries, "Beneficiary reward ratios are positive")
   , (\SvNodeAssignment{..} -> sum (fmap (.rewardRatio) beneficiaries) <= 1.0, "Beneficiary reward ratios add up to at most 1.0")
-  , (\SvNodeAssignment{..} -> Map.size beneficiaries <= 20, "There are at most 20 beneficiaries")
+  , (\SvNodeAssignment{..} -> unique $ map (.beneficiary) beneficiaries, "Each beneficiary is listed at most once")
+  , (\SvNodeAssignment{..} -> length beneficiaries <= 20, "There are at most 20 beneficiaries")
   , (\SvNodeAssignment{..} -> all ((> 0) . (.rewardWeight)) escrowBeneficiaries, "Escrowed reward weights are positive")
   , (\assignment -> escrowedRewardWeight assignment <= assignment.rewardWeight, "Escrowed reward weights add up to at most the reward weight")
   , (\SvNodeAssignment{..} -> length escrowBeneficiaries <= 20, "There are at most 20 escrow beneficiaries")
@@ -139,4 +137,4 @@ svRewardCouponWeights assignment@SvNodeAssignment{..} =
     escrowWeights = Map.fromListWithR (+) $ map (\escrow -> (escrow.beneficiary, escrow.rewardWeight)) escrowBeneficiaries
     activeRewardWeight = rewardWeight - escrowedRewardWeight assignment
     remainingWeight = activeRewardWeight - sum beneficiaryWeights
-    beneficiaryWeights = fmap (\BeneficiaryInfo{rewardRatio} -> floor (intToDecimal activeRewardWeight * rewardRatio)) beneficiaries
+    beneficiaryWeights = Map.fromListWithR (+) $ map (\BeneficiaryInfo{..} -> (beneficiary, floor (intToDecimal activeRewardWeight * rewardRatio))) beneficiaries

@@ -28,7 +28,7 @@ classDiagram
         svNodeName : Text
         rewardWeight : Int
         escrowBeneficiaries : [EscrowBeneficiary]
-        beneficiaries : Map Party BeneficiaryInfo
+        beneficiaries : [BeneficiaryInfo]
         defaultBeneficiary : Party
     }
     class EscrowBeneficiary {
@@ -36,6 +36,7 @@ classDiagram
         rewardWeight : Int
     }
     class BeneficiaryInfo {
+        beneficiary : Party
         rewardRatio : Decimal
     }
     class SvRewardCoupon {
