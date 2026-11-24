@@ -146,6 +146,9 @@ instance HasCheckedFetch SvRewardState ForSv where
 instance HasCheckedFetch SvRightsOwnerRewardState SvRightsOwnerRewardStateKey where
   contractGroupId SvRightsOwnerRewardState {..} = SvRightsOwnerRewardStateKey with dso; svRightsOwnerName; svNodeAssignmentId
 
+instance HasCheckedFetch SvRightsOwnerRewardState ForSv where
+  contractGroupId SvRightsOwnerRewardState {..} = ForSv with dso; svName = svRightsOwnerName
+
 instance HasCheckedFetch SvNodeState ForSvNode where
   contractGroupId SvNodeState {..} = ForSvNode with dso; sv; svName
 

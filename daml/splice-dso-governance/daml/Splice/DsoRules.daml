@@ -1657,14 +1657,18 @@ template DsoRules with
         openRound <- fetchReferenceData (ForDso with dso) openRoundCid
         require "OpenRound is open" (openRound.opensAt <= now)
 
+        require "There is at least one SV rights owner to mint for" (not $ TextMap.null svRightOwnerRewardInputs)
         outputs <- forA (TextMap.toList svRightOwnerRewardInputs) $ \(svRightsOwnerName, (svRightOwnerCid, rewardStateCid)) -> do
           let forSv = ForSv with dso; svName = svRightsOwnerName
           svRightOwner <- fetchChecked forSv svRightOwnerCid
           let info = svRightOwner.info
-          (svNodeAssignmentId, assignment) <- case find ((== svOperatorInfo.name) . (.svNodeName) . snd) (TextMap.toList info.svNodeAssignments) of
-            Some idAndAssignment -> pure idAndAssignment
-            None -> fail "SV Right Owner mints through this SV Node Operator"
-          rewardState <- fetchAndArchive (SvRightsOwnerRewardStateKey with dso; svRightsOwnerName; svNodeAssignmentId) rewardStateCid
+          rewardState <- fetchAndArchive forSv rewardStateCid
+          let svNodeAssignmentId = rewardState.svNodeAssignmentId
+          assignment <- case TextMap.lookup svNodeAssignmentId info.svNodeAssignments of
+            Some assignment -> pure assignment
+            None -> fail ("SV node assignment " <> show svNodeAssignmentId <> " of SV rights owner " <> show svRightsOwnerName <> " does not exist")
+          require ("SV node assignment " <> show svNodeAssignmentId <> " of SV rights owner " <> show svRightsOwnerName <> " mints through SV node " <> show svOperatorInfo.name) $
+            assignment.svNodeName == svOperatorInfo.name
           let state = rewardState.state
           require
             ("Round " <> show openRound.round <> " is greater than the last round a reward has been received for " <> show state.lastRoundCollected)
