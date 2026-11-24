@@ -66,8 +66,8 @@ data SvNodeAssignment = SvNodeAssignment
       -- ^ The parts of `rewardWeight` held in escrow. Changed only by a vote.
       -- At most 20 escrow beneficiaries are allowed to bound the number of coupons minted per round.
     beneficiaries : Map Party BeneficiaryInfo
-      -- ^ Map of beneficiaries and their percentages of `rewardWeight` minus the escrowed weight.
-      -- At most 20 beneficiaries are allowed to bound the number of coupons minted per round.
+      -- ^ Map of beneficiaries and their percentages of the non-escrowed `rewardWeight`.
+      -- At most 20 beneficiaries are allowed, to bound the number of coupons minted per round.
     defaultBeneficiary : Party
       -- ^ Receives the non-escrowed weight not paid to the beneficiaries.
   deriving (Eq, Show, Serializable)
