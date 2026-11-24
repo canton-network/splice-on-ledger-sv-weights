@@ -7,7 +7,7 @@ classDiagram
         <<template>>
         svs : Map Party SvInfo
         svRightOwners : Optional #40;Set Text#41;
-        DsoRules_UpdateSvRightOwnerBeneficiaries(name, baseInfo, newInfo, rightOwner)
+        DsoRules_UpdateSvRightOwnerBeneficiaries(name, baseInfo, newInfo, rightOwnerParty)
     }
     class SvRightOwner {
         <<template>>

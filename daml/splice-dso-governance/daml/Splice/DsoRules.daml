@@ -1646,8 +1646,8 @@ template DsoRules with
         svOperator : Party
         openRoundCid : ContractId OpenMiningRound
         svRightOwnerRewardInputs : TextMap (ContractId SvRightOwner, ContractId SvRightsOwnerRewardState)
--- ^ The SV right owners to mint rewards for, keyed by their name,
--- together with the reward states for the assignments to this operator.
+          -- ^ The SV right owners to mint rewards for, keyed by their name,
+          -- together with the reward states for the assignments to this operator.
       controller svOperator
       do
         requireOnLedgerSvRightOwners this
@@ -1656,14 +1656,14 @@ template DsoRules with
         openRound <- fetchReferenceData (ForDso with dso) openRoundCid
         require "OpenRound is open" (openRound.opensAt <= now)
 
-        outputs <- forA (TextMap.toList svRightOwnerRewardInputs) $ \(name, (svRightOwnerCid, rewardStateCid)) -> do
-          let forSv = ForSv with dso; svName = name
+        outputs <- forA (TextMap.toList svRightOwnerRewardInputs) $ \(svRightsOwnerName, (svRightOwnerCid, rewardStateCid)) -> do
+          let forSv = ForSv with dso; svName = svRightsOwnerName
           svRightOwner <- fetchChecked forSv svRightOwnerCid
           let info = svRightOwner.info
           (svNodeAssignmentId, assignment) <- case find ((== svOperatorInfo.name) . (.svNodeName) . snd) (TextMap.toList info.svNodeAssignments) of
             Some idAndAssignment -> pure idAndAssignment
             None -> fail "SV Right Owner mints through this SV Node Operator"
-          rewardState <- fetchAndArchive (SvRightsOwnerRewardStateKey with dso; svRightsOwnerName = name; svNodeAssignmentId) rewardStateCid
+          rewardState <- fetchAndArchive (SvRightsOwnerRewardStateKey with dso; svRightsOwnerName; svNodeAssignmentId) rewardStateCid
           let state = rewardState.state
           require
             ("Round " <> show openRound.round <> " is greater than the last round a reward has been received for " <> show state.lastRoundCollected)
@@ -1688,11 +1688,11 @@ template DsoRules with
               round = openRound.round
             pure (beneficiary, couponCid)
 
-          pure (name, newRewardStateCid, Map.fromList couponCids)
+          pure (svRightsOwnerName, newRewardStateCid, Map.fromList couponCids)
 
         return DsoRules_ReceiveSvRewardCouponV2Result with
-          svRewardStates = TextMap.fromList [(name, stateCid) | (name, stateCid, _) <- outputs]
-          svRewardCoupons = TextMap.fromList [(name, coupons) | (name, _, coupons) <- outputs]
+          svRewardStates = TextMap.fromList [(svRightsOwnerName, stateCid) | (svRightsOwnerName, stateCid, _) <- outputs]
+          svRewardCoupons = TextMap.fromList [(svRightsOwnerName, coupons) | (svRightsOwnerName, _, coupons) <- outputs]
 
     -- Batch expiry of unclaimed rewards for a specific claimed round
     -----------------------------------------------------------------
@@ -2170,15 +2170,15 @@ template DsoRules with
             not (svName `Set.member` getSvOperatorNames this)
           void $ fetchAndArchive (ForSv with dso; svName) rewardStateCid
         svRightOwners <- forA (TextMap.toList instruction.svRightOwners) $ \(svRightsOwnerName, info) -> do
-          svRightOwner <- create SvRightOwner with dso; name; info
+          svRightOwner <- create SvRightOwner with dso; name = svRightsOwnerName; info
           -- Carry over the reward state of the SV node operator to preserve the round it last minted for.
           svRewardStates <- forA (TextMap.toList info.svNodeAssignments) $ \(svNodeAssignmentId, assignment) -> do
             state <- case lookup assignment.svNodeName svOperatorRewardStates of
               None -> fail ("Reward state of SV node operator " <> show assignment.svNodeName <> " is provided")
               Some state -> pure state
-            svRewardState <- create SvRightsOwnerRewardState with dso; svRightsOwnerName = name; svNodeAssignmentId; state
+            svRewardState <- create SvRightsOwnerRewardState with dso; svRightsOwnerName; svNodeAssignmentId; state
             pure (svNodeAssignmentId, svRewardState)
-          pure (name, (svRightOwner, TextMap.fromList svRewardStates))
+          pure (svRightsOwnerName, (svRightOwner, TextMap.fromList svRewardStates))
         newDsoRules <- create this with
           svs = fmap (\info -> info with svRewardWeight = 0) svs
           svRightOwners = Some $ Set.fromList $ map fst svRightOwners
@@ -2340,18 +2340,18 @@ template DsoRules with
         instruction <- fetchAndArchive (ForDso with dso) instructionCid
         requireSvRightOwnerExists this instruction.name
         assertWithinDeadline "updateSvRightOwnerInfoInstruction.expiresAt" instruction.expiresAt
-        currentSvRightOwner <- fetchAndArchive (ForSv with dso; svName = instruction.name) svRightOwnerCid
-        let info = patch instruction.newInfo instruction.baseInfo currentSvRightOwner.info
-        requireSameBeneficiaries currentSvRightOwner.info info
+        currentSvRightsOwner <- fetchAndArchive (ForSv with dso; svName = instruction.name) svRightOwnerCid
+        let info = patch instruction.newInfo instruction.baseInfo currentSvRightsOwner.info
+        requireSameBeneficiaries currentSvRightsOwner.info info
         requireRewardNodeOperatorExists this info
         requireValidSvRightOwnerInfo info
         svRightOwner <- create currentSvRightsOwner with info
-        let removedAssignments = TextMap.filterWithKey (\svNodeAssignmentId _ -> not $ TextMap.member svNodeAssignmentId info.svNodeAssignments) currentSvRightOwner.info.svNodeAssignments
-            addedSvNodeAssignmentIds = filter (\svNodeAssignmentId -> not $ TextMap.member svNodeAssignmentId currentSvRightOwner.info.svNodeAssignments) (map fst $ TextMap.toList info.svNodeAssignments)
+        let removedAssignments = TextMap.filterWithKey (\svNodeAssignmentId _ -> not $ TextMap.member svNodeAssignmentId info.svNodeAssignments) currentSvRightsOwner.info.svNodeAssignments
+            addedSvNodeAssignmentIds = filter (\svNodeAssignmentId -> not $ TextMap.member svNodeAssignmentId currentSvRightsOwner.info.svNodeAssignments) (map fst $ TextMap.toList info.svNodeAssignments)
         archiveSvRightsOwnerRewardStates dso instruction.name removedAssignments removedSvRewardStateCids
         validatedRounds <- validateOpenMiningRoundTriple dso openMiningRoundTriple
         svRightsOwnerRewardStates <- createSvRightsOwnerRewardStates dso instruction.name addedSvNodeAssignmentIds (Round $ validatedRounds.latestUsableRound.round.number + 1)
-        return DsoRules_ExecuteUpdateSvRightOwnerInfoInstructionResult with svRightOwner; svRewardStates
+        return DsoRules_ExecuteUpdateSvRightOwnerInfoInstructionResult with svRightOwner; svRewardStates = svRightsOwnerRewardStates
 
     nonconsuming choice DsoRules_ExpireUpdateSvRightOwnerInfoInstruction : DsoRules_ExpireUpdateSvRightOwnerInfoInstructionResult
       with
@@ -2377,21 +2377,21 @@ template DsoRules with
         newInfo : SvRightOwnerInfo
           -- ^ The target info; only the beneficiaries and default beneficiaries of existing SV node assignments may differ from `baseInfo`.
         rightOwnerParty : Party -- ^ The party of the SV rights owner.
-      controller rightOwner
+      controller rightOwnerParty
       do
         requireOnLedgerSvRightOwners this
         requireSvRightOwnerExists this name
-        (svRightOwnerCid, currentSvRightOwner) <- fetchByKey @SvRightOwner (SvRightsOwnerKey with dso; name)
+        (svRightOwnerCid, currentSvRightsOwner) <- fetchByKey @SvRightOwner (SvRightsOwnerKey with dso; name)
         require "Beneficiaries are set by the SV right owner itself" $
-          currentSvRightOwner.info.rightOwnerParty == rightOwner
+          currentSvRightsOwner.info.rightOwnerParty == rightOwnerParty
         let withoutBeneficiaries info = info with svNodeAssignments = fmap (\assignment -> assignment with beneficiaries = []; defaultBeneficiary = dso) info.svNodeAssignments
         require "Only beneficiaries are changed through DsoRules_UpdateSvRightOwnerBeneficiaries" $
           withoutBeneficiaries baseInfo == withoutBeneficiaries newInfo
-        let info = patch newInfo baseInfo currentSvRightOwner.info
+        let info = patch newInfo baseInfo currentSvRightsOwner.info
         requireValidSvRightOwnerInfo info
         -- Fetched via `fetchByKey` above
         potentiallyUnsafeArchive svRightOwnerCid
-        svRightOwner <- create currentSvRightOwner with info
+        svRightOwner <- create currentSvRightsOwner with info
         return DsoRules_UpdateSvRightOwnerBeneficiariesResult with svRightOwner
 
     nonconsuming choice DsoRules_UpdateSvRightOwnerParty : DsoRules_UpdateSvRightOwnerPartyResult
@@ -2404,14 +2404,14 @@ template DsoRules with
       do
         requireOnLedgerSvRightOwners this
         requireSvRightOwnerExists this name
-        (svRightOwnerCid, currentSvRightOwner) <- fetchByKey @SvRightOwner (SvRightsOwnerKey with dso; name)
+        (svRightOwnerCid, currentSvRightsOwner) <- fetchByKey @SvRightOwner (SvRightsOwnerKey with dso; name)
         require "The party is rotated by the SV right owner itself" $
-          currentSvRightOwner.info.rightOwnerParty == currentRightOwnerParty
-        let info = currentSvRightOwner.info with rightOwnerParty = newRightOwnerParty
+          currentSvRightsOwner.info.rightOwnerParty == currentRightOwnerParty
+        let info = currentSvRightsOwner.info with rightOwnerParty = newRightOwnerParty
         requireValidSvRightOwnerInfo info
         -- Fetched via `fetchByKey` above
         potentiallyUnsafeArchive svRightOwnerCid
-        svRightOwner <- create currentSvRightOwner with info
+        svRightOwner <- create currentSvRightsOwner with info
         return DsoRules_UpdateSvRightOwnerPartyResult with svRightOwner
 
 
