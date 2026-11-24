@@ -1633,6 +1633,7 @@ template DsoRules with
                 beneficiary
                 weight
                 round = openRound.round
+                svRightsOwnerName = None
 
             return DsoRules_ReceiveSvRewardCouponResult with
                 svRewardState = newRewardStateCid
@@ -1685,6 +1686,7 @@ template DsoRules with
               beneficiary
               weight
               round = openRound.round
+              svRightsOwnerName = Some svRightsOwnerName
             pure (beneficiary, couponCid)
 
           pure (svRightsOwnerName, newRewardStateCid, Map.fromList couponCids)

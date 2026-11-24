@@ -45,6 +45,7 @@ classDiagram
         beneficiary : Party
         round : Round
         weight : Int
+        svRightsOwnerName : Optional Text
     }
     class UnclaimedReward {
         <<template>>
