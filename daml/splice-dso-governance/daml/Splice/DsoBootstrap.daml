@@ -94,7 +94,6 @@ template DsoBootstrap with
                     defaultBeneficiary = sv1Party
                 info = SvRightOwnerInfo with
                     rightOwnerParty = sv1Party
-                    description = ""
                     svNodeAssignments = TextMap.fromList [(svNodeAssignmentId, assignment)]
             create SvRightOwner with dso; name = rightOwnerName; info
             void $ createSvRightsOwnerRewardStates dso rightOwnerName [svNodeAssignmentId] sv1SvInfo.joinedAsOfRound

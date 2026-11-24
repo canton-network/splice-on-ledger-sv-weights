@@ -21,7 +21,6 @@ classDiagram
     }
     class SvRightOwnerInfo {
         rightOwnerParty : Party
-        description : Text
         svNodeAssignments : TextMap SvNodeAssignment
     }
     class SvNodeAssignment {

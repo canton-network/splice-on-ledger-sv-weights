@@ -40,8 +40,6 @@ data SvRightOwnerInfo = SvRightOwnerInfo
   with
     rightOwnerParty : Party
       -- ^ The party of the SV right owner; manages the SV right owner controlled information.
-    description : Text
-      -- ^ Human-readable description, e.g., the company and the CIPs that granted the weight.
     svNodeAssignments : TextMap SvNodeAssignment
       -- ^ Keyed by a stable id, unique per SV rights owner, so the reward state of an assignment is kept when it moves to another SV node.
   deriving (Eq, Show, Serializable)
@@ -131,7 +129,6 @@ instance Patchable SvRightOwnerInfo where
   patch new base current = SvRightOwnerInfo
     with
       rightOwnerParty = patch new.rightOwnerParty base.rightOwnerParty current.rightOwnerParty
-      description = patch new.description base.description current.description
       svNodeAssignments = patch new.svNodeAssignments base.svNodeAssignments current.svNodeAssignments
 
 instance Patchable SvNodeAssignment where

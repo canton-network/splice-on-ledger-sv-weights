@@ -21,14 +21,14 @@ num = lambda x: int(str(x).replace('_', ''))
 party = lambda name: f'{name}::1220' + '0' * 64  # the yaml has no SV and DSO party ids
 DSO = party('DSO')
 
-# PyYAML drops comments, so read the `# <label> # <role>` comment of every beneficiary line, in file order.
+# PyYAML drops comments, so read the role from the `# <label> # <role>` comment of every beneficiary line, in file order.
 comments = iter(re.findall(r'- beneficiary: "[^"]*"\s*(?:#(.*))?$', text, re.M))
 for sv in svs:
     sv['weight'], sv['party'], sv['entries'] = num(sv['rewardWeightBps']), party(sv['name']), []
     for b in sv.get('extraBeneficiaries') or []:
-        label, _, role = next(comments).partition('#')
+        role = next(comments).partition('#')[2]
         sv['entries'].append(dict(owner=b['svRightsOwnerName'], party=b['beneficiary'], weight=num(b['weight']),
-                                  label=label.strip(), role=role.strip()))
+                                  role=role.strip()))
 
 def is_escrow(e):
     return e['role'].startswith('escrow party_id') or 'unassigned weight' in e['role']
@@ -64,7 +64,6 @@ def convert(owner):
                 'defaultBeneficiary': default}
 
     return {'rightOwnerParty': owner_party,
-            'description': '; '.join(dict.fromkeys(e['label'] for sv in nodes for e in entries_at(sv) if e['label'])),
             # An owner has at most one assignment per SV node, so the SV node's name is a unique id at migration.
             'svNodeAssignments': {sv['name']: assignment(sv) for sv in nodes}}
 
