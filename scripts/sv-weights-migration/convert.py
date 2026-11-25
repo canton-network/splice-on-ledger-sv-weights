@@ -1,10 +1,11 @@
 #!/usr/bin/env -S uv run --script
-# /// script
-# dependencies = ["pyyaml"]
-# ///
 
 # Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
 # SPDX-License-Identifier: Apache-2.0
+
+# /// script
+# dependencies = ["pyyaml"]
+# ///
 
 """Convert approved-sv-id-values.yaml with `svRightsOwnerName` (configs#413) into the argument of
 `DsoRules_MigrateToOnLedgerSvRightOwners`, and check that every SV node mints the same coupons as today.
