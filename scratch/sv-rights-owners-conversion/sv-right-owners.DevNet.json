@@ -2,7 +2,7 @@
   "AngelHack": {
     "rightOwnerParty": "angelhack_devnet::12202884e80e7097caf94523e9e5533576ec2b5b016377bbd39f28b376f984a8a93d",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 25000,
         "escrowBeneficiaries": [],
@@ -14,7 +14,7 @@
   "Apollo-Global-Management": {
     "rightOwnerParty": "DSO::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Five-North-1": {
+      "assignment-1": {
         "svNodeName": "Five-North-1",
         "rewardWeight": 70000,
         "escrowBeneficiaries": [
@@ -31,7 +31,7 @@
   "BitGo": {
     "rightOwnerParty": "BitGo-ghost-1::1220a9cc88707f22cdad61f2cacc5edea9820daf21b70dc9744171f28e9b5b3c30f7",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 50000,
         "escrowBeneficiaries": [
@@ -52,7 +52,7 @@
   "Bitwave": {
     "rightOwnerParty": "Bitwave-1::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 10000,
         "escrowBeneficiaries": [],
@@ -64,7 +64,7 @@
         ],
         "defaultBeneficiary": "Bitwave-1::12200000000000000000000000000000000000000000000000000000000000000000"
       },
-      "Bitwave-1": {
+      "assignment-2": {
         "svNodeName": "Bitwave-1",
         "rewardWeight": 0,
         "escrowBeneficiaries": [],
@@ -76,7 +76,7 @@
   "Blockdaemon": {
     "rightOwnerParty": "Blockdaemon-SVrewards-1::1220738c50b544fcb6559af2894043f08562bec6a9feab975568673d22dff9ee304f",
     "svNodeAssignments": {
-      "MPC-Holding-Inc": {
+      "assignment-1": {
         "svNodeName": "MPC-Holding-Inc",
         "rewardWeight": 50000,
         "escrowBeneficiaries": [
@@ -93,7 +93,7 @@
   "Bosphorus-SV": {
     "rightOwnerParty": "DSO::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Five-North-1": {
+      "assignment-1": {
         "svNodeName": "Five-North-1",
         "rewardWeight": 60000,
         "escrowBeneficiaries": [
@@ -110,7 +110,7 @@
   "C7-Technology-Services-Limited": {
     "rightOwnerParty": "C7-Technology-Services-Limited::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "C7-Technology-Services-Limited": {
+      "assignment-1": {
         "svNodeName": "C7-Technology-Services-Limited",
         "rewardWeight": 105750,
         "escrowBeneficiaries": [],
@@ -122,7 +122,7 @@
   "ChainSafe": {
     "rightOwnerParty": "chainsafe-dev-sv-0::1220096316d4ea75c021d89123cfd2792cfeac80dfbf90bfbca21bcd8bf1bb40d84c",
     "svNodeAssignments": {
-      "Five-North-1": {
+      "assignment-1": {
         "svNodeName": "Five-North-1",
         "rewardWeight": 39500,
         "escrowBeneficiaries": [
@@ -139,7 +139,7 @@
   "Chainlink": {
     "rightOwnerParty": "Chainlink-ghost-1::1220a9cc88707f22cdad61f2cacc5edea9820daf21b70dc9744171f28e9b5b3c30f7",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 105000,
         "escrowBeneficiaries": [
@@ -156,7 +156,7 @@
   "Circle": {
     "rightOwnerParty": "circle-validator-1::12204f2fcd4f0b71ac10dc62a2fe2b57c7e8160008637d051d4bfff3f5236ae515fb",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 100000,
         "escrowBeneficiaries": [],
@@ -168,7 +168,7 @@
   "Copper": {
     "rightOwnerParty": "copper-devnetValidator-recoveredex::12209da7ed8b1556a7b2cc0ebfd9ea0086ff47a7898f8ec3149bcbc8582fa5055c49",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 20000,
         "escrowBeneficiaries": [],
@@ -180,14 +180,14 @@
   "Cumberland": {
     "rightOwnerParty": "Cumberland-1::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Cumberland-1": {
+      "assignment-1": {
         "svNodeName": "Cumberland-1",
         "rewardWeight": 136125,
         "escrowBeneficiaries": [],
         "beneficiaries": [],
         "defaultBeneficiary": "Cumberland-1::12200000000000000000000000000000000000000000000000000000000000000000"
       },
-      "Cumberland-2": {
+      "assignment-2": {
         "svNodeName": "Cumberland-2",
         "rewardWeight": 136125,
         "escrowBeneficiaries": [],
@@ -199,7 +199,7 @@
   "DTCC": {
     "rightOwnerParty": "DSO::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 100000,
         "escrowBeneficiaries": [
@@ -216,21 +216,21 @@
   "Digital-Asset": {
     "rightOwnerParty": "DA-Helm-Test-Node::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "DA-Helm-Test-Node": {
+      "assignment-1": {
         "svNodeName": "DA-Helm-Test-Node",
         "rewardWeight": 10000,
         "escrowBeneficiaries": [],
         "beneficiaries": [],
         "defaultBeneficiary": "DA-Helm-Test-Node::12200000000000000000000000000000000000000000000000000000000000000000"
       },
-      "Digital-Asset-1": {
+      "assignment-2": {
         "svNodeName": "Digital-Asset-1",
         "rewardWeight": 159250,
         "escrowBeneficiaries": [],
         "beneficiaries": [],
         "defaultBeneficiary": "Digital-Asset-1::12200000000000000000000000000000000000000000000000000000000000000000"
       },
-      "Digital-Asset-2": {
+      "assignment-3": {
         "svNodeName": "Digital-Asset-2",
         "rewardWeight": 159250,
         "escrowBeneficiaries": [],
@@ -242,7 +242,7 @@
   "Figment": {
     "rightOwnerParty": "figment-devnet-validator-1::12200a16a17dd793b33b61b503fb291bd21e08d856a6d383b2034d1c2ef47977268a",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 10000,
         "escrowBeneficiaries": [],
@@ -254,7 +254,7 @@
   "Fireblocks": {
     "rightOwnerParty": "Fireblocks-ghost-1::1220a9cc88707f22cdad61f2cacc5edea9820daf21b70dc9744171f28e9b5b3c30f7",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 50000,
         "escrowBeneficiaries": [
@@ -271,7 +271,7 @@
   "Five-North": {
     "rightOwnerParty": "Five-North-1::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Five-North-1": {
+      "assignment-1": {
         "svNodeName": "Five-North-1",
         "rewardWeight": 30500,
         "escrowBeneficiaries": [],
@@ -283,7 +283,7 @@
   "Further-Asset-Management": {
     "rightOwnerParty": "DSO::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Five-North-1": {
+      "assignment-1": {
         "svNodeName": "Five-North-1",
         "rewardWeight": 80000,
         "escrowBeneficiaries": [
@@ -300,7 +300,7 @@
   "Global-Synchronizer-Foundation": {
     "rightOwnerParty": "Global-Synchronizer-Foundation::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 266000,
         "escrowBeneficiaries": [],
@@ -317,7 +317,7 @@
   "Hex-Trust": {
     "rightOwnerParty": "HexTrust_73001ffe_ddc550b8::12201cb649212fb6a1d9e7e518dd07bc64c0713ba57293b35e37f786f977aeae9279",
     "svNodeAssignments": {
-      "MPC-Holding-Inc": {
+      "assignment-1": {
         "svNodeName": "MPC-Holding-Inc",
         "rewardWeight": 30000,
         "escrowBeneficiaries": [
@@ -334,7 +334,7 @@
   "Hypernative": {
     "rightOwnerParty": "DSO::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 10000,
         "escrowBeneficiaries": [
@@ -351,7 +351,7 @@
   "Kaiko": {
     "rightOwnerParty": "kaiko-devnet-1::12200fd571073e933e107afec72902c1a59f4f0ec3be8ef4ada5231c9d3f6d93de2c",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 65000,
         "escrowBeneficiaries": [],
@@ -363,7 +363,7 @@
   "Kiln": {
     "rightOwnerParty": "kiln-devnetValidator-1::122030d0afac1b1d797fcef6095ca7c60a38ce644295c730389e0276d213d23f1a10",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 10000,
         "escrowBeneficiaries": [],
@@ -375,7 +375,7 @@
   "LSEG": {
     "rightOwnerParty": "DSO::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "MPC-Holding-Inc": {
+      "assignment-1": {
         "svNodeName": "MPC-Holding-Inc",
         "rewardWeight": 100000,
         "escrowBeneficiaries": [
@@ -392,7 +392,7 @@
   "Layer-Zero": {
     "rightOwnerParty": "DSO::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 30000,
         "escrowBeneficiaries": [
@@ -409,7 +409,7 @@
   "Ledger": {
     "rightOwnerParty": "ledger-ledgeropsdevnet-0::12208f74f551f8c28b68414fc3bb4b8466178055845485878a1af8ac1fe96f88fad2",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 50000,
         "escrowBeneficiaries": [
@@ -426,7 +426,7 @@
   "Liberty-City-Ventures": {
     "rightOwnerParty": "Liberty-City-Ventures-1::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Liberty-City-Ventures-1": {
+      "assignment-1": {
         "svNodeName": "Liberty-City-Ventures-1",
         "rewardWeight": 100000,
         "escrowBeneficiaries": [],
@@ -438,7 +438,7 @@
   "MPC-Holding-Inc": {
     "rightOwnerParty": "MPC-Holding-Inc::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "MPC-Holding-Inc": {
+      "assignment-1": {
         "svNodeName": "MPC-Holding-Inc",
         "rewardWeight": 20000,
         "escrowBeneficiaries": [],
@@ -450,7 +450,7 @@
   "Marex": {
     "rightOwnerParty": "DSO::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "MPC-Holding-Inc": {
+      "assignment-1": {
         "svNodeName": "MPC-Holding-Inc",
         "rewardWeight": 100000,
         "escrowBeneficiaries": [
@@ -467,7 +467,7 @@
   "Mesh": {
     "rightOwnerParty": "DSO::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 100000,
         "escrowBeneficiaries": [
@@ -484,7 +484,7 @@
   "Nasdaq": {
     "rightOwnerParty": "DSO::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 100000,
         "escrowBeneficiaries": [
@@ -501,7 +501,7 @@
   "Obsidian-Systems": {
     "rightOwnerParty": "ObsidianSystems-validator-6::1220b8b7cfcc7e607c5aa967a880ef39c65543a617895aab20c0fe89ed5608d19edf",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 10000,
         "escrowBeneficiaries": [],
@@ -513,7 +513,7 @@
   "Orb-1-LP": {
     "rightOwnerParty": "Orb-1-LP-1::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Orb-1-LP-1": {
+      "assignment-1": {
         "svNodeName": "Orb-1-LP-1",
         "rewardWeight": 100000,
         "escrowBeneficiaries": [],
@@ -525,7 +525,7 @@
   "Proof-Group": {
     "rightOwnerParty": "Proof-Group-1::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Proof-Group-1": {
+      "assignment-1": {
         "svNodeName": "Proof-Group-1",
         "rewardWeight": 12500,
         "escrowBeneficiaries": [],
@@ -537,7 +537,7 @@
   "QCP-Group": {
     "rightOwnerParty": "DSO::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Five-North-1": {
+      "assignment-1": {
         "svNodeName": "Five-North-1",
         "rewardWeight": 50000,
         "escrowBeneficiaries": [
@@ -554,7 +554,7 @@
   "Republic": {
     "rightOwnerParty": "Republic-Devel-1::122030b358dec6e1af7d6d9b2ec87a633eed9afd683be768ea0becc964274c4bb8da",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 60000,
         "escrowBeneficiaries": [
@@ -571,7 +571,7 @@
   "SV-Nodeops-Limited": {
     "rightOwnerParty": "SV-Nodeops-Limited::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "SV-Nodeops-Limited": {
+      "assignment-1": {
         "svNodeName": "SV-Nodeops-Limited",
         "rewardWeight": 102500,
         "escrowBeneficiaries": [],
@@ -583,7 +583,7 @@
   "Societe-Generale": {
     "rightOwnerParty": "DSO::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 80000,
         "escrowBeneficiaries": [
@@ -600,7 +600,7 @@
   "Talos": {
     "rightOwnerParty": "Talos-ghost-1::1220a9cc88707f22cdad61f2cacc5edea9820daf21b70dc9744171f28e9b5b3c30f7",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 65000,
         "escrowBeneficiaries": [
@@ -621,7 +621,7 @@
   "Taurus": {
     "rightOwnerParty": "Taurus-ghost-1::1220a9cc88707f22cdad61f2cacc5edea9820daf21b70dc9744171f28e9b5b3c30f7",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 50000,
         "escrowBeneficiaries": [
@@ -638,7 +638,7 @@
   "Tharimmune": {
     "rightOwnerParty": "CantonStrategicHoldings-SVrewards-1::1220a816c3b1810840b0f40f74f3728e4f0d15fc4d15a472aab8bcdad796616e831c",
     "svNodeAssignments": {
-      "MPC-Holding-Inc": {
+      "assignment-1": {
         "svNodeName": "MPC-Holding-Inc",
         "rewardWeight": 150000,
         "escrowBeneficiaries": [
@@ -655,7 +655,7 @@
   "The-Tie": {
     "rightOwnerParty": "TheTie-validator-1::1220944b4dab3e3436c9ca6c331b6c9b11d908d71db471e44bc5d0bce6b5e81a796e",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 10000,
         "escrowBeneficiaries": [],
@@ -667,7 +667,7 @@
   "Tradeweb-Markets": {
     "rightOwnerParty": "Tradeweb-Markets-1::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Tradeweb-Markets-1": {
+      "assignment-1": {
         "svNodeName": "Tradeweb-Markets-1",
         "rewardWeight": 100000,
         "escrowBeneficiaries": [],
@@ -679,7 +679,7 @@
   "USDT0": {
     "rightOwnerParty": "DSO::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 100000,
         "escrowBeneficiaries": [
@@ -696,7 +696,7 @@
   "Ubyx": {
     "rightOwnerParty": "ubyx-validator-1::1220c93467e4eab0473524cf4f33eff7a25df9a2832d6a19ebf2b5d70918336f9475",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 50000,
         "escrowBeneficiaries": [
@@ -717,7 +717,7 @@
   "Visa": {
     "rightOwnerParty": "DSO::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "MPC-Holding-Inc": {
+      "assignment-1": {
         "svNodeName": "MPC-Holding-Inc",
         "rewardWeight": 100000,
         "escrowBeneficiaries": [
@@ -734,7 +734,7 @@
   "Wormhole": {
     "rightOwnerParty": "DSO::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 30000,
         "escrowBeneficiaries": [
@@ -751,7 +751,7 @@
   "YZi-Labs": {
     "rightOwnerParty": "DSO::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 100000,
         "escrowBeneficiaries": [
@@ -768,7 +768,7 @@
   "Zenith": {
     "rightOwnerParty": "zenith-validator-1::1220555bde23e4b405d3da100c2d6c4c648ece924e8e38f37ab2587e54e5ce643591",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 100000,
         "escrowBeneficiaries": [
@@ -785,7 +785,7 @@
   "Zero-Hash": {
     "rightOwnerParty": "zhstaking-devnet::1220a5c87858708e08b30406776502d2506fdf9b9961195e6008fc04eca6fee9f0a7",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 75000,
         "escrowBeneficiaries": [
@@ -802,7 +802,7 @@
   "Zodia": {
     "rightOwnerParty": "DSO::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "Global-Synchronizer-Foundation": {
+      "assignment-1": {
         "svNodeName": "Global-Synchronizer-Foundation",
         "rewardWeight": 50000,
         "escrowBeneficiaries": [
@@ -819,7 +819,7 @@
   "a16z": {
     "rightOwnerParty": "DSO::12200000000000000000000000000000000000000000000000000000000000000000",
     "svNodeAssignments": {
-      "MPC-Holding-Inc": {
+      "assignment-1": {
         "svNodeName": "MPC-Holding-Inc",
         "rewardWeight": 100000,
         "escrowBeneficiaries": [

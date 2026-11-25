@@ -77,7 +77,7 @@ classDiagram
     SvRewardCoupon ..> UnclaimedReward : escrow coupons expected to expire unclaimed
 ```
 
-- One `SvRightOwner` per owner, with key `SvRightsOwnerKey` and its `SvNodeAssignment`s, keyed by a stable id unique per owner (at migration the name of its SV node), at most one per SV node.
+- One `SvRightOwner` per owner, with key `SvRightsOwnerKey` and its `SvNodeAssignment`s, keyed by a stable id unique per owner (`assignment-1`, `assignment-2`, …), at most one per SV node.
 - An assignment has its SV node, its weight, escrow beneficiaries with fixed weights inside `rewardWeight` (set only by a vote), beneficiaries with a share of the non-escrowed weight, and a default beneficiary for the rest. The owner changes only the beneficiaries and the default beneficiary.
 - One `SvRightsOwnerRewardState` per assignment, with key `(dso, svRightsOwnerName, svNodeAssignmentId)`. Moving an assignment to another SV node keeps it. Merging an assignment into another one of the same owner (retiring an SV node) can mint the open rounds of the removed one again, as moving weight between SV nodes can today; accepted.
 - At migration each assignment gets a copy of its SV node's `SvRewardState`, and every SV node keeps its weight, so no round is minted twice or missed.

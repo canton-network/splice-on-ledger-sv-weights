@@ -64,8 +64,8 @@ def convert(owner):
                 'defaultBeneficiary': default}
 
     return {'rightOwnerParty': owner_party,
-            # An owner has at most one assignment per SV node, so the SV node's name is a unique id at migration.
-            'svNodeAssignments': {sv['name']: assignment(sv) for sv in nodes}}
+            # Ids are numbered per owner, so they don't name an SV node the assignment can later leave.
+            'svNodeAssignments': {f'assignment-{i}': assignment(sv) for i, sv in enumerate(nodes, 1)}}
 
 owners = sorted({o for sv in svs for o in [sv['svRightsOwnerName']] + [e['owner'] for e in sv['entries']]})
 result = {o: convert(o) for o in owners}
