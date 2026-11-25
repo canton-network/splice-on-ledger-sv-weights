@@ -2403,12 +2403,12 @@ template DsoRules with
         requireOnLedgerSvRightOwners this
         requireSvRightOwnerExists this name
         (svRightOwnerCid, currentSvRightsOwner) <- fetchByKey @SvRightOwner (SvRightsOwnerKey with dso; name)
+        -- Fetched via `fetchByKey` above
+        potentiallyUnsafeArchive svRightOwnerCid
         require "The party is rotated by the SV right owner itself" $
           currentSvRightsOwner.info.rightOwnerParty == currentRightOwnerParty
         let info = currentSvRightsOwner.info with rightOwnerParty = newRightOwnerParty
         requireValidSvRightOwnerInfo info
-        -- Fetched via `fetchByKey` above
-        potentiallyUnsafeArchive svRightOwnerCid
         svRightOwner <- create currentSvRightsOwner with info
         return DsoRules_UpdateSvRightOwnerPartyResult with svRightOwner
 
