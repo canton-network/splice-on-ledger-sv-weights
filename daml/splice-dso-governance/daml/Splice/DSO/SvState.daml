@@ -143,9 +143,6 @@ template SvStatusReport with
 instance HasCheckedFetch SvRewardState ForSv where
   contractGroupId SvRewardState {..} = ForSv with dso; svName
 
-instance HasCheckedFetch SvRightsOwnerRewardState SvRightsOwnerRewardStateKey where
-  contractGroupId SvRightsOwnerRewardState {..} = SvRightsOwnerRewardStateKey with dso; svRightsOwnerName; svNodeAssignmentId
-
 instance HasCheckedFetch SvRightsOwnerRewardState ForSv where
   contractGroupId SvRightsOwnerRewardState {..} = ForSv with dso; svName = svRightsOwnerName
 

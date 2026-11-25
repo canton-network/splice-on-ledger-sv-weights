@@ -2264,7 +2264,6 @@ template DsoRules with
       with
         instructionCid : ContractId RemoveSvRightOwnerInstruction
         svRightOwnerCid : ContractId SvRightOwner
-        svRewardStateCids : TextMap (ContractId SvRightsOwnerRewardState)
         svOperator : Party
       controller svOperator
       do
@@ -2278,7 +2277,7 @@ template DsoRules with
         -- We archive the reward states together with the SV rights owner to avoid having to track
         -- removed SV right owners just to prevent them from minting the same round twice.
         -- A right owner re-added under the same name starts after the latest usable round, so it cannot mint a round twice.
-        archiveSvRightsOwnerRewardStates dso instruction.name svRightOwner.info.svNodeAssignments svRewardStateCids
+        archiveSvRightsOwnerRewardStates dso instruction.name (map fst $ TextMap.toList svRightOwner.info.svNodeAssignments)
         newDsoRules <- create this with
           svRightOwners = Set.delete instruction.name <$> svRightOwners
         return DsoRules_ExecuteRemoveSvRightOwnerInstructionResult with ..
@@ -2326,8 +2325,6 @@ template DsoRules with
       with
         instructionCid : ContractId UpdateSvRightOwnerInfoInstruction
         svRightOwnerCid : ContractId SvRightOwner
-        removedSvRewardStateCids : TextMap (ContractId SvRightsOwnerRewardState)
-          -- ^ The reward states of the SV node assignments this update removes, keyed by assignment id.
         openMiningRoundTriple : OpenMiningRoundTriple
           -- ^ Determines the latest usable round; added SV node assignments start collecting rewards in the round after it.
         svOperator : Party
@@ -2346,7 +2343,7 @@ template DsoRules with
         svRightOwner <- create currentSvRightsOwner with info
         let removedAssignments = TextMap.filterWithKey (\svNodeAssignmentId _ -> not $ TextMap.member svNodeAssignmentId info.svNodeAssignments) currentSvRightsOwner.info.svNodeAssignments
             addedSvNodeAssignmentIds = filter (\svNodeAssignmentId -> not $ TextMap.member svNodeAssignmentId currentSvRightsOwner.info.svNodeAssignments) (map fst $ TextMap.toList info.svNodeAssignments)
-        archiveSvRightsOwnerRewardStates dso instruction.name removedAssignments removedSvRewardStateCids
+        archiveSvRightsOwnerRewardStates dso instruction.name (map fst $ TextMap.toList removedAssignments)
         validatedRounds <- validateOpenMiningRoundTriple dso openMiningRoundTriple
         svRightsOwnerRewardStates <- createSvRightsOwnerRewardStates dso instruction.name addedSvNodeAssignmentIds (Round $ validatedRounds.latestUsableRound.round.number + 1)
         return DsoRules_ExecuteUpdateSvRightOwnerInfoInstructionResult with svRightOwner; svRewardStates = svRightsOwnerRewardStates
@@ -2736,12 +2733,12 @@ createSvRightsOwnerRewardStates dso svRightsOwnerName svNodeAssignmentIds joined
         numCouponsIssued = 0
     pure (svNodeAssignmentId, svRewardState)
 
-archiveSvRightsOwnerRewardStates : Party -> Text -> TextMap SvNodeAssignment -> TextMap (ContractId SvRightsOwnerRewardState) -> Update ()
-archiveSvRightsOwnerRewardStates dso svRightsOwnerName svNodeAssignments svRewardStateCids = do
-  require "Reward states are provided for exactly the SV node assignments" $
-    map fst (TextMap.toList svRewardStateCids) == map fst (TextMap.toList svNodeAssignments)
-  forA_ (TextMap.toList svRewardStateCids) $ \(svNodeAssignmentId, svRewardStateCid) ->
-    void $ fetchAndArchive (SvRightsOwnerRewardStateKey with dso; svRightsOwnerName; svNodeAssignmentId) svRewardStateCid
+archiveSvRightsOwnerRewardStates : Party -> Text -> [Text] -> Update ()
+archiveSvRightsOwnerRewardStates dso svRightsOwnerName svNodeAssignmentIds =
+  forA_ svNodeAssignmentIds $ \svNodeAssignmentId -> do
+    (svRewardStateCid, _) <- fetchByKey @SvRightsOwnerRewardState (SvRightsOwnerRewardStateKey with dso; svRightsOwnerName; svNodeAssignmentId)
+    -- Fetched via `fetchByKey` above
+    potentiallyUnsafeArchive svRewardStateCid
 
 createPerSvPartyContracts : Party -> Party -> Text -> SynchronizerNodeConfigMap -> Optional Decimal -> RelTime -> Update ()
 createPerSvPartyContracts dso newSvParty newSvName synchronizerNodes amuletPrice voteCooldownTime = do
