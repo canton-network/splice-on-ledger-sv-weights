@@ -24,12 +24,14 @@ test_shouldLetOnlyTheSvRightOwnerReplaceItsBeneficiaries = withTwoSvRightOwners 
   setBeneficiariesAs net newcomer.party newcomer (sharingWith [(first, 0.6), (second, 0.5)]) >>= shouldBeRejected "Beneficiary reward ratios add up to at most 1.0"
   setBeneficiariesAs net newcomer.party newcomer (sharingWith [(first, 0.0)]) >>= shouldBeRejected "Beneficiary reward ratios are positive"
   setBeneficiariesAs net newcomer.party newcomer (sharingWith [(newcomer.party, 0.1)]) >>= shouldSucceed
+  setBeneficiariesAs net newcomer.party newcomer (sharingWith [(first, 0.2), (first, 0.3)]) >>= shouldBeRejected "Each beneficiary is listed at most once"
   setBeneficiariesAs net newcomer.party newcomer (sharingWith [(party, 0.01) | party <- crowd]) >>= shouldBeRejected "There are at most 20 beneficiaries"
   setBeneficiariesAs net newcomer.party newcomer (sharingWith [(party, 0.01) | party <- take 20 crowd]) >>= shouldSucceed
   
-  setBeneficiariesAs net newcomer.party newcomer ownSplit >>= shouldSucceed
+  fallback <- allocateParty "fallback-beneficiary"
+  setBeneficiariesWith net newcomer.party newcomer.name (svRightOwnerInfo newcomer) (svRightOwnerInfo (newcomer with beneficiaries = ownSplit; defaultBeneficiary = fallback)) >>= shouldSucceed
 
-  svRightOwners net `shouldReturn` [cotenant, (newcomer with beneficiaries = ownSplit), net.genesisOwner]
+  svRightOwners net `shouldReturn` [cotenant, (newcomer with beneficiaries = ownSplit; defaultBeneficiary = fallback), net.genesisOwner]
 
 test_shouldLetAnSvRightOwnerWithoutAnSvNodeSetItsBeneficiariesFromDisclosedContracts = withTwoSvRightOwners $ \net newcomer -> do
   beneficiary <- allocateParty "beneficiary"

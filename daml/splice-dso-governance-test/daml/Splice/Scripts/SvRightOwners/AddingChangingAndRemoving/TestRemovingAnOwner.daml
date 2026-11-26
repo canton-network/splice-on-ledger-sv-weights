@@ -4,6 +4,7 @@
 module Splice.Scripts.SvRightOwners.AddingChangingAndRemoving.TestRemovingAnOwner where
 
 import DA.Assert ((===))
+import qualified DA.TextMap as TextMap
 import DA.Time (addRelTime)
 
 import Daml.Script
@@ -104,7 +105,13 @@ test_shouldLetAnySvOperatorExecuteTheRemovalWithTheCurrentContracts = withTwoSvR
   svNodeOperators net `shouldReturn` [net.sv1, net.sv2, net.sv3, net.sv4]
 
 test_shouldAllowReAddingARemovedSvRightOwnerUnderTheSameName = withTwoSvRightOwners $ \net newcomer -> do
+  let base = svRightOwnerInfo newcomer
+      atSv4 = base with svNodeAssignments = TextMap.insert "assignment-2" ((onlySvNodeAssignment base) with svNodeName = net.sv4.name) base.svNodeAssignments
+  voteToUpdate net newcomer.name base atSv4 >>= executeUpdate net net.sv1.party >>= shouldSucceed
+  svRewardStateNames net `shouldReturn` [newcomer.name, newcomer.name, net.genesisOwner.name]
+
   voteToRemove net newcomer.name >>= executeRemoval net net.sv1.party >>= shouldSucceed
+  svRewardStateNames net `shouldReturn` [net.genesisOwner.name]
 
   [_, (_, latestUsableRound)] <- getOpenRoundsSorted net.app
   readded <- newSvRightOwner newcomer.name net.sv3
