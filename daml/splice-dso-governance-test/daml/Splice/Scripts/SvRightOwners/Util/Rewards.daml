@@ -36,9 +36,6 @@ mintWith : Network -> Party -> ContractId OpenMiningRound -> TextMap.TextMap (Co
 mintWith net svOperator openRoundCid svRightOwnerRewardInputs = attempt net svOperator $ \dsoRulesCid ->
   exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCouponV2 with svOperator; openRoundCid; svRightOwnerRewardInputs
 
-mintLegacy : Network -> Party -> ContractId OpenMiningRound -> Text -> Script Attempt
-mintLegacy net sv openRoundCid name = mintLegacyWith net sv openRoundCid name []
-
 mintLegacyWith : Network -> Party -> ContractId OpenMiningRound -> Text -> [(Party, Int)] -> Script Attempt
 mintLegacyWith net sv openRoundCid name beneficiaries = do
   rewardStateCid <- DsoTestUtils.getSvRewardStateCid net.app name

@@ -74,7 +74,7 @@ test_shouldMoveAnOrphanedSvRightOwnerToAnotherSvNodeOperatorAfterItsHostIsOffboa
   svNodeOperators net `shouldReturn` [net.sv1, net.sv3, net.sv4]
   execute net net.sv1.party addition >>= shouldBeRejected "SV right owner's node operator must exist"
   executeUpdate net net.sv1.party raise >>= shouldBeRejected "SV right owner's node operator must exist"
-  mintThrough net net.sv3 newcomer.name >>= shouldBeRejected "SV Right Owner mints through this SV Node Operator"
+  mintThrough net net.sv3 newcomer.name >>= shouldBeRejected "SV node assignment \"assignment-1\" of SV rights owner \"newcomer\" mints through SV node \"sv3\""
 
   executeUpdate net net.sv1.party move >>= shouldSucceed
   runNextIssuance net.app
@@ -119,7 +119,6 @@ test_shouldLetTheSvRightOwnerRotateItsPartyAndThenOnlyTheNewPartyActForIt = with
   rotatePartyAs net cotenant.party rotated stranger >>= shouldBeRejected notOwner
   rotatePartyAs net stranger rotated stranger >>= shouldBeRejected notOwner
   setBeneficiariesAs net newcomer.party rotated split >>= shouldBeRejected "Beneficiaries are set by the SV right owner itself"
-  rotatePartyAs net successor rotated beneficiary >>= shouldBeRejected "SV right owner is not a beneficiary"
   setBeneficiariesAs net successor rotated split >>= shouldSucceed
 
   svRightOwners net `shouldReturn` [cotenant, (rotated with beneficiaries = split), net.genesisOwner]

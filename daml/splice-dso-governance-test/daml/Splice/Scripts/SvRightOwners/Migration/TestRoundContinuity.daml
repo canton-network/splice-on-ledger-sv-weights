@@ -3,11 +3,12 @@
 
 module Splice.Scripts.SvRightOwners.Migration.TestRoundContinuity where
 
+import DA.List (last)
 import qualified DA.TextMap as TextMap
 
 import Daml.Script
 
-import Splice.DSO.SvState (RewardState(..))
+import Splice.DsoRules (DsoRules_ReceiveSvRewardCoupon(..))
 
 import qualified Splice.Scripts.DsoTestUtils as DsoTestUtils
 import Splice.Scripts.SvRightOwners.Util.Fixture
@@ -21,23 +22,27 @@ test_shouldKeepTheLastCollectedRoundForAnOwnerNamedAfterItsLegacyOperator = with
 
   rewardStateOf net net.genesisOwner `shouldReturn` before
 
-test_shouldStartAnOwnerWithoutALegacyPredecessorAfterTheLatestUsableRound = withLegacyWeights $ \net -> do
+test_shouldCarryOverTheHostsRewardStateToAnOwnerWithAnotherName = withLegacyWeights $ \net -> do
   owners <- svRightOwnerInfosFromOperators net.app
   Some sv2 <- pure $ TextMap.lookup "sv2" owners
   newcomer <- allocateParty "new-owner"
-  [_, (_, latestUsableRound)] <- getOpenRoundsSorted net.app
+  sv2RewardState <- DsoTestUtils.getSvRewardStateCid net.app "sv2" >>= contractPayload net
   let migratedOwners = TextMap.insert "new-owner" (sv2 with rightOwnerParty = newcomer) $ TextMap.delete "sv2" owners
   instruction <- migrationRequestedFor net migratedOwners
   rewardStates <- rewardStatesForSvOperators net
 
   migrate net instruction rewardStates >>= shouldSucceed
 
-  rewardStateNamed net "new-owner"
-    `shouldReturn` RewardState with lastRoundCollected = latestUsableRound.round; numRoundsCollected = 0; numRoundsMissed = 0; numCouponsIssued = 0
+  rewardStateNamed net "new-owner" `shouldReturn` sv2RewardState.state
 
 test_shouldAllowMigratedSvToMintAfterMigration = withLegacyWeights $ \net -> do
+  legacyRewardState <- DsoTestUtils.getSvRewardStateCid net.app "sv1"
   migrateDefault net
 
+  (openRoundCid, _) <- last <$> getOpenRoundsSorted net.app
+  attempt net net.sv1.party (\dsoRulesCid -> exerciseCmd dsoRulesCid DsoRules_ReceiveSvRewardCoupon with
+    sv = net.sv1.party; openRoundCid; rewardStateCid = legacyRewardState; beneficiaries = [])
+    >>= shouldBeRejected "svRightOwners are not tracked on-ledger"
   mintThrough net net.sv1 "sv1" >>= shouldSucceed
   mintThrough net net.sv1 "sv1" >>= shouldBeRejected "is greater than the last round a reward has been received for"
 

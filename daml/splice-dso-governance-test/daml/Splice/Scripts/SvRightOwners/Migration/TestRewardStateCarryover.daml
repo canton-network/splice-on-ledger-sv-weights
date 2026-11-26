@@ -9,11 +9,11 @@ import qualified Splice.Scripts.DsoTestUtils as DsoTestUtils
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
 
-test_shouldReuseTheLegacyRewardStateForAnOwnerWithTheSameName = withLegacyWeights $ \net -> do
-  rewardState <- svRewardStateCidFor net "sv1"
+test_shouldArchiveTheLegacyRewardStateForAnOwnerWithTheSameName = withLegacyWeights $ \net -> do
+  rewardState <- DsoTestUtils.getSvRewardStateCid net.app "sv1"
   migrateDefault net
 
-  svRewardStateCidFor net "sv1" `shouldReturn` rewardState
+  expectArchived net rewardState
 
 test_shouldArchiveTheLegacyRewardStateForAnOperatorThatDoesNotContinue = withLegacyWeights $ \net -> do
   owners <- svRightOwnerInfosFromOperators net.app
@@ -37,7 +37,7 @@ test_shouldLeaveNoOrphanedRewardStateAfterMigration = withLegacyWeights $ \net -
   svRewardStateNames net `shouldReturn` ["sv1", "sv2-owner", "sv3", "sv4"]
 
 test_shouldArchiveTheLeftoverRewardStateOfAnSvOffboardedBeforeMigration = withLegacyWeights $ \net -> do
-  sv3RewardState <- svRewardStateCidFor net "sv3"
+  sv3RewardState <- DsoTestUtils.getSvRewardStateCid net.app "sv3"
   sv4RewardState <- DsoTestUtils.getSvRewardStateCid net.app "sv4"
   offboardSvNodeOperator net net.sv3
   returningSv3 <- newSvNodeOperator "returning-sv3"
@@ -51,7 +51,7 @@ test_shouldArchiveTheLeftoverRewardStateOfAnSvOffboardedBeforeMigration = withLe
   purge net "sv4" sv4RewardState >>= shouldSucceed
 
   expectArchived net sv4RewardState
-  svRewardStateCidFor net "sv3" `shouldReturn` sv3RewardState
+  expectArchived net sv3RewardState
 
 test_shouldArchiveTheLeftoverRewardStateOfAnOffboardedSvReturningAsAnOwner = withLegacyWeights $ \net -> do
   sv4RewardState <- DsoTestUtils.getSvRewardStateCid net.app "sv4"

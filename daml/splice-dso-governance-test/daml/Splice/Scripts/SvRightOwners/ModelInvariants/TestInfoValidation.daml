@@ -11,8 +11,6 @@ test_shouldRejectAddingAnOwnerWhoseInfoIsInvalid = withOnLedgerWeights $ \net ->
 
   addAs net net.app.dso (owner with beneficiaries = sharingWith [(net.sv3.party, 1.1)])
     >>= shouldBeRejected "Beneficiary reward ratios add up to at most 1.0"
-  addAs net net.app.dso (owner with beneficiaries = sharingWith [(owner.party, 0.25)])
-    >>= shouldBeRejected "SV right owner is not a beneficiary"
 
 test_shouldRejectAnInfoUpdateWhoseInfoIsInvalid = withOnLedgerWeights $ \net -> do
   let info = svRightOwnerInfo net.genesisOwner
@@ -21,11 +19,3 @@ test_shouldRejectAnInfoUpdateWhoseInfoIsInvalid = withOnLedgerWeights $ \net -> 
   updateAs net net.app.dso "sv1" info (svRightOwnerInfo (net.genesisOwner with
     beneficiaries = sharingWith [(net.sv2.party, 1.1)]))
     >>= shouldBeRejected "Beneficiaries cannot be changed through DsoRules_UpdateSvRightOwnerInfo"
-
-test_shouldRejectAnInfoUpdateWhoseMergedBeneficiariesIncludeItsNewRightOwner = withOnLedgerWeights $ \net -> do
-  let current = sharingWith [(net.sv2.party, 0.25)]
-      info = svRightOwnerInfo net.genesisOwner
-  instruction <- voteToUpdate net "sv1" info (info with rightOwnerParty = net.sv2.party)
-
-  setBeneficiaries net net.genesisOwner current
-  updateInfo net instruction "sv1" >>= shouldBeRejected "SV right owner is not a beneficiary"
