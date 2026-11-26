@@ -60,5 +60,4 @@ test_shouldLetOnlyTheNewPartySetTheBeneficiariesAfterAVotedPartyRotation = withT
   svRightOwners net `shouldReturn` [(rotated with beneficiaries = split), net.genesisOwner]
 
 test_shouldRefuseSettingBeneficiariesUnderLegacyWeightManagement = withLegacyWeights $ \net -> do
-  noSvRightOwner <- coerceContractId <$> dsoRules net
-  setBeneficiariesWith net net.genesisOwner.party net.genesisOwner.name (sharingWith []) noSvRightOwner >>= shouldBeRejected "svRightOwners are tracked on-ledger"
+  setBeneficiariesWith net net.genesisOwner.party net.genesisOwner.name (svRightOwnerInfo net.genesisOwner) (svRightOwnerInfo net.genesisOwner) >>= shouldBeRejected "svRightOwners are tracked on-ledger"

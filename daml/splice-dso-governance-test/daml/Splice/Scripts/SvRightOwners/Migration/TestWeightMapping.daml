@@ -25,10 +25,10 @@ test_shouldMigrateOneLegacyOperatorToSeveralRightOwners = withLegacyWeights $ \n
   owners <- svRightOwnerInfosFromOperators net.app
   Some sv2 <- pure $ TextMap.lookup "sv2" owners
   firstOwner <- allocateParty "sv2-first-owner"
-  let firstWeight = sv2.rewardWeight / 2
-      secondWeight = sv2.rewardWeight - firstWeight
-      splitOwners = TextMap.insert "sv2-a" (sv2 with rightOwnerParty = firstOwner; rewardWeight = firstWeight)
-        $ TextMap.insert "sv2-b" (sv2 with rewardWeight = secondWeight)
+  let firstWeight = (onlySvNodeAssignment sv2).rewardWeight / 2
+      secondWeight = (onlySvNodeAssignment sv2).rewardWeight - firstWeight
+      splitOwners = TextMap.insert "sv2-a" (svRightOwnerInfoFor firstOwner firstWeight "sv2")
+        $ TextMap.insert "sv2-b" (svRightOwnerInfoFor sv2.rightOwnerParty secondWeight "sv2")
         $ TextMap.delete "sv2" owners
   instruction <- migrationRequestedFor net splitOwners
   rewardStates <- rewardStatesForSvOperators net
@@ -49,6 +49,6 @@ test_shouldRejectMigrationWithAnIncompleteWeightMapping = withLegacyWeights $ \n
 test_shouldRejectMigrationWithChangedTotalWeight = withLegacyWeights $ \net -> do
   owners <- svRightOwnerInfosFromOperators net.app
   Some sv2 <- pure $ TextMap.lookup "sv2" owners
-  let changedOwners = TextMap.insert "sv2" (sv2 with rewardWeight = sv2.rewardWeight + 1) owners
+  let changedOwners = TextMap.insert "sv2" (withRewardWeight ((onlySvNodeAssignment sv2).rewardWeight + 1) sv2) owners
 
   requestMigration net changedOwners >>= shouldBeRejected "The total SV reward weight is preserved"

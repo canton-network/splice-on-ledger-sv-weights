@@ -9,13 +9,14 @@ import Daml.Script
 
 import Splice.DSO.SvState (RewardState(..))
 
+import qualified Splice.Scripts.DsoTestUtils as DsoTestUtils
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
 import Splice.Scripts.SvRightOwners.Util.Rewards (mintThrough, mintWithLegacyChoice)
 import Splice.Scripts.Util (getOpenRoundsSorted, runNextIssuance)
 
 test_shouldKeepTheLastCollectedRoundForAnOwnerNamedAfterItsLegacyOperator = withLegacyWeights $ \net -> do
-  before <- rewardStateOf net net.genesisOwner
+  before <- (.state) <$> (DsoTestUtils.getSvRewardStateCid net.app "sv1" >>= contractPayload net)
   migrateDefault net
 
   rewardStateOf net net.genesisOwner `shouldReturn` before
@@ -31,7 +32,7 @@ test_shouldStartAnOwnerWithoutALegacyPredecessorAfterTheLatestUsableRound = with
 
   migrate net instruction rewardStates >>= shouldSucceed
 
-  rewardStateOf net (SvRightOwner with name = "new-owner"; party = newcomer; hostedBy = net.sv2; rewardWeight = sv2.rewardWeight; beneficiaries = sv2.beneficiaries)
+  rewardStateNamed net "new-owner"
     `shouldReturn` RewardState with lastRoundCollected = latestUsableRound.round; numRoundsCollected = 0; numRoundsMissed = 0; numCouponsIssued = 0
 
 test_shouldAllowMigratedSvToMintAfterMigration = withLegacyWeights $ \net -> do

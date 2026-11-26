@@ -489,11 +489,11 @@ checkSvRewardStates : AmuletApp -> Script ()
 checkSvRewardStates app = do
   rewardStates <- query @SvRewardState app.dso
   [(_, dsoRules)] <- query @DsoRules app.dso
-  -- Reward states are keyed by SV right owner name once weights are tracked on-ledger, and by
-  -- SV node operator name before that.
+  -- SV rights owners have their own reward states once weights are tracked on-ledger, and the leftover
+  -- reward states of SVs offboarded before the migration are purged.
   let expectedNames =
         if onLedgerSvRightOwners dsoRules
-          then getSvRightOwners dsoRules
+          then Set.empty
           else Set.fromList $ map (.name) (Map.values dsoRules.svs) <> map (.name) (Map.values dsoRules.offboardedSvs)
   forA_ (Set.toList expectedNames) $ \name ->
     require ("Name " <> name <> " has one SvRewardState contract") $

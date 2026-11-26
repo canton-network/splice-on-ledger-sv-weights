@@ -75,7 +75,6 @@ test_shouldMoveAnSvRightOwnersRewardStateOnlyByMinting = withTwoSvRightOwners $ 
   successor <- allocateParty "successor"
   [_, (round1Cid, _), (round2Cid, round2)] <- getActiveOpenRoundsSorted net.app.dso
   stateCid <- svRewardStateCidFor net newcomer.name
-  genesisState <- svRewardStateCidFor net net.genesisOwner.name
   stateBefore <- rewardStateOf net newcomer
   let split = sharingWith [(beneficiary, 0.2)]
       moved = newcomer with party = successor; rewardWeight = tier1RewardWeight; hostedBy = net.sv3; beneficiaries = split
@@ -85,8 +84,6 @@ test_shouldMoveAnSvRightOwnersRewardStateOnlyByMinting = withTwoSvRightOwners $ 
     >>= executeUpdate net net.sv1.party >>= shouldSucceed
   svRightOwners net `shouldReturn` [moved, net.genesisOwner]
   mintLegacy net net.sv1.party round1Cid net.genesisOwner.name >>= shouldBeRejected "svRightOwners are not tracked on-ledger"
-
-  mergeRewardStates net net.sv1.party newcomer.name [stateCid, genesisState] >>= shouldBeRejected contractNameMismatch
 
   svRewardStateCidFor net newcomer.name `shouldReturn` stateCid
   rewardStateOf net moved `shouldReturn` stateBefore

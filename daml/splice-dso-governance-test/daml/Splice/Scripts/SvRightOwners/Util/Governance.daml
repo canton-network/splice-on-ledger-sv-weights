@@ -57,12 +57,11 @@ executeRemoval : Network -> Party -> ContractId RemoveSvRightOwnerInstruction ->
 executeRemoval net svOperator instructionCid = do
   instruction <- contractPayload net instructionCid
   svRightOwnerCid <- svRightOwnerCidFor net instruction.name
-  svRewardStateCid <- svRewardStateCidFor net instruction.name
-  executeRemovalWith net svOperator instructionCid svRightOwnerCid svRewardStateCid
+  executeRemovalWith net svOperator instructionCid svRightOwnerCid
 
-executeRemovalWith : Network -> Party -> ContractId RemoveSvRightOwnerInstruction -> ContractId Amulet.SvRightOwner -> ContractId SvRewardState -> Script Attempt
-executeRemovalWith net svOperator instructionCid svRightOwnerCid svRewardStateCid = attempt net svOperator $ \dsoRulesCid ->
-  exerciseCmd dsoRulesCid DsoRules_ExecuteRemoveSvRightOwnerInstruction with instructionCid; svRightOwnerCid; svRewardStateCid; svOperator
+executeRemovalWith : Network -> Party -> ContractId RemoveSvRightOwnerInstruction -> ContractId Amulet.SvRightOwner -> Script Attempt
+executeRemovalWith net svOperator instructionCid svRightOwnerCid = attempt net svOperator $ \dsoRulesCid ->
+  exerciseCmd dsoRulesCid DsoRules_ExecuteRemoveSvRightOwnerInstruction with instructionCid; svRightOwnerCid; svOperator
 
 expireRemoval : Network -> Party -> ContractId RemoveSvRightOwnerInstruction -> Script Attempt
 expireRemoval net svOperator instructionCid = attempt net svOperator $ \dsoRulesCid ->
@@ -82,36 +81,37 @@ executeUpdate net svOperator instructionCid = do
   svRightOwnerCidFor net instruction.name >>= executeUpdateWith net svOperator instructionCid
 
 executeUpdateWith : Network -> Party -> ContractId UpdateSvRightOwnerInfoInstruction -> ContractId Amulet.SvRightOwner -> Script Attempt
-executeUpdateWith net svOperator instructionCid svRightOwnerCid = attempt net svOperator $ \dsoRulesCid ->
-  exerciseCmd dsoRulesCid DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction with instructionCid; svRightOwnerCid; svOperator
+executeUpdateWith net svOperator instructionCid svRightOwnerCid = do
+  openMiningRoundTriple <- DsoTestUtils.getOpenMiningRoundTriple net.app
+  attempt net svOperator $ \dsoRulesCid ->
+    exerciseCmd dsoRulesCid DsoRules_ExecuteUpdateSvRightOwnerInfoInstruction with instructionCid; svRightOwnerCid; openMiningRoundTriple; svOperator
 
 updateRightOwnerWeight : Network -> SvRightOwner -> Int -> Script ()
 updateRightOwnerWeight net owner weight = do
   ownerCid <- svRightOwnerCidFor net owner.name
   current <- contractPayload net ownerCid
-  instruction <- voteToUpdate net owner.name current.info (current.info with rewardWeight = weight)
+  instruction <- voteToUpdate net owner.name current.info (withRewardWeight weight current.info)
   executeUpdate net net.sv1.party instruction >>= shouldSucceed
 
 expireUpdate : Network -> Party -> ContractId UpdateSvRightOwnerInfoInstruction -> Script Attempt
 expireUpdate net svOperator instructionCid = attempt net svOperator $ \dsoRulesCid ->
   exerciseCmd dsoRulesCid DsoRules_ExpireUpdateSvRightOwnerInfoInstruction with instructionCid; svOperator
 
-setBeneficiaries : Network -> SvRightOwner -> Map.Map Party Amulet.BeneficiaryInfo -> Script ()
+setBeneficiaries : Network -> SvRightOwner -> [Amulet.BeneficiaryInfo] -> Script ()
 setBeneficiaries net owner beneficiaries = setBeneficiariesAs net owner.party owner beneficiaries >>= shouldSucceed
 
-setBeneficiariesAs : Network -> Party -> SvRightOwner -> Map.Map Party Amulet.BeneficiaryInfo -> Script Attempt
-setBeneficiariesAs net submitter owner beneficiaries = svRightOwnerCidFor net owner.name >>= setBeneficiariesWith net submitter owner.name beneficiaries
+setBeneficiariesAs : Network -> Party -> SvRightOwner -> [Amulet.BeneficiaryInfo] -> Script Attempt
+setBeneficiariesAs net submitter owner beneficiaries = do
+  current <- svRightOwnerCidFor net owner.name >>= contractPayload net
+  setBeneficiariesWith net submitter owner.name current.info (current.info with svNodeAssignments = fmap (\assignment -> assignment with beneficiaries) current.info.svNodeAssignments)
 
-setBeneficiariesWith : Network -> Party -> Text -> Map.Map Party Amulet.BeneficiaryInfo -> ContractId Amulet.SvRightOwner -> Script Attempt
-setBeneficiariesWith net submitter name beneficiaries svRightOwnerCid = attempt net submitter $ \dsoRulesCid ->
-  exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerBeneficiaries with name; svRightOwnerCid; beneficiaries; rightOwner = submitter
+setBeneficiariesWith : Network -> Party -> Text -> Amulet.SvRightOwnerInfo -> Amulet.SvRightOwnerInfo -> Script Attempt
+setBeneficiariesWith net submitter name baseInfo newInfo = attempt net submitter $ \dsoRulesCid ->
+  exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerBeneficiaries with name; baseInfo; newInfo; rightOwnerParty = submitter
 
 rotatePartyAs : Network -> Party -> SvRightOwner -> Party -> Script Attempt
-rotatePartyAs net submitter owner newRightOwnerParty = svRightOwnerCidFor net owner.name >>= rotatePartyWith net submitter owner.name newRightOwnerParty
-
-rotatePartyWith : Network -> Party -> Text -> Party -> ContractId Amulet.SvRightOwner -> Script Attempt
-rotatePartyWith net submitter name newRightOwnerParty svRightOwnerCid = attempt net submitter $ \dsoRulesCid ->
-  exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerParty with name; svRightOwnerCid; newRightOwnerParty; currentRightOwnerParty = submitter
+rotatePartyAs net submitter owner newRightOwnerParty = attempt net submitter $ \dsoRulesCid ->
+  exerciseCmd dsoRulesCid DsoRules_UpdateSvRightOwnerParty with name = owner.name; newRightOwnerParty; currentRightOwnerParty = submitter
 
 offboardSvNodeOperator : Network -> Operator -> Script ()
 offboardSvNodeOperator net operator = passVote net $ SRARC_OffboardSv DsoRules_OffboardSv with sv = operator.party
@@ -181,14 +181,9 @@ updateLegacyWeight net svParty newRewardWeight = attempt net net.app.dso $ \dsoR
 
 migrate
   : Network -> ContractId MigrateToOnLedgerSvRightOwnersInstruction -> TextMap.TextMap (ContractId SvRewardState) -> Script Attempt
-migrate net instructionCid rewardStates = migratePurgingOffboarded net instructionCid rewardStates TextMap.empty
-
-migratePurgingOffboarded
-  : Network -> ContractId MigrateToOnLedgerSvRightOwnersInstruction -> TextMap.TextMap (ContractId SvRewardState) -> TextMap.TextMap (ContractId SvRewardState) -> Script Attempt
-migratePurgingOffboarded net instructionCid rewardStates offboardedSvRewardStateCids = do
-  openMiningRoundTriple <- DsoTestUtils.getOpenMiningRoundTriple net.app
+migrate net instructionCid rewardStates =
   attempt net net.sv1.party $ \dsoRulesCid -> exerciseCmd dsoRulesCid DsoRules_ExecuteMigrateToOnLedgerSvRightOwnersInstruction with
-    instructionCid; openMiningRoundTriple; svOperatorRewardStateCids = rewardStates; offboardedSvRewardStateCids; svOperator = net.sv1.party
+    instructionCid; svOperatorRewardStateCids = rewardStates; svOperator = net.sv1.party
 
 migrateDefault : Network -> Script ()
 migrateDefault net = do
@@ -197,6 +192,10 @@ migrateDefault net = do
   rewardStates <- rewardStatesForSvOperators net
   migrate net instruction rewardStates >>= shouldSucceed
 
+purge : Network -> Text -> ContractId SvRewardState -> Script Attempt
+purge net name rewardStateCid = attempt net net.sv1.party $ \dsoRulesCid ->
+  exerciseCmd dsoRulesCid DsoRules_PurgeStaleSvRewardStates with offboardedSvRewardStateCids = TextMap.fromList [(name, rewardStateCid)]; sv = Some net.sv1.party
+
 expireMigration : Network -> Party -> ContractId MigrateToOnLedgerSvRightOwnersInstruction -> Script Attempt
 expireMigration net svOperator instructionCid = attempt net svOperator $ \dsoRulesCid ->
   exerciseCmd dsoRulesCid DsoRules_ExpireMigrateToOnLedgerSvRightOwnersInstruction with instructionCid; svOperator
@@ -204,23 +203,17 @@ expireMigration net svOperator instructionCid = attempt net svOperator $ \dsoRul
 removalRequestedFor : Network -> Text -> Script (ContractId RemoveSvRightOwnerInstruction)
 removalRequestedFor net name = addOwnerNamed net name >> voteToRemove net name
 
-remove : Network -> ContractId RemoveSvRightOwnerInstruction -> Text -> Text -> Script Attempt
-remove net instructionCid ownerName rewardStateName = do
-  svRightOwnerCid <- svRightOwnerCidFor net ownerName
-  svRewardStateCid <- svRewardStateCidFor net rewardStateName
-  executeRemovalWith net net.sv1.party instructionCid svRightOwnerCid svRewardStateCid
+remove : Network -> ContractId RemoveSvRightOwnerInstruction -> Text -> Script Attempt
+remove net instructionCid ownerName = svRightOwnerCidFor net ownerName >>= executeRemovalWith net net.sv1.party instructionCid
 
 infoUpdateRequestedFor : Network -> Text -> Script (ContractId UpdateSvRightOwnerInfoInstruction)
 infoUpdateRequestedFor net name = do
   addOwnerNamed net "sv2"
   [(_, owner)] <- queryFilter @Amulet.SvRightOwner net.app.dso (\owner -> owner.name == name)
-  voteToUpdate net name owner.info (owner.info with rewardWeight = tier2RewardWeight)
+  voteToUpdate net name owner.info (withRewardWeight tier2RewardWeight owner.info)
 
 updateInfo : Network -> ContractId UpdateSvRightOwnerInfoInstruction -> Text -> Script Attempt
 updateInfo net instructionCid ownerName = svRightOwnerCidFor net ownerName >>= executeUpdateWith net net.sv1.party instructionCid
-
-updateBeneficiaries : Network -> Text -> Text -> Script Attempt
-updateBeneficiaries net name ownerName = svRightOwnerCidFor net ownerName >>= setBeneficiariesWith net net.sv2.party name Map.empty
 
 rewardCoupon : Network -> Text -> Text -> Text -> Script Attempt
 rewardCoupon net mapKey ownerName rewardStateName = do
@@ -228,9 +221,9 @@ rewardCoupon net mapKey ownerName rewardStateName = do
   [(svRightOwnerCid, owner)] <- queryFilter @Amulet.SvRightOwner net.app.dso (\owner -> owner.name == ownerName)
   svRewardStateCid <- svRewardStateCidFor net rewardStateName
   (_, dsoRules) <- currentDsoRules net
-  [svOperator] <- pure [party | (party, info) <- Map.toList dsoRules.svs, info.name == owner.info.rewardNodeOperatorName]
+  [svOperator] <- pure [party | (party, info) <- Map.toList dsoRules.svs, info.name == (onlySvNodeAssignment owner.info).svNodeName]
   mintWith net svOperator openRoundCid $ TextMap.fromList [(mapKey, (svRightOwnerCid, svRewardStateCid))]
 
 addOwnerNamed : Network -> Text -> Script ()
 addOwnerNamed net name = addSvRightOwner net SvRightOwner with
-  name; party = net.sv2.party; hostedBy = (net.sv2 with name); rewardWeight = tier2RewardWeight; beneficiaries = Map.empty
+  name; party = net.sv2.party; hostedBy = (net.sv2 with name); rewardWeight = tier2RewardWeight; beneficiaries = []; defaultBeneficiary = net.sv2.party

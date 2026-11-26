@@ -71,10 +71,9 @@ test_shouldLetOnlyOneOfTwoRemovalInstructionsForTheSameSvRightOwnerExecute = wit
   expectActive net firstInstruction
   expectActive net secondInstruction
   removedCid <- svRightOwnerCidFor net newcomer.name
-  removedState <- svRewardStateCidFor net newcomer.name
 
   executeRemoval net net.sv1.party firstInstruction >>= shouldSucceed
-  executeRemovalWith net net.sv1.party secondInstruction removedCid removedState >>= shouldBeRejected "SV right owner \"newcomer\" exists"
+  executeRemovalWith net net.sv1.party secondInstruction removedCid >>= shouldBeRejected "SV right owner \"newcomer\" exists"
 
   expectActive net secondInstruction
 
@@ -88,13 +87,11 @@ test_shouldLetAnySvOperatorExecuteTheRemovalWithTheCurrentContracts = withTwoSvR
   newcomer.hostedBy === net.sv2
   instruction <- voteToRemove net newcomer.name
   genesisCid <- svRightOwnerCidFor net net.genesisOwner.name
-  genesisState <- svRewardStateCidFor net net.genesisOwner.name
 
   setBeneficiaries net newcomer newcomer.beneficiaries
   newcomerCid <- svRightOwnerCidFor net newcomer.name
   newcomerState <- svRewardStateCidFor net newcomer.name
-  executeRemovalWith net net.sv1.party instruction genesisCid newcomerState >>= shouldBeRejected contractNameMismatch
-  executeRemovalWith net net.sv1.party instruction newcomerCid genesisState >>= shouldBeRejected contractNameMismatch
+  executeRemovalWith net net.sv1.party instruction genesisCid >>= shouldBeRejected contractNameMismatch
 
   executeRemoval net net.sv3.party instruction >>= shouldSucceed
 
