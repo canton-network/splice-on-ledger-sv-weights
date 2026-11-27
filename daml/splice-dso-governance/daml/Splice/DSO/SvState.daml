@@ -19,9 +19,6 @@ data ForSv = ForSv with
     svName : Text
   deriving (Eq, Show, Serializable)
 
-instance HasCheckedFetch SvRightOwner ForSv where
-  contractGroupId SvRightOwner{..} = ForSv with dso; svName = name
-
 data ForSvNode = ForSvNode with
     dso : Party
     sv : Party
@@ -139,6 +136,9 @@ template SvStatusReport with
 
 -- instances
 ------------
+
+instance HasCheckedFetch SvRightOwner ForSv where
+  contractGroupId SvRightOwner{..} = ForSv with dso; svName = name
 
 instance HasCheckedFetch SvRewardState ForSv where
   contractGroupId SvRewardState {..} = ForSv with dso; svName

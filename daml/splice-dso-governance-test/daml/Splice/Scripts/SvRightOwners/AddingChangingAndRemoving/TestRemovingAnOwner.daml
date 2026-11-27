@@ -9,12 +9,12 @@ import DA.Time (addRelTime)
 
 import Daml.Script
 
+import Splice.DSO.Instruction (RemoveSvRightOwnerInstruction(..))
 import Splice.DSO.SvState (RewardState(..))
 import Splice.DsoRules
   ( DsoRules_ActionRequiringConfirmation(..)
   , DsoRules_CloseVoteRequest(..)
   , DsoRules_RemoveSvRightOwner(..)
-  , RemoveSvRightOwnerInstruction(..)
   )
 
 import Splice.Scripts.SvRightOwners.Util.Fixture

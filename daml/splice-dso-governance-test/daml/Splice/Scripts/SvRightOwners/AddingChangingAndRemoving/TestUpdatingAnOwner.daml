@@ -10,7 +10,7 @@ import DA.Time (addRelTime)
 import Daml.Script
 
 import Splice.DSO.SvState (SvRightsOwnerRewardState(..))
-import Splice.DsoRules (UpdateSvRightOwnerInfoInstruction(..))
+import Splice.DSO.Instruction (UpdateSvRightOwnerInfoInstruction(..))
 
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance

@@ -2473,51 +2473,6 @@ requireMigratableToOnLedgerSvRightOwners this svRightOwners = do
     require ("The SV reward weight of SV node " <> show svInfo.name <> " is preserved") $
       svInfo.svRewardWeight == sum [assignment.rewardWeight | (_, assignment) <- assignments, assignment.svNodeName == svInfo.name]
 
-template MigrateToOnLedgerSvRightOwnersInstruction with
-    dso : Party
-    svRightOwners : TextMap SvRightOwnerInfo
-      -- ^ The complete set of SV right owners, keyed by their name.
-    expiresAt : Time
-      -- ^ When this contract can be archived.
-  where
-    signatory dso
-
-instance HasCheckedFetch MigrateToOnLedgerSvRightOwnersInstruction ForDso where
-  contractGroupId instr = ForDso instr.dso
-
-template AddSvRightOwnerInstruction with
-    dso : Party
-    name : Text -- ^ The name of the SV right owner to add.
-    info : SvRightOwnerInfo -- ^ The information of the SV right owner to add.
-    expiresAt : Time -- ^ When this contract can be archived.
-  where
-    signatory dso
-
-instance HasCheckedFetch AddSvRightOwnerInstruction ForDso where
-  contractGroupId instr = ForDso instr.dso
-
-template RemoveSvRightOwnerInstruction with
-    dso : Party
-    name : Text -- ^ The name of the SV right owner to remove.
-    expiresAt : Time -- ^ When this contract can be archived.
-  where
-    signatory dso
-
-instance HasCheckedFetch RemoveSvRightOwnerInstruction ForDso where
-  contractGroupId instr = ForDso instr.dso
-
-template UpdateSvRightOwnerInfoInstruction with
-    dso : Party
-    name : Text -- ^ The name of the SV right owner to update.
-    baseInfo : SvRightOwnerInfo -- ^ The info that the vote was created against.
-    newInfo : SvRightOwnerInfo -- ^ The target info; only fields that differ from `baseInfo` are updated.
-    expiresAt : Time -- ^ When this contract can be archived.
-  where
-    signatory dso
-
-instance HasCheckedFetch UpdateSvRightOwnerInfoInstruction ForDso where
-  contractGroupId instr = ForDso instr.dso
-
 pruneAtLeastOne : Ord t => t -> Schedule t a -> Optional (Schedule t a)
 pruneAtLeastOne now schedule =
    case reverse past of
