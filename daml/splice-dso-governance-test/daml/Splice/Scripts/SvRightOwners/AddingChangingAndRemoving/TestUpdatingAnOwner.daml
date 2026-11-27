@@ -77,6 +77,26 @@ test_shouldMergeTheVotedFieldsWithTheSvRightOwnersConcurrentChanges = withTwoSvR
   setBeneficiaries net newcomer (sharingWith [(addedLater, 0.3)])
   executeUpdate net net.sv1.party secondAddition >>= shouldBeRejected "Beneficiaries cannot be changed through DsoRules_UpdateSvRightOwnerInfo"
 
+test_shouldRejectASecondVoteAddingTheSameSvNodeAssignmentId = withTwoSvRightOwners $ \net newcomer -> do
+  beneficiary <- allocateParty "shared-beneficiary"
+  let base = svRightOwnerInfo newcomer
+      assignmentId = newcomer.name <> "-2"
+      assignment = (onlySvNodeAssignment base) with
+        id = assignmentId
+        svNodeName = net.sv3.name
+        beneficiaries = sharingWith [(beneficiary, 0.2)]
+      addAssignment proposed = base with svNodeAssignments = TextMap.insert assignmentId proposed base.svNodeAssignments
+      firstInfo = addAssignment assignment
+      secondInfo = addAssignment (assignment with svNodeName = net.sv4.name; rewardWeight = tier1RewardWeight)
+  firstAddition <- voteToUpdate net newcomer.name base firstInfo
+  secondAddition <- voteToUpdate net newcomer.name base secondInfo
+
+  executeUpdate net net.sv1.party firstAddition >>= shouldSucceed
+  executeUpdate net net.sv1.party secondAddition >>= shouldBeRejected "SV right owner update conflicts with current state"
+
+  ownerCid <- svRightOwnerCidFor net newcomer.name
+  fmap (.info) (contractPayload net ownerCid) `shouldReturn` firstInfo
+
 test_shouldMoveAnOrphanedSvRightOwnerToAnotherSvNodeOperatorAfterItsHostIsOffboarded = withTwoSvRightOwners $ \net newcomer -> do
   latecomer <- newSvRightOwner "latecomer" net.sv2
   addition <- voteToAdd net latecomer
