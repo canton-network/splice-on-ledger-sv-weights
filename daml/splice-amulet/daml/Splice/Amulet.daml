@@ -597,6 +597,10 @@ template SvRewardCoupon with
     beneficiary : Party -- ^ The beneficiary allowed to receive the reward.
     round : Round
     weight : Int -- ^ Coupons receive a share of the SV issuance proportional to their weight.
+    svRightsOwnerName : Optional Text
+      -- ^ The name of the SV rights owner for which the reward is issued. Unlike `sv`, it does not change.
+      --
+      -- Not set before the migration to on-ledger SV rights owners.
   where
     ensure weight > 0
 

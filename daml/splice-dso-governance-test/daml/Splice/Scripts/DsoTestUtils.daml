@@ -489,11 +489,11 @@ checkSvRewardStates : AmuletApp -> Script ()
 checkSvRewardStates app = do
   rewardStates <- query @SvRewardState app.dso
   [(_, dsoRules)] <- query @DsoRules app.dso
-  -- Reward states are keyed by SV right owner name once weights are tracked on-ledger, and by
-  -- SV node operator name before that.
+  -- SV rights owners have their own reward states once weights are tracked on-ledger, and the leftover
+  -- reward states of SVs offboarded before the migration are purged.
   let expectedNames =
         if onLedgerSvRightOwners dsoRules
-          then getSvRightOwners dsoRules
+          then Set.empty
           else Set.fromList $ map (.name) (Map.values dsoRules.svs) <> map (.name) (Map.values dsoRules.offboardedSvs)
   forA_ (Set.toList expectedNames) $ \name ->
     require ("Name " <> name <> " has one SvRewardState contract") $
@@ -501,6 +501,21 @@ checkSvRewardStates app = do
   Set.fromList [state.svName | (_, state) <- rewardStates] === expectedNames
   require "No duplicate SvRewardState contracts" $
     length rewardStates == Set.size expectedNames
+  when (onLedgerSvRightOwners dsoRules) $ checkSvRightsOwnerRewardStates app dsoRules
+
+-- | Check that there's exactly one SvRightOwner per name in the DsoRules and exactly one
+-- SvRightsOwnerRewardState per SV node assignment of these SV rights owners, each on the SV node of a current or offboarded SV node operator.
+checkSvRightsOwnerRewardStates : AmuletApp -> DsoRules -> Script ()
+checkSvRightsOwnerRewardStates app dsoRules = do
+  owners <- query @SvRightOwner app.dso
+  rewardStates <- query @SvRightsOwnerRewardState app.dso
+  sort [owner.name | (_, owner) <- owners] === Set.toList (getSvRightOwners dsoRules)
+  sort [(state.svRightsOwnerName, state.svNodeAssignmentId) | (_, state) <- rewardStates] ===
+    sort [(owner.name, svNodeAssignmentId) | (_, owner) <- owners, (svNodeAssignmentId, _) <- TextMap.toList owner.info.svNodeAssignments]
+  let svNodeNames = map (.name) (Map.values dsoRules.svs) <> map (.name) (Map.values dsoRules.offboardedSvs)
+  forA_ owners $ \(_, owner) -> forA_ owner.info.svNodeAssignments $ \assignment ->
+    require ("SV node " <> show assignment.svNodeName <> " of SV rights owner " <> show owner.name <> " is a current or offboarded SV node operator") $
+      assignment.svNodeName `elem` svNodeNames
 
 -- | Check that there's exactly one status report per SV both off-boarded and onboarded.
 checkSvStatusReports : AmuletApp -> Script ()

@@ -18,7 +18,7 @@ import Daml.Script
 
 import qualified Splice.Amulet.SvRightOwner as Amulet
 import Splice.AmuletRules (AmuletRules)
-import Splice.DSO.SvState (RewardState, SvRewardState)
+import Splice.DSO.SvState (RewardState, SvRewardState, SvRightsOwnerRewardState)
 import Splice.DsoRules (DsoRules, DsoRules_AddSv(..))
 import Splice.Types (Round(..))
 
@@ -35,7 +35,8 @@ data SvRightOwner = SvRightOwner with
     party : Party
     hostedBy : Operator
     rewardWeight : Int
-    beneficiaries : Map.Map Party Amulet.BeneficiaryInfo
+    beneficiaries : [Amulet.BeneficiaryInfo]
+    defaultBeneficiary : Party
   deriving (Eq, Show)
 
 data Network = Network with
@@ -142,7 +143,8 @@ runOn initNetwork test = do
       party = sv1Party
       hostedBy = sv1
       rewardWeight = tier1RewardWeight
-      beneficiaries = Map.empty
+      beneficiaries = []
+      defaultBeneficiary = sv1Party
   DsoTestUtils.checkSvContractInvariants app
 
 tier1RewardWeight : Int
@@ -155,7 +157,7 @@ newSvRightOwner : Text -> Operator -> Script SvRightOwner
 newSvRightOwner name hostedBy = do
   party <- allocateParty (name <> "-party")
   pure SvRightOwner with
-    name; party; hostedBy; rewardWeight = tier2RewardWeight; beneficiaries = Map.empty
+    name; party; hostedBy; rewardWeight = tier2RewardWeight; beneficiaries = []; defaultBeneficiary = party
 
 newSvNodeOperator : Text -> Script Operator
 newSvNodeOperator name = do
@@ -171,22 +173,39 @@ onboard net operator = attempt net net.app.dso $ \dsoRulesCid ->
     newSvParticipantId = operator.name <> "-participant-id"
     joinedAsOfRound = Round 0
 
-sharingWith : [(Party, Decimal)] -> Map.Map Party Amulet.BeneficiaryInfo
-sharingWith shares = Map.fromList [(party, Amulet.BeneficiaryInfo with rewardRatio) | (party, rewardRatio) <- shares]
+sharingWith : [(Party, Decimal)] -> [Amulet.BeneficiaryInfo]
+sharingWith shares = [Amulet.BeneficiaryInfo with beneficiary; rewardRatio | (beneficiary, rewardRatio) <- shares]
 
 svRightOwnerInfo : SvRightOwner -> Amulet.SvRightOwnerInfo
 svRightOwnerInfo owner = Amulet.SvRightOwnerInfo with
   rightOwnerParty = owner.party
-  rewardWeight = owner.rewardWeight
-  rewardNodeOperatorName = owner.hostedBy.name
-  beneficiaries = owner.beneficiaries
+  svNodeAssignments = TextMap.fromList [(onlySvNodeAssignmentId, Amulet.SvNodeAssignment with
+    svNodeName = owner.hostedBy.name
+    rewardWeight = owner.rewardWeight
+    escrowBeneficiaries = []
+    beneficiaries = owner.beneficiaries
+    defaultBeneficiary = owner.defaultBeneficiary)]
 
 svRightOwnerInfoFor : Party -> Int -> Text -> Amulet.SvRightOwnerInfo
 svRightOwnerInfoFor rightOwner weight operatorName = Amulet.SvRightOwnerInfo with
   rightOwnerParty = rightOwner
-  rewardWeight = weight
-  rewardNodeOperatorName = operatorName
-  beneficiaries = Map.empty
+  svNodeAssignments = TextMap.fromList [(onlySvNodeAssignmentId, Amulet.SvNodeAssignment with
+    svNodeName = operatorName
+    rewardWeight = weight
+    escrowBeneficiaries = []
+    beneficiaries = []
+    defaultBeneficiary = rightOwner)]
+
+onlySvNodeAssignmentId : Text
+onlySvNodeAssignmentId = "assignment-1"
+
+onlySvNodeAssignment : Amulet.SvRightOwnerInfo -> Amulet.SvNodeAssignment
+onlySvNodeAssignment info = case TextMap.toList info.svNodeAssignments of
+  [(_, assignment)] -> assignment
+  _ -> error "expected exactly one SV node assignment"
+
+withRewardWeight : Int -> Amulet.SvRightOwnerInfo -> Amulet.SvRightOwnerInfo
+withRewardWeight rewardWeight info = info with svNodeAssignments = fmap (\assignment -> assignment with rewardWeight) info.svNodeAssignments
 
 svRightOwnerInfosFromOperators : AmuletScripts.AmuletApp -> Script (TextMap.TextMap Amulet.SvRightOwnerInfo)
 svRightOwnerInfosFromOperators app = do
@@ -222,13 +241,15 @@ amuletRules net = do
 svRightOwnerCidFor : Network -> Text -> Script (ContractId Amulet.SvRightOwner)
 svRightOwnerCidFor net name = DsoTestUtils.getSvRightOwnerCid net.app name
 
-svRewardStateCidFor : Network -> Text -> Script (ContractId SvRewardState)
-svRewardStateCidFor net name = DsoTestUtils.getSvRewardStateCid net.app name
+svRewardStateCidFor : Network -> Text -> Script (ContractId SvRightsOwnerRewardState)
+svRewardStateCidFor net name = do
+  [(rewardStateCid, _)] <- queryFilter @SvRightsOwnerRewardState net.app.dso (\state -> state.svRightsOwnerName == name)
+  pure rewardStateCid
 
 svRewardStateNames : Network -> Script [Text]
 svRewardStateNames net = do
-  contracts <- query @SvRewardState net.app.dso
-  pure $ sort [state.svName | (_, state) <- contracts]
+  contracts <- query @SvRightsOwnerRewardState net.app.dso
+  pure $ sort [state.svRightsOwnerName | (_, state) <- contracts]
 
 contractPayload : (Template t, HasEnsure t) => Network -> ContractId t -> Script t
 contractPayload net cid = do
@@ -251,7 +272,8 @@ svRightOwners net = do
   operators <- svNodeOperators net
   contracts <- query @Amulet.SvRightOwner net.app.dso
   forA (sortOn (\(_, contract) -> contract.name) contracts) $ \(_, contract) -> do
-    let hostName = contract.info.rewardNodeOperatorName
+    let assignment = onlySvNodeAssignment contract.info
+        hostName = assignment.svNodeName
     hostedBy <- case [operator | operator <- operators, operator.name == hostName] of
       [operator] -> pure operator
       _ -> fail $ "no SV node operator is named " <> hostName
@@ -259,8 +281,9 @@ svRightOwners net = do
       name = contract.name
       party = contract.info.rightOwnerParty
       hostedBy
-      rewardWeight = contract.info.rewardWeight
-      beneficiaries = contract.info.beneficiaries
+      rewardWeight = assignment.rewardWeight
+      beneficiaries = assignment.beneficiaries
+      defaultBeneficiary = assignment.defaultBeneficiary
 
 totalSvRightOwnerWeight : Network -> Script Int
 totalSvRightOwnerWeight net = sum . map (.rewardWeight) <$> svRightOwners net
@@ -273,8 +296,11 @@ svRightOwnerNamesInDsoRules net = do
     None -> fail "this network does not track SV right owners on-ledger"
 
 rewardStateOf : Network -> SvRightOwner -> Script RewardState
-rewardStateOf net owner = do
-  [(_, contract)] <- queryFilter @SvRewardState net.app.dso (\c -> c.svName == owner.name)
+rewardStateOf net owner = rewardStateNamed net owner.name
+
+rewardStateNamed : Network -> Text -> Script RewardState
+rewardStateNamed net name = do
+  [(_, contract)] <- queryFilter @SvRightsOwnerRewardState net.app.dso (\c -> c.svRightsOwnerName == name)
   pure contract.state
 
 shouldReturn : (Eq a, Show a) => Script a -> a -> Script ()

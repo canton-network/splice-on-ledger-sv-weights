@@ -30,11 +30,14 @@ test_shouldLetOnlyTheHostMintForAllItsSvRightOwnersInOneBatchWhateverTheirConfig
   (roundCid, openRound) <- last <$> getOpenRoundsSorted net.app
   let cotenants = [newcomer.name, unpaid.name]
 
-  mint net net.sv3.party roundCid cotenants >>= shouldBeRejected "SV Right Owner mints through this SV Node Operator"
+  mint net net.sv3.party roundCid cotenants >>= shouldBeRejected "SV node assignment \"assignment-1\" of SV rights owner \"newcomer\" mints through SV node \"sv3\""
   mint net newcomer.party roundCid [newcomer.name] >>= shouldBeRejected "Not a sv"
+  mint net net.sv2.party roundCid [] >>= shouldBeRejected "There is at least one SV rights owner to mint for"
   mint net net.sv2.party roundCid cotenants >>= shouldSucceed
 
   couponsMintedFor net newcomer openRound.round `shouldReturn` sort [(beneficiary, 3000), (newcomer.party, 27000)]
+  coupon <- couponOf net newcomer beneficiary openRound.round >>= contractPayload net
+  coupon.svRightsOwnerName === Some newcomer.name
   couponsMintedFor net unpaid openRound.round `shouldReturn` []
   rewardStateOf net unpaid `shouldReturn` RewardState with
     lastRoundCollected = openRound.round; numRoundsCollected = 1; numRoundsMissed = 0; numCouponsIssued = 0
@@ -73,9 +76,8 @@ test_shouldMintARoundOnlyOnceFromItsOpeningUntilItsArchivalAndCountEveryRound = 
 test_shouldMoveAnSvRightOwnersRewardStateOnlyByMinting = withTwoSvRightOwners $ \net newcomer -> do
   beneficiary <- allocateParty "beneficiary"
   successor <- allocateParty "successor"
-  [_, (round1Cid, _), (round2Cid, round2)] <- getActiveOpenRoundsSorted net.app.dso
+  [_, _, (round2Cid, round2)] <- getActiveOpenRoundsSorted net.app.dso
   stateCid <- svRewardStateCidFor net newcomer.name
-  genesisState <- svRewardStateCidFor net net.genesisOwner.name
   stateBefore <- rewardStateOf net newcomer
   let split = sharingWith [(beneficiary, 0.2)]
       moved = newcomer with party = successor; rewardWeight = tier1RewardWeight; hostedBy = net.sv3; beneficiaries = split
@@ -84,9 +86,6 @@ test_shouldMoveAnSvRightOwnersRewardStateOnlyByMinting = withTwoSvRightOwners $ 
   voteToUpdate net newcomer.name (svRightOwnerInfo (newcomer with beneficiaries = split)) (svRightOwnerInfo moved)
     >>= executeUpdate net net.sv1.party >>= shouldSucceed
   svRightOwners net `shouldReturn` [moved, net.genesisOwner]
-  mintLegacy net net.sv1.party round1Cid net.genesisOwner.name >>= shouldBeRejected "svRightOwners are not tracked on-ledger"
-
-  mergeRewardStates net net.sv1.party newcomer.name [stateCid, genesisState] >>= shouldBeRejected contractNameMismatch
 
   svRewardStateCidFor net newcomer.name `shouldReturn` stateCid
   rewardStateOf net moved `shouldReturn` stateBefore
