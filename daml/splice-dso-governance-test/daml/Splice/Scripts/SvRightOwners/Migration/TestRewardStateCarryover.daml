@@ -19,7 +19,7 @@ test_shouldArchiveTheLegacyRewardStateForAnOperatorThatDoesNotContinue = withLeg
   owners <- svRightOwnerInfosFromOperators net.app
   sv2RewardState <- DsoTestUtils.getSvRewardStateCid net.app "sv2"
   Some sv2 <- pure $ TextMap.lookup "sv2" owners
-  instruction <- migrationRequestedFor net $ TextMap.insert "sv2-owner" sv2 $ TextMap.delete "sv2" owners
+  instruction <- migrationRequestedFor net $ TextMap.insert "sv2-owner" (withOnlySvNodeAssignmentId "sv2-owner" sv2) $ TextMap.delete "sv2" owners
   rewardStates <- rewardStatesForSvOperators net
 
   migrate net instruction rewardStates >>= shouldSucceed
@@ -29,7 +29,7 @@ test_shouldArchiveTheLegacyRewardStateForAnOperatorThatDoesNotContinue = withLeg
 test_shouldLeaveNoOrphanedRewardStateAfterMigration = withLegacyWeights $ \net -> do
   owners <- svRightOwnerInfosFromOperators net.app
   Some sv2 <- pure $ TextMap.lookup "sv2" owners
-  instruction <- migrationRequestedFor net $ TextMap.insert "sv2-owner" sv2 $ TextMap.delete "sv2" owners
+  instruction <- migrationRequestedFor net $ TextMap.insert "sv2-owner" (withOnlySvNodeAssignmentId "sv2-owner" sv2) $ TextMap.delete "sv2" owners
   rewardStates <- rewardStatesForSvOperators net
 
   migrate net instruction rewardStates >>= shouldSucceed
@@ -59,7 +59,7 @@ test_shouldArchiveTheLeftoverRewardStateOfAnOffboardedSvReturningAsAnOwner = wit
   owners <- svRightOwnerInfosFromOperators net.app
   Some sv1 <- pure $ TextMap.lookup "sv1" owners
   let sv4Weight = (onlySvNodeAssignment sv1).rewardWeight / 2
-      ownersWithSv4 = TextMap.insert "sv4" (svRightOwnerInfoFor net.sv4.party sv4Weight "sv1")
+      ownersWithSv4 = TextMap.insert "sv4" (svRightOwnerInfoFor "sv4" net.sv4.party sv4Weight "sv1")
         $ TextMap.insert "sv1" (withRewardWeight ((onlySvNodeAssignment sv1).rewardWeight - sv4Weight) sv1) owners
   instruction <- instructionRecordedBy net $ requestMigration net ownersWithSv4 >>= shouldSucceed
   rewardStates <- rewardStatesForSvOperators net

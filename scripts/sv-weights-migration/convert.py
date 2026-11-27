@@ -46,7 +46,7 @@ def convert(owner):
     # The SV party of its own SV node, else its last active party, else `dso` until a vote sets one.
     owner_party = own_nodes[0]['party'] if own_nodes else actives[-1] if actives else DSO
 
-    def assignment(sv):
+    def assignment(sv, assignment_id):
         entries = entries_at(sv)
         if sv['svRightsOwnerName'] == owner:
             total, default = sv['weight'] - sum(e['weight'] for e in sv['entries'] if e['owner'] != owner), sv['party']
@@ -59,14 +59,16 @@ def convert(owner):
         for e in active:
             if e['party'] != default:
                 weights[e['party']] += e['weight']
-        return {'svNodeName': sv['name'], 'rewardWeight': total,
+        return {'id': assignment_id, 'svNodeName': sv['name'], 'rewardWeight': total,
                 'escrowBeneficiaries': [{'beneficiary': e['party'], 'rewardWeight': e['weight']} for e in escrow],
                 'beneficiaries': [{'beneficiary': p, 'rewardRatio': str(ratio(w, active_weight))} for p, w in weights.items()],
                 'defaultBeneficiary': default}
 
-    return {'rightOwnerParty': owner_party,
-            # Ids are numbered per owner, so they don't name an SV node the assignment can later leave.
-            'svNodeAssignments': {f'assignment-{i}': assignment(sv) for i, sv in enumerate(nodes, 1)}}
+    assignments = {}
+    for i, sv in enumerate(nodes, 1):
+        assignment_id = owner if i == 1 else f'{owner}-{i}'
+        assignments[assignment_id] = assignment(sv, assignment_id)
+    return {'rightOwnerParty': owner_party, 'svNodeAssignments': assignments}
 
 owners = sorted({o for sv in svs for o in [sv['svRightsOwnerName']] + [e['owner'] for e in sv['entries']]})
 result = {o: convert(o) for o in owners}
@@ -75,10 +77,11 @@ result = {o: convert(o) for o in owners}
 
 def check_valid(name, info):
     """`svRightOwnerInfoChecks`."""
-    assignments = list(info['svNodeAssignments'].values())
-    nodes = [a['svNodeName'] for a in assignments]
+    assignments = info['svNodeAssignments']
+    nodes = [a['svNodeName'] for a in assignments.values()]
     assert nodes and len(nodes) == len(set(nodes)), name
-    for a in assignments:
+    for assignment_id, a in assignments.items():
+        assert assignment_id == a['id'] and assignment_id.startswith(name) and len(assignment_id) <= 50, (name, assignment_id)
         ratios = [Decimal(b['rewardRatio']) for b in a['beneficiaries']]
         parties = [b['beneficiary'] for b in a['beneficiaries']]
         escrow = a['escrowBeneficiaries']

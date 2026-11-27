@@ -179,30 +179,33 @@ sharingWith shares = [Amulet.BeneficiaryInfo with beneficiary; rewardRatio | (be
 svRightOwnerInfo : SvRightOwner -> Amulet.SvRightOwnerInfo
 svRightOwnerInfo owner = Amulet.SvRightOwnerInfo with
   rightOwnerParty = owner.party
-  svNodeAssignments = TextMap.fromList [(onlySvNodeAssignmentId, Amulet.SvNodeAssignment with
+  svNodeAssignments = TextMap.fromList [(owner.name, Amulet.SvNodeAssignment with
+    id = owner.name
     svNodeName = owner.hostedBy.name
     rewardWeight = owner.rewardWeight
     escrowBeneficiaries = []
     beneficiaries = owner.beneficiaries
     defaultBeneficiary = owner.defaultBeneficiary)]
 
-svRightOwnerInfoFor : Party -> Int -> Text -> Amulet.SvRightOwnerInfo
-svRightOwnerInfoFor rightOwner weight operatorName = Amulet.SvRightOwnerInfo with
+svRightOwnerInfoFor : Text -> Party -> Int -> Text -> Amulet.SvRightOwnerInfo
+svRightOwnerInfoFor ownerName rightOwner weight operatorName = Amulet.SvRightOwnerInfo with
   rightOwnerParty = rightOwner
-  svNodeAssignments = TextMap.fromList [(onlySvNodeAssignmentId, Amulet.SvNodeAssignment with
+  svNodeAssignments = TextMap.fromList [(ownerName, Amulet.SvNodeAssignment with
+    id = ownerName
     svNodeName = operatorName
     rewardWeight = weight
     escrowBeneficiaries = []
     beneficiaries = []
     defaultBeneficiary = rightOwner)]
 
-onlySvNodeAssignmentId : Text
-onlySvNodeAssignmentId = "assignment-1"
-
 onlySvNodeAssignment : Amulet.SvRightOwnerInfo -> Amulet.SvNodeAssignment
 onlySvNodeAssignment info = case TextMap.toList info.svNodeAssignments of
   [(_, assignment)] -> assignment
   _ -> error "expected exactly one SV node assignment"
+
+withOnlySvNodeAssignmentId : Text -> Amulet.SvRightOwnerInfo -> Amulet.SvRightOwnerInfo
+withOnlySvNodeAssignmentId assignmentId info = info with
+  svNodeAssignments = TextMap.fromList [(assignmentId, (onlySvNodeAssignment info) with id = assignmentId)]
 
 withRewardWeight : Int -> Amulet.SvRightOwnerInfo -> Amulet.SvRightOwnerInfo
 withRewardWeight rewardWeight info = info with svNodeAssignments = fmap (\assignment -> assignment with rewardWeight) info.svNodeAssignments
@@ -211,7 +214,7 @@ svRightOwnerInfosFromOperators : AmuletScripts.AmuletApp -> Script (TextMap.Text
 svRightOwnerInfosFromOperators app = do
   [(_, dsoRules)] <- query @DsoRules app.dso
   pure $ TextMap.fromList
-    [ (info.name, svRightOwnerInfoFor party info.svRewardWeight info.name)
+    [ (info.name, svRightOwnerInfoFor info.name party info.svRewardWeight info.name)
     | (party, info) <- Map.toList dsoRules.svs
     ]
 

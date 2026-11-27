@@ -85,8 +85,9 @@ template DsoBootstrap with
         -- create initial per-sv and per-operator contracts for sv1
         case sv1RightOwnerName of
           Some rightOwnerName -> do
-            let svNodeAssignmentId = "assignment-1"
+            let svNodeAssignmentId = rightOwnerName
                 assignment = SvNodeAssignment with
+                    id = svNodeAssignmentId
                     svNodeName = sv1Name
                     rewardWeight = sv1RewardWeight
                     escrowBeneficiaries = []

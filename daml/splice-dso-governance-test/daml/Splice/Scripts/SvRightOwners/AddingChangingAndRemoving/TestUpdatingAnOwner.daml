@@ -69,7 +69,8 @@ test_shouldMergeTheVotedFieldsWithTheSvRightOwnersConcurrentChanges = withTwoSvR
   svRightOwners net `shouldReturn` [(newcomer with rewardWeight = tier1RewardWeight; beneficiaries = sharingWith [(addedLater, 0.3)]), net.genesisOwner]
 
   -- A second vote adding the same SV node assignment is refused once the owner changed its beneficiaries since.
-  let atSv3 = base with svNodeAssignments = TextMap.insert "assignment-2" ((onlySvNodeAssignment base) with svNodeName = net.sv3.name) base.svNodeAssignments
+  let secondId = newcomer.name <> "-2"
+      atSv3 = base with svNodeAssignments = TextMap.insert secondId ((onlySvNodeAssignment base) with id = secondId; svNodeName = net.sv3.name) base.svNodeAssignments
   firstAddition <- voteToUpdate net newcomer.name base atSv3
   secondAddition <- voteToUpdate net newcomer.name base atSv3
   executeUpdate net net.sv1.party firstAddition >>= shouldSucceed
@@ -89,7 +90,7 @@ test_shouldMoveAnOrphanedSvRightOwnerToAnotherSvNodeOperatorAfterItsHostIsOffboa
   svNodeOperators net `shouldReturn` [net.sv1, net.sv3, net.sv4]
   execute net net.sv1.party addition >>= shouldBeRejected "SV right owner's node operator must exist"
   executeUpdate net net.sv1.party raise >>= shouldBeRejected "SV right owner's node operator must exist"
-  mintThrough net net.sv3 newcomer.name >>= shouldBeRejected "SV node assignment \"assignment-1\" of SV rights owner \"newcomer\" mints through SV node \"sv3\""
+  mintThrough net net.sv3 newcomer.name >>= shouldBeRejected "SV node assignment \"newcomer\" of SV rights owner \"newcomer\" mints through SV node \"sv3\""
 
   executeUpdate net net.sv1.party move >>= shouldSucceed
   runNextIssuance net.app
@@ -192,9 +193,9 @@ test_shouldApplyEveryPassedUpdateAndGovernCoHostedSvRightOwnersIndependently = w
 test_shouldKeepOneRewardStatePerSvNodeAssignmentWhenSplittingAndRetiringSvNodes = withTwoSvRightOwners $ \net newcomer -> do
   let base = svRightOwnerInfo newcomer
       first = onlySvNodeAssignment base
-      firstId = onlySvNodeAssignmentId
-      secondId = "assignment-2"
-      second = first with svNodeName = net.sv3.name; rewardWeight = 1000
+      firstId = first.id
+      secondId = newcomer.name <> "-2"
+      second = first with id = secondId; svNodeName = net.sv3.name; rewardWeight = 1000
       -- The owner's weight at sv2 is split across sv2 and sv3; later its sv2 assignment is retired into sv3.
       split = base with svNodeAssignments = TextMap.fromList [(firstId, first with rewardWeight = first.rewardWeight - 1000), (secondId, second)]
       retired = base with svNodeAssignments = TextMap.fromList [(secondId, second with rewardWeight = first.rewardWeight)]
@@ -205,7 +206,8 @@ test_shouldKeepOneRewardStatePerSvNodeAssignmentWhenSplittingAndRetiringSvNodes 
   firstState <- rewardStateOf net newcomer
   [_, (_, latestUsableRound)] <- getOpenRoundsSorted net.app
 
-  updateAs net net.app.dso newcomer.name base (base with svNodeAssignments = TextMap.fromList [(firstId, first), (secondId, first)]) >>= shouldBeRejected "SV rights owner has at most one SV node assignment per SV node"
+  let duplicateNode = base with svNodeAssignments = TextMap.insert secondId (first with id = secondId) base.svNodeAssignments
+  updateAs net net.app.dso newcomer.name base duplicateNode >>= shouldBeRejected "SV rights owner has at most one SV node assignment per SV node"
   voteToUpdate net newcomer.name base split >>= executeUpdate net net.sv1.party >>= shouldSucceed
 
   expectActive net firstStateCid
@@ -215,7 +217,7 @@ test_shouldKeepOneRewardStatePerSvNodeAssignmentWhenSplittingAndRetiringSvNodes 
   ownerCid <- svRightOwnerCidFor net newcomer.name
   [(secondStateCid, _)] <- queryFilter @SvRightsOwnerRewardState net.app.dso (\state -> state.svRightsOwnerName == newcomer.name && state.svNodeAssignmentId == secondId)
   let mintFor svOperator stateCid = mintWith net svOperator openRoundCid (TextMap.fromList [(newcomer.name, (ownerCid, stateCid))])
-  mintFor net.sv3.party firstStateCid >>= shouldBeRejected "SV node assignment \"assignment-1\" of SV rights owner \"newcomer\" mints through SV node \"sv3\""
+  mintFor net.sv3.party firstStateCid >>= shouldBeRejected "SV node assignment \"newcomer\" of SV rights owner \"newcomer\" mints through SV node \"sv3\""
   mintFor newcomer.hostedBy.party firstStateCid >>= shouldSucceed
   mintFor net.sv3.party secondStateCid >>= shouldSucceed
   couponsMintedFor net newcomer openRound.round `shouldReturn` [(newcomer.party, 1000), (newcomer.party, first.rewardWeight - 1000)]

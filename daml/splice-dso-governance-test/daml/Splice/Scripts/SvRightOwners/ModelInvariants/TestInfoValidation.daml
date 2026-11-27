@@ -3,6 +3,9 @@
 
 module Splice.Scripts.SvRightOwners.ModelInvariants.TestInfoValidation where
 
+import qualified DA.Text as Text
+import qualified DA.TextMap as TextMap
+
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance
 
@@ -19,3 +22,21 @@ test_shouldRejectAnInfoUpdateWhoseInfoIsInvalid = withOnLedgerWeights $ \net -> 
   updateAs net net.app.dso "sv1" info (svRightOwnerInfo (net.genesisOwner with
     beneficiaries = sharingWith [(net.sv2.party, 1.1)]))
     >>= shouldBeRejected "Beneficiaries cannot be changed through DsoRules_UpdateSvRightOwnerInfo"
+
+test_shouldValidateSvNodeAssignmentIds = withOnLedgerWeights $ \net -> do
+  let name = net.genesisOwner.name
+      base = svRightOwnerInfo net.genesisOwner
+      assignment = onlySvNodeAssignment base
+      withId key assignmentId = base with
+        svNodeAssignments = TextMap.fromList [(key, assignment with id = assignmentId)]
+      update = updateAs net net.app.dso name base
+      maxLengthId = name <> mconcat (replicate (50 - Text.length name) "x")
+      tooLongId = maxLengthId <> "x"
+  update (withId name (name <> "-2"))
+    >>= shouldBeRejected "SV node assignment ID matches its map key"
+  update (withId "other-owner" "other-owner")
+    >>= shouldBeRejected "SV node assignment ID starts with the SV right owner name"
+  update (withId tooLongId tooLongId)
+    >>= shouldBeRejected "SV node assignment ID has at most 50 characters"
+  instruction <- voteToUpdate net name base (withId maxLengthId maxLengthId)
+  executeUpdate net net.sv1.party instruction >>= shouldSucceed

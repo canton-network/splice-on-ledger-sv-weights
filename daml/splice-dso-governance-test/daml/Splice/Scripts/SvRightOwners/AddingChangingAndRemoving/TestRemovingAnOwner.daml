@@ -106,7 +106,8 @@ test_shouldLetAnySvOperatorExecuteTheRemovalWithTheCurrentContracts = withTwoSvR
 
 test_shouldAllowReAddingARemovedSvRightOwnerUnderTheSameName = withTwoSvRightOwners $ \net newcomer -> do
   let base = svRightOwnerInfo newcomer
-      atSv4 = base with svNodeAssignments = TextMap.insert "assignment-2" ((onlySvNodeAssignment base) with svNodeName = net.sv4.name) base.svNodeAssignments
+      secondId = newcomer.name <> "-2"
+      atSv4 = base with svNodeAssignments = TextMap.insert secondId ((onlySvNodeAssignment base) with id = secondId; svNodeName = net.sv4.name) base.svNodeAssignments
   voteToUpdate net newcomer.name base atSv4 >>= executeUpdate net net.sv1.party >>= shouldSucceed
   svRewardStateNames net `shouldReturn` [newcomer.name, newcomer.name, net.genesisOwner.name]
 
