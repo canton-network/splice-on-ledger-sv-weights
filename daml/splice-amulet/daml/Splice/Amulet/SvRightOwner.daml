@@ -9,6 +9,7 @@ import DA.Foldable (forA_, all, sum)
 import DA.List (unique)
 import DA.Map (Map)
 import qualified DA.Map as Map
+import qualified DA.Text as Text
 import DA.TextMap (TextMap)
 import qualified DA.TextMap as TextMap
 import Splice.Types (ForDso(..))
@@ -31,7 +32,7 @@ template SvRightOwner
     info : SvRightOwnerInfo
   where
     signatory dso
-    ensure validSvRightOwnerInfo info
+    ensure validSvRightOwnerInfo name info
     key ( SvRightsOwnerKey with dso; name ) : SvRightsOwnerKey
     maintainer key.dso
 
@@ -46,6 +47,8 @@ data SvRightOwnerInfo = SvRightOwnerInfo
 
 data SvNodeAssignment = SvNodeAssignment
   with
+    id : Text
+      -- ^ Matches the map key and starts with the SV right owner's name.
     svNodeName : Text
       -- ^ The name of the SV node through which rewards are minted.
     rewardWeight : Int
@@ -79,15 +82,18 @@ data BeneficiaryInfo = BeneficiaryInfo
       -- MUST be >0.0 and <=1.0
   deriving (Eq, Show, Serializable)
 
-svRightOwnerInfoChecks : [(SvRightOwnerInfo -> Bool, Text)]
-svRightOwnerInfoChecks =
+svRightOwnerInfoChecks : Text -> [(SvRightOwnerInfo -> Bool, Text)]
+svRightOwnerInfoChecks ownerName =
   [ (\SvRightOwnerInfo{..} -> not $ TextMap.null svNodeAssignments, "SV rights owner has at least one SV node assignment")
   , (\SvRightOwnerInfo{..} -> unique $ map ((.svNodeName) . snd) $ TextMap.toList svNodeAssignments, "SV rights owner has at most one SV node assignment per SV node")
+  , (\info -> all (\(key, assignment) -> key == assignment.id) $ TextMap.toList info.svNodeAssignments, "SV node assignment ID matches its map key")
+  , (\info -> all (Text.isPrefixOf ownerName . (.id)) info.svNodeAssignments, "SV node assignment ID starts with the SV right owner name")
   ] <> map (\(check, message) -> (all check . (.svNodeAssignments), message)) svNodeAssignmentChecks
 
 svNodeAssignmentChecks : [(SvNodeAssignment -> Bool, Text)]
 svNodeAssignmentChecks =
-  [ (\SvNodeAssignment{..} -> rewardWeight >= 0, "SV right owner's reward weight is non-negative")
+  [ (\assignment -> Text.length assignment.id <= 50, "SV node assignment ID has at most 50 characters")
+  , (\SvNodeAssignment{..} -> rewardWeight >= 0, "SV right owner's reward weight is non-negative")
   , (\SvNodeAssignment{..} -> all ((> 0.0) . rewardRatio) beneficiaries, "Beneficiary reward ratios are positive")
   , (\SvNodeAssignment{..} -> sum (fmap (.rewardRatio) beneficiaries) <= 1.0, "Beneficiary reward ratios add up to at most 1.0")
   , (\SvNodeAssignment{..} -> unique $ map (.beneficiary) beneficiaries, "Each beneficiary is listed at most once")
@@ -100,12 +106,12 @@ svNodeAssignmentChecks =
 escrowedRewardWeight : SvNodeAssignment -> Int
 escrowedRewardWeight = sum . map (.rewardWeight) . (.escrowBeneficiaries)
 
-validSvRightOwnerInfo : SvRightOwnerInfo -> Bool
-validSvRightOwnerInfo info = all (\(check, _) -> check info) svRightOwnerInfoChecks
+validSvRightOwnerInfo : Text -> SvRightOwnerInfo -> Bool
+validSvRightOwnerInfo ownerName info = all (\(check, _) -> check info) (svRightOwnerInfoChecks ownerName)
 
-requireValidSvRightOwnerInfo : SvRightOwnerInfo -> Update ()
-requireValidSvRightOwnerInfo info =
-  forA_ svRightOwnerInfoChecks $ \(check, message) -> require message (check info)
+requireValidSvRightOwnerInfo : Text -> SvRightOwnerInfo -> Update ()
+requireValidSvRightOwnerInfo ownerName info =
+  forA_ (svRightOwnerInfoChecks ownerName) $ \(check, message) -> require message (check info)
 
 -- | The absolute reward weight for each party that receives rewards in the context of this SV node assignment,
 -- including the escrowed weights for the escrow beneficiaries. Parties with a zero weight, e.g., due to rounding down, are left out.
@@ -134,6 +140,7 @@ instance Patchable SvRightOwnerInfo where
 instance Patchable SvNodeAssignment where
   patch new base current = SvNodeAssignment
     with
+      id = patch new.id base.id current.id
       svNodeName = patch new.svNodeName base.svNodeName current.svNodeName
       rewardWeight = patch new.rewardWeight base.rewardWeight current.rewardWeight
       escrowBeneficiaries = patchScalar new.escrowBeneficiaries base.escrowBeneficiaries current.escrowBeneficiaries

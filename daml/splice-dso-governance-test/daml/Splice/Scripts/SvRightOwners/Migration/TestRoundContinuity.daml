@@ -27,7 +27,8 @@ test_shouldCarryOverTheHostsRewardStateToAnOwnerWithAnotherName = withLegacyWeig
   Some sv2 <- pure $ TextMap.lookup "sv2" owners
   newcomer <- allocateParty "new-owner"
   sv2RewardState <- DsoTestUtils.getSvRewardStateCid net.app "sv2" >>= contractPayload net
-  let migratedOwners = TextMap.insert "new-owner" (sv2 with rightOwnerParty = newcomer) $ TextMap.delete "sv2" owners
+  let newOwner = withOnlySvNodeAssignmentId "new-owner" (sv2 with rightOwnerParty = newcomer)
+      migratedOwners = TextMap.insert "new-owner" newOwner $ TextMap.delete "sv2" owners
   instruction <- migrationRequestedFor net migratedOwners
   rewardStates <- rewardStatesForSvOperators net
 
@@ -53,7 +54,8 @@ test_shouldContinueAfterMigratingOwnersThatMintedTheLatestUsableLegacyRound = wi
   owners <- svRightOwnerInfosFromOperators net.app
   Some sv2 <- pure $ TextMap.lookup "sv2" owners
   newSv2Owner <- allocateParty "new-sv2-owner"
-  let migratedOwners = TextMap.insert "new-sv2-owner" (sv2 with rightOwnerParty = newSv2Owner) $ TextMap.delete "sv2" owners
+  let newOwner = withOnlySvNodeAssignmentId "new-sv2-owner" (sv2 with rightOwnerParty = newSv2Owner)
+      migratedOwners = TextMap.insert "new-sv2-owner" newOwner $ TextMap.delete "sv2" owners
   instruction <- migrationRequestedFor net migratedOwners
   rewardStates <- rewardStatesForSvOperators net
   migrate net instruction rewardStates >>= shouldSucceed

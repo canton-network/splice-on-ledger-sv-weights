@@ -2204,7 +2204,7 @@ template DsoRules with
         requireOnLedgerSvRightOwners this
         requireSvRightOwnerDoesNotExist this name
         requireRewardNodeOperatorExists this info
-        requireValidSvRightOwnerInfo info
+        requireValidSvRightOwnerInfo name info
         now <- getTime
         instruction <- create AddSvRightOwnerInstruction with
           dso
@@ -2311,7 +2311,7 @@ template DsoRules with
         requireSvRightOwnerExists this name
         requireSameBeneficiaries baseInfo newInfo
         requireRewardNodeOperatorExists this newInfo
-        requireValidSvRightOwnerInfo newInfo
+        requireValidSvRightOwnerInfo name newInfo
         now <- getTime
         instruction <- create UpdateSvRightOwnerInfoInstruction with
           dso
@@ -2339,7 +2339,7 @@ template DsoRules with
         let info = patch instruction.newInfo instruction.baseInfo currentSvRightsOwner.info
         requireSameBeneficiaries currentSvRightsOwner.info info
         requireRewardNodeOperatorExists this info
-        requireValidSvRightOwnerInfo info
+        requireValidSvRightOwnerInfo instruction.name info
         svRightOwner <- create currentSvRightsOwner with info
         let removedAssignments = TextMap.filterWithKey (\svNodeAssignmentId _ -> not $ TextMap.member svNodeAssignmentId info.svNodeAssignments) currentSvRightsOwner.info.svNodeAssignments
             addedSvNodeAssignmentIds = filter (\svNodeAssignmentId -> not $ TextMap.member svNodeAssignmentId currentSvRightsOwner.info.svNodeAssignments) (map fst $ TextMap.toList info.svNodeAssignments)
@@ -2385,7 +2385,7 @@ template DsoRules with
         let info = patch newInfo baseInfo currentSvRightsOwner.info
         require "Only beneficiaries are changed through DsoRules_UpdateSvRightOwnerBeneficiaries" $
           withoutBeneficiaries currentSvRightsOwner.info == withoutBeneficiaries info
-        requireValidSvRightOwnerInfo info
+        requireValidSvRightOwnerInfo name info
         svRightOwner <- create currentSvRightsOwner with info
         return DsoRules_UpdateSvRightOwnerBeneficiariesResult with svRightOwner
 
@@ -2405,7 +2405,7 @@ template DsoRules with
         require "The party is rotated by the SV right owner itself" $
           currentSvRightsOwner.info.rightOwnerParty == currentRightOwnerParty
         let info = currentSvRightsOwner.info with rightOwnerParty = newRightOwnerParty
-        requireValidSvRightOwnerInfo info
+        requireValidSvRightOwnerInfo name info
         svRightOwner <- create currentSvRightsOwner with info
         return DsoRules_UpdateSvRightOwnerPartyResult with svRightOwner
 
@@ -2464,7 +2464,7 @@ requireMigratableToOnLedgerSvRightOwners : DsoRules -> TextMap SvRightOwnerInfo 
 requireMigratableToOnLedgerSvRightOwners this svRightOwners = do
   requireNoOnLedgerSvRightOwners this
   require "There is at least one SV right owner" (not $ TextMap.null svRightOwners)
-  forA_ svRightOwners requireValidSvRightOwnerInfo
+  forA_ (TextMap.toList svRightOwners) $ uncurry requireValidSvRightOwnerInfo
   require "The total SV reward weight is preserved" $
     sum (fmap (.svRewardWeight) this.svs) == sum (fmap (sum . fmap (.rewardWeight) . (.svNodeAssignments)) svRightOwners)
   forA_ svRightOwners $ requireRewardNodeOperatorExists this
