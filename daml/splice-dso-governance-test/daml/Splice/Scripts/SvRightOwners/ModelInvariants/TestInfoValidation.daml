@@ -1,0 +1,21 @@
+-- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+module Splice.Scripts.SvRightOwners.ModelInvariants.TestInfoValidation where
+
+import Splice.Scripts.SvRightOwners.Util.Fixture
+import Splice.Scripts.SvRightOwners.Util.Governance
+
+test_shouldRejectAddingAnOwnerWhoseInfoIsInvalid = withOnLedgerWeights $ \net -> do
+  owner <- newSvRightOwner "invalid-owner" net.sv2
+
+  addAs net net.app.dso (owner with beneficiaries = sharingWith [(net.sv3.party, 1.1)])
+    >>= shouldBeRejected "Beneficiary reward ratios add up to at most 1.0"
+
+test_shouldRejectAnInfoUpdateWhoseInfoIsInvalid = withOnLedgerWeights $ \net -> do
+  let info = svRightOwnerInfo net.genesisOwner
+  updateAs net net.app.dso "sv1" info (withRewardWeight (-1) info)
+    >>= shouldBeRejected "SV right owner's reward weight is non-negative"
+  updateAs net net.app.dso "sv1" info (svRightOwnerInfo (net.genesisOwner with
+    beneficiaries = sharingWith [(net.sv2.party, 1.1)]))
+    >>= shouldBeRejected "Beneficiaries cannot be changed through DsoRules_UpdateSvRightOwnerInfo"

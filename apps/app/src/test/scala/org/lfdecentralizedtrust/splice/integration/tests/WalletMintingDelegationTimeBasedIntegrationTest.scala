@@ -583,6 +583,7 @@ class WalletMintingDelegationTimeBasedIntegrationTest
                 beneficiaryParty.party.toProtoPrimitive,
                 issuingRound.round,
                 svRewardWeight,
+                java.util.Optional.empty(), // svRightsOwnerName
               ).create,
             )
 

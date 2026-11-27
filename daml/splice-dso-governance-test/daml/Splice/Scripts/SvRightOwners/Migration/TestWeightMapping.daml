@@ -1,0 +1,84 @@
+-- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+module Splice.Scripts.SvRightOwners.Migration.TestWeightMapping where
+
+import DA.Assert ((===))
+import DA.Foldable (forA_)
+import DA.List (sortOn)
+import qualified DA.TextMap as TextMap
+
+import Daml.Script
+
+import Splice.DSO.SvState (SvRightsOwnerRewardState(..))
+
+import qualified Splice.Scripts.DsoTestUtils as DsoTestUtils
+import Splice.Scripts.SvRightOwners.Util.Fixture
+import Splice.Scripts.SvRightOwners.Util.Governance
+import Splice.Scripts.SvRightOwners.Util.Rewards (mintWithLegacyChoice)
+
+test_shouldMigrateOneLegacyOperatorToOneRightOwner = withLegacyWeights $ \net -> do
+  owners <- svRightOwnerInfosFromOperators net.app
+  instruction <- migrationRequestedFor net owners
+  rewardStates <- rewardStatesForSvOperators net
+
+  migrate net instruction rewardStates >>= shouldSucceed
+
+  svRightOwnerNamesInDsoRules net `shouldReturn` ["sv1", "sv2", "sv3", "sv4"]
+  svRewardStateNames net `shouldReturn` ["sv1", "sv2", "sv3", "sv4"]
+  svNodeOperatorWeights net `shouldReturn` [0, 0, 0, 0]
+
+test_shouldMigrateOneLegacyOperatorToSeveralRightOwners = withLegacyWeights $ \net -> do
+  owners <- svRightOwnerInfosFromOperators net.app
+  Some sv2 <- pure $ TextMap.lookup "sv2" owners
+  firstOwner <- allocateParty "sv2-first-owner"
+  sv2RewardState <- DsoTestUtils.getSvRewardStateCid net.app "sv2" >>= contractPayload net
+  let firstWeight = (onlySvNodeAssignment sv2).rewardWeight / 2
+      secondWeight = (onlySvNodeAssignment sv2).rewardWeight - firstWeight
+      splitOwners = TextMap.insert "sv2-a" (svRightOwnerInfoFor firstOwner firstWeight "sv2")
+        $ TextMap.insert "sv2-b" (svRightOwnerInfoFor sv2.rightOwnerParty secondWeight "sv2")
+        $ TextMap.delete "sv2" owners
+  requestMigration net (TextMap.insert "sv2-a" (svRightOwnerInfoFor firstOwner firstWeight "sv3") splitOwners)
+    >>= shouldBeRejected "The SV reward weight of SV node \"sv2\" is preserved"
+  instruction <- migrationRequestedFor net splitOwners
+  rewardStates <- rewardStatesForSvOperators net
+
+  migrate net instruction rewardStates >>= shouldSucceed
+
+  svRightOwnerNamesInDsoRules net `shouldReturn` ["sv1", "sv2-a", "sv2-b", "sv3", "sv4"]
+  (map (\owner -> (owner.name, svRightOwnerInfo owner)) <$> svRightOwners net) `shouldReturn` TextMap.toList splitOwners
+  svRewardStateNames net `shouldReturn` ["sv1", "sv2-a", "sv2-b", "sv3", "sv4"]
+  forA_ ["sv2-a", "sv2-b"] $ \name -> rewardStateNamed net name `shouldReturn` sv2RewardState.state
+  svNodeOperatorWeights net `shouldReturn` [0, 0, 0, 0]
+
+test_shouldMigrateTwoLegacyOperatorsToOneSharedRightOwner = withLegacyWeights $ \net -> do
+  mintWithLegacyChoice net net.sv2 tier2RewardWeight >>= shouldSucceed
+  owners <- svRightOwnerInfosFromOperators net.app
+  [Some sv2, Some sv3] <- pure $ map (`TextMap.lookup` owners) ["sv2", "sv3"]
+  sharedOwner <- allocateParty "shared-owner"
+  [sv2RewardState, sv3RewardState] <- forA ["sv2", "sv3"] $ \name -> DsoTestUtils.getSvRewardStateCid net.app name >>= contractPayload net
+  let assignmentOf info = (onlySvNodeAssignment info) with defaultBeneficiary = sharedOwner
+      shared = sv2 with rightOwnerParty = sharedOwner; svNodeAssignments = TextMap.fromList [("at-sv2", assignmentOf sv2), ("at-sv3", assignmentOf sv3)]
+      sharedOwners = TextMap.insert "shared" shared $ TextMap.delete "sv2" $ TextMap.delete "sv3" owners
+  instruction <- migrationRequestedFor net sharedOwners
+  rewardStates <- rewardStatesForSvOperators net
+
+  migrate net instruction rewardStates >>= shouldSucceed
+
+  svRightOwnerNamesInDsoRules net `shouldReturn` ["shared", "sv1", "sv4"]
+  sharedStates <- queryFilter @SvRightsOwnerRewardState net.app.dso (\state -> state.svRightsOwnerName == "shared")
+  sortOn fst [(state.svNodeAssignmentId, state.state) | (_, state) <- sharedStates] === [("at-sv2", sv2RewardState.state), ("at-sv3", sv3RewardState.state)]
+  svNodeOperatorWeights net `shouldReturn` [0, 0, 0, 0]
+
+test_shouldRejectMigrationWithAnIncompleteWeightMapping = withLegacyWeights $ \net -> do
+  owners <- svRightOwnerInfosFromOperators net.app
+  let incompleteOwners = TextMap.delete "sv2" owners
+
+  requestMigration net incompleteOwners >>= shouldBeRejected "The total SV reward weight is preserved"
+
+test_shouldRejectMigrationWithChangedTotalWeight = withLegacyWeights $ \net -> do
+  owners <- svRightOwnerInfosFromOperators net.app
+  Some sv2 <- pure $ TextMap.lookup "sv2" owners
+  let changedOwners = TextMap.insert "sv2" (withRewardWeight ((onlySvNodeAssignment sv2).rewardWeight + 1) sv2) owners
+
+  requestMigration net changedOwners >>= shouldBeRejected "The total SV reward weight is preserved"

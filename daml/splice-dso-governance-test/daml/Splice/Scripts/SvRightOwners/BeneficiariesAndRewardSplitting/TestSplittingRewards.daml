@@ -1,0 +1,67 @@
+-- Copyright (c) 2024 Digital Asset (Switzerland) GmbH and/or its affiliates. All rights reserved.
+-- SPDX-License-Identifier: Apache-2.0
+
+module Splice.Scripts.SvRightOwners.BeneficiariesAndRewardSplitting.TestSplittingRewards where
+
+import DA.Assert ((===))
+import DA.List (last, sort)
+
+import Daml.Script
+
+import Splice.Amulet.SvRightOwner (EscrowBeneficiary(..))
+import Splice.DSO.SvState (RewardState(..))
+
+import Splice.Scripts.SvRightOwners.Util.Fixture
+import Splice.Scripts.SvRightOwners.Util.Governance
+import Splice.Scripts.SvRightOwners.Util.Rewards
+import Splice.Scripts.Util (getOpenRoundsSorted, runNextIssuance)
+
+test_shouldSplitTheWeightExactlyAndMintTheRemainderToTheOwnerInTheSameRound = withTwoSvRightOwners $ \net newcomer -> do
+  [first, second, third] <- forA ["first", "second", "third"] $ \name -> allocateParty (name <> "-beneficiary")
+  newcomer.rewardWeight === 30000
+
+  setBeneficiaries net newcomer (sharingWith [(first, 0.3333333333), (second, 0.3333333333), (third, 0.3333333333)])
+  thirds <- mintNextRound net newcomer
+  couponsMintedFor net newcomer thirds `shouldReturn` sort [(first, 9999), (second, 9999), (third, 9999), (newcomer.party, 3)]
+
+  setBeneficiaries net newcomer (sharingWith [(first, 0.5), (second, 0.5)])
+  halves <- mintNextRound net newcomer
+  couponsMintedFor net newcomer halves `shouldReturn` sort [(first, 15000), (second, 15000)]
+
+  setBeneficiaries net newcomer (sharingWith [(first, 0.00001), (second, 0.25)])
+  quarter <- mintNextRound net newcomer
+  couponsMintedFor net newcomer quarter `shouldReturn` sort [(second, 7500), (newcomer.party, 22500)]
+
+  setBeneficiaries net newcomer (sharingWith [])
+  alone <- mintNextRound net newcomer
+  couponsMintedFor net newcomer alone `shouldReturn` [(newcomer.party, 30000)]
+
+  rewardStateOf net newcomer `shouldReturn` RewardState with
+    lastRoundCollected = alone; numRoundsCollected = 4; numRoundsMissed = 0; numCouponsIssued = 9
+  where
+    mintNextRound net owner = do
+      runNextIssuance net.app
+      (openRoundCid, openRound) <- last <$> getOpenRoundsSorted net.app
+      mint net owner.hostedBy.party openRoundCid [owner.name] >>= shouldSucceed
+      pure openRound.round
+
+test_shouldMintTheEscrowedWeightsSetByAVoteToTheEscrowBeneficiaries = withTwoSvRightOwners $ \net newcomer -> do
+  [escrow, otherEscrow, beneficiary] <- forA ["escrow", "other-escrow", "beneficiary"] allocateParty
+  newcomer.rewardWeight === 30000
+  let base = svRightOwnerInfo (newcomer with beneficiaries = sharingWith [(beneficiary, 0.5)]; defaultBeneficiary = beneficiary)
+      escrowing escrowBeneficiaries = base with svNodeAssignments = fmap (\assignment -> assignment with escrowBeneficiaries) base.svNodeAssignments
+      escrowed = escrowing [EscrowBeneficiary escrow 10000, EscrowBeneficiary escrow 5000, EscrowBeneficiary otherEscrow 3000, EscrowBeneficiary beneficiary 2000]
+  setBeneficiariesWith net newcomer.party newcomer.name (svRightOwnerInfo newcomer) base >>= shouldSucceed
+
+  updateAs net net.app.dso newcomer.name base (escrowing [EscrowBeneficiary escrow 0]) >>= shouldBeRejected "Escrowed reward weights are positive"
+  updateAs net net.app.dso newcomer.name base (escrowing [EscrowBeneficiary escrow 30000, EscrowBeneficiary escrow 1]) >>= shouldBeRejected "Escrowed reward weights add up to at most the reward weight"
+  updateAs net net.app.dso newcomer.name base (escrowing [EscrowBeneficiary escrow 1 | _ <- [1 .. 21 : Int]]) >>= shouldBeRejected "There are at most 20 escrow beneficiaries"
+  setBeneficiariesWith net newcomer.party newcomer.name base escrowed >>= shouldBeRejected "Only beneficiaries are changed through DsoRules_UpdateSvRightOwnerBeneficiaries"
+  voteToUpdate net newcomer.name base escrowed >>= executeUpdate net net.sv1.party >>= shouldSucceed
+  runNextIssuance net.app
+  (openRoundCid, openRound) <- last <$> getOpenRoundsSorted net.app
+  mint net newcomer.hostedBy.party openRoundCid [newcomer.name] >>= shouldSucceed
+
+  -- The two escrowed parts of `escrow` make one coupon, as do the escrowed, the shared and the default part of `beneficiary`,
+  -- which gets half of the 10000 non-escrowed weight as its share and the other half as the default beneficiary.
+  couponsMintedFor net newcomer openRound.round `shouldReturn` sort [(escrow, 15000), (otherEscrow, 3000), (beneficiary, 12000)]
