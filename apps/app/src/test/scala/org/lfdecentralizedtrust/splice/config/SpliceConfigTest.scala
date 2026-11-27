@@ -2,7 +2,7 @@ package org.lfdecentralizedtrust.splice.config
 
 import com.digitalasset.canton.BaseTest
 import com.digitalasset.canton.config.CantonConfig
-import com.typesafe.config.ConfigFactory
+import com.typesafe.config.{ConfigFactory, ConfigValueFactory}
 import org.scalatest.wordspec.AsyncWordSpec
 
 import org.lfdecentralizedtrust.splice.wallet.config.{
@@ -11,6 +11,7 @@ import org.lfdecentralizedtrust.splice.wallet.config.{
 }
 import com.digitalasset.canton.config.NonNegativeFiniteDuration
 import com.digitalasset.canton.topology.PartyId
+import org.lfdecentralizedtrust.splice.sv.config.SvOnboardingConfig
 
 class SpliceConfigTest extends AsyncWordSpec with BaseTest {
   private implicit val elc: com.digitalasset.canton.logging.ErrorLoggingContext = SpliceConfig.elc
@@ -83,6 +84,41 @@ class SpliceConfigTest extends AsyncWordSpec with BaseTest {
       )
       val buggyConfig = CantonConfig.mergeConfigs(config, Seq(overwrite))
       SpliceConfig.loadAndValidate(buggyConfig) shouldBe a[Right[?, ?]]
+    }
+  }
+
+  "on-ledger-sv-right-owners" should {
+    val onLedgerSvRightOwners = config.withValue(
+      "canton.sv-apps.sv1.onboarding.on-ledger-sv-right-owners",
+      ConfigValueFactory.fromMap(java.util.Map.of()),
+    )
+
+    "be accepted with the current packages and default to sv1's name" in {
+      val sv1Onboarding =
+        SpliceConfig
+          .loadAndValidate(onLedgerSvRightOwners)
+          .value
+          .svApps
+          .values
+          .headOption
+          .value
+          .onboarding
+      inside(sv1Onboarding) { case Some(foundDso: SvOnboardingConfig.FoundDso) =>
+        foundDso.sv1RightOwnerName shouldBe Some(foundDso.name)
+      }
+    }
+
+    "be rejected with packages that predate SvRightOwner" in {
+      val minimum = SvOnboardingConfig.InitialPackageConfig.minimumInitialPackageConfig
+      val oldPackages = onLedgerSvRightOwners.withValue(
+        "canton.sv-apps.sv1.onboarding.initial-package-config",
+        ConfigValueFactory.fromAnyRef(
+          s"""{"amuletVersion":"${minimum.amuletVersion}","amuletNameServiceVersion":"${minimum.amuletNameServiceVersion}","dsoGovernanceVersion":"${minimum.dsoGovernanceVersion}","validatorLifecycleVersion":"${minimum.validatorLifecycleVersion}","walletVersion":"${minimum.walletVersion}","walletPaymentsVersion":"${minimum.walletPaymentsVersion}"}"""
+        ),
+      )
+      SpliceConfig.loadAndValidate(oldPackages).left.value.toString should include(
+        "on-ledger-sv-right-owners requires initialPackageConfig with amulet >= 0.1.26 and dso-governance >= 0.1.32"
+      )
     }
   }
 

@@ -140,7 +140,29 @@ object SvOnboardingConfig {
       ),
       initialProtocolVersion: ProtocolVersion = ProtocolVersion.v37,
       initialGovernanceLockConfig: Option[InitialGovernanceLockConfig] = None,
-  ) extends SvOnboardingConfig
+      // If set, the network starts with on-ledger SV right owners: sv1's reward weight
+      // is held by an SvRightOwner contract instead of its SvInfo.
+      onLedgerSvRightOwners: Option[OnLedgerSvRightOwnersConfig] = None,
+  ) extends SvOnboardingConfig {
+    def sv1RightOwnerName: Option[String] =
+      onLedgerSvRightOwners.map(_.name.getOrElse(name))
+  }
+
+  final case class OnLedgerSvRightOwnersConfig(
+      // Name of sv1's SvRightOwner, defaults to the name of sv1.
+      name: Option[String] = None
+  )
+
+  object OnLedgerSvRightOwnersConfig {
+    // The first package versions that contain SvRightOwner.
+    def isSupportedBy(initialPackageConfig: InitialPackageConfig): Boolean =
+      PackageVersion.assertFromString(
+        initialPackageConfig.amuletVersion
+      ) >= DarResources.amulet_0_1_26.metadata.version &&
+        PackageVersion.assertFromString(
+          initialPackageConfig.dsoGovernanceVersion
+        ) >= DarResources.dsoGovernance_0_1_32.metadata.version
+  }
 
   case class JoinWithKey(
       name: String,
