@@ -6,8 +6,10 @@
 module Splice.DSO.Instruction where
 
 import DA.Assert (assertDeadlineExceeded)
+import DA.TextMap (TextMap)
 
 import Splice.Amulet (FeaturedAppRight_UpdateConfig)
+import Splice.Amulet.SvRightOwner (SvRightOwnerInfo)
 import Splice.Types
 import Splice.Util
 
@@ -30,3 +32,48 @@ template FeaturedAppConfigUpdateInstruction with
 
 instance HasCheckedFetch FeaturedAppConfigUpdateInstruction ForDso where
   contractGroupId FeaturedAppConfigUpdateInstruction {..} = ForDso with dso
+
+template MigrateToOnLedgerSvRightOwnersInstruction with
+    dso : Party
+    svRightOwners : TextMap SvRightOwnerInfo
+      -- ^ The complete set of SV right owners, keyed by their name.
+    expiresAt : Time
+      -- ^ When this contract can be archived.
+  where
+    signatory dso
+
+instance HasCheckedFetch MigrateToOnLedgerSvRightOwnersInstruction ForDso where
+  contractGroupId instr = ForDso instr.dso
+
+template AddSvRightOwnerInstruction with
+    dso : Party
+    name : Text -- ^ The name of the SV right owner to add.
+    info : SvRightOwnerInfo -- ^ The information of the SV right owner to add.
+    expiresAt : Time -- ^ When this contract can be archived.
+  where
+    signatory dso
+
+instance HasCheckedFetch AddSvRightOwnerInstruction ForDso where
+  contractGroupId instr = ForDso instr.dso
+
+template RemoveSvRightOwnerInstruction with
+    dso : Party
+    name : Text -- ^ The name of the SV right owner to remove.
+    expiresAt : Time -- ^ When this contract can be archived.
+  where
+    signatory dso
+
+instance HasCheckedFetch RemoveSvRightOwnerInstruction ForDso where
+  contractGroupId instr = ForDso instr.dso
+
+template UpdateSvRightOwnerInfoInstruction with
+    dso : Party
+    name : Text -- ^ The name of the SV right owner to update.
+    baseInfo : SvRightOwnerInfo -- ^ The info that the vote was created against.
+    newInfo : SvRightOwnerInfo -- ^ The target info; only fields that differ from `baseInfo` are updated.
+    expiresAt : Time -- ^ When this contract can be archived.
+  where
+    signatory dso
+
+instance HasCheckedFetch UpdateSvRightOwnerInfoInstruction ForDso where
+  contractGroupId instr = ForDso instr.dso

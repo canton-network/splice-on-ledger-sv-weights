@@ -8,7 +8,7 @@ import DA.Time (addRelTime)
 import Daml.Script
 
 import Splice.DSO.SvState (RewardState(..))
-import Splice.DsoRules (AddSvRightOwnerInstruction(..))
+import Splice.DSO.Instruction (AddSvRightOwnerInstruction(..))
 
 import Splice.Scripts.SvRightOwners.Util.Fixture
 import Splice.Scripts.SvRightOwners.Util.Governance

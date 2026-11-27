@@ -10,6 +10,7 @@ import qualified DA.TextMap as TextMap
 import Daml.Script
 
 import qualified Splice.Amulet.SvRightOwner as Amulet
+import Splice.DSO.Instruction
 import Splice.DSO.SvState (SvRewardState)
 import Splice.DsoRules
 import Splice.SvOnboarding (SvOnboardingConfirmed)
