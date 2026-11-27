@@ -2338,6 +2338,7 @@ template DsoRules with
         currentSvRightsOwner <- fetchAndArchive (ForSv with dso; svName = instruction.name) svRightOwnerCid
         let info = patch instruction.newInfo instruction.baseInfo currentSvRightsOwner.info
         requireSameBeneficiaries currentSvRightsOwner.info info
+        require "SV right owner update conflicts with current state" (patch instruction.baseInfo instruction.newInfo currentSvRightsOwner.info == currentSvRightsOwner.info)
         requireRewardNodeOperatorExists this info
         requireValidSvRightOwnerInfo instruction.name info
         svRightOwner <- create currentSvRightsOwner with info
